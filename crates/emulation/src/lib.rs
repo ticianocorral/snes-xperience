@@ -7,4 +7,7 @@
 mod core;
 mod sys;
 
-pub use crate::core::{AvInfo, Button, Core, CoreError, Frame, PixelFormat, MAX_PORTS};
+pub use crate::core::{
+    AvInfo, Button, Core, CoreError, Frame, PixelFormat, MAX_PORTS, MEMORY_SAVE_RAM,
+    MEMORY_SYSTEM_RAM,
+};

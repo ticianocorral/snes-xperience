@@ -115,6 +115,8 @@ impl Platform {
                         Keycode::F => out.push(UiEvent::ToggleFullscreen),
                         Keycode::Backspace => out.push(UiEvent::Reset),
                         Keycode::P => out.push(UiEvent::TogglePause),
+                        Keycode::F2 => out.push(UiEvent::SaveState),
+                        Keycode::F4 => out.push(UiEvent::LoadState),
                         _ => {}
                     }
                 }

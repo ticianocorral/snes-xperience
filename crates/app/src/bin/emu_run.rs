@@ -1,13 +1,15 @@
-//! Phase 0 proof #1: a libretro core loads and runs, with video, sound and a
-//! pad — no bezel, no selector. Presentation is fixed: RF NTSC + CRT-tube warp.
+//! The bare emulator: a libretro core loads and runs, with video, sound, a pad,
+//! save states, battery SRAM and run-ahead — no bezel, no selector.
+//! Presentation is fixed: RF NTSC + CRT-tube warp.
 //!
 //! Usage:
 //!   emu-run --core <path/to/snes9x_libretro.{dylib,so,dll}> --rom <game.sfc>
-//!           [--system-dir DIR] [--save-dir DIR]
+//!           [--system-dir DIR] [--save-dir DIR] [--runahead N]
 //!
 //! The core path also reads from $XPERIENCE_CORE. See docs/fase-0.md for where
-//! to get the core.
+//! to get the core, docs/fase-1.md for save states / SRAM / run-ahead.
 
+use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -16,11 +18,16 @@ use xperience_emulation::{Button, Core, PixelFormat as EmuFormat};
 use xperience_ntsc::{NtscFilter, Preset};
 use xperience_platform::{FrameRef, PixelFormat as PlatFormat, Platform, UiEvent};
 
+/// How often to flush battery SRAM to disk while playing (frames ≈ 10 s).
+const SRAM_FLUSH_FRAMES: u32 = 600;
+
 struct Args {
     core: PathBuf,
     rom: PathBuf,
     system_dir: PathBuf,
     save_dir: PathBuf,
+    /// Speculative frames run past the shown one to hide input latency.
+    runahead: u32,
     /// Headless self-check: run N frames, save the composited window, exit.
     shot: Option<PathBuf>,
     shot_frame: u32,
@@ -31,6 +38,7 @@ fn parse_args() -> Result<Args> {
     let mut rom = None;
     let mut system_dir = None;
     let mut save_dir = None;
+    let mut runahead = 1u32;
     let mut shot = None;
     let mut shot_frame = 180u32;
 
@@ -65,6 +73,13 @@ fn parse_args() -> Result<Args> {
                         .into(),
                 )
             }
+            "--runahead" => {
+                runahead = it
+                    .next()
+                    .ok_or_else(|| anyhow!("--runahead needs a number"))?
+                    .parse()
+                    .map_err(|_| anyhow!("--runahead wants a number (0 disables)"))?
+            }
             "--shot" => {
                 shot = Some(
                     it.next()
@@ -96,18 +111,21 @@ fn parse_args() -> Result<Args> {
         rom,
         system_dir,
         save_dir,
+        runahead,
         shot,
         shot_frame,
     })
 }
 
 const HELP: &str = "emu-run --core <lib> --rom <game.sfc> [--system-dir D] [--save-dir D]\n\
+       [--runahead N]   speculative frames to hide input lag (default 1, 0 off)\n\
        [--shot out.bmp [--shot-frame N]]   headless: run N frames, dump one, exit\n\
 \n\
 Presentation is fixed: RF NTSC + CRT-tube warp (knobs are consts in the source).\n\
+Battery SRAM and a save-state slot live next to --save-dir, keyed by ROM hash.\n\
 \n\
 keys: arrows=dpad  Z=B X=A A=Y S=X Q=L W=R  Enter=Start RShift=Select\n\
-      F=fullscreen  Backspace=reset  P=pause  Esc=quit";
+      F2=save state  F4=load state  F=fullscreen  Backspace=reset  P=pause  Esc=quit";
 
 fn map_format(f: EmuFormat) -> PlatFormat {
     match f {
@@ -148,21 +166,43 @@ fn main() -> Result<()> {
 
     let rom_bytes =
         std::fs::read(&args.rom).with_context(|| format!("reading ROM {}", args.rom.display()))?;
-    match xperience_domain::RomId::from_bytes(&rom_bytes) {
-        Ok(id) => log::info!(
-            "rom: {} bytes (+{} header), crc32={} sha1={} name={:?} {:?}",
-            id.rom_len,
-            id.header_len,
-            id.crc32,
-            id.sha1,
-            id.internal_name,
-            id.mapper
-        ),
-        Err(e) => log::warn!("rom id failed (continuing): {e}"),
-    }
+    let rom_hash = match xperience_domain::RomId::from_bytes(&rom_bytes) {
+        Ok(id) => {
+            log::info!(
+                "rom: {} bytes (+{} header), crc32={} sha1={} name={:?} {:?}",
+                id.rom_len,
+                id.header_len,
+                id.crc32,
+                id.sha1,
+                id.internal_name,
+                id.mapper
+            );
+            Some(id.sha1)
+        }
+        Err(e) => {
+            log::warn!("rom id failed (no SRAM/state persistence): {e}");
+            None
+        }
+    };
 
     core.load_game(&args.rom, &rom_bytes)
         .context("core rejected the ROM")?;
+
+    // Per-game persistence files next to --save-dir, keyed by ROM hash.
+    fs::create_dir_all(&args.save_dir).ok();
+    let sram_path = rom_hash
+        .as_ref()
+        .map(|h| args.save_dir.join(format!("{h}.srm")));
+    let state_path = rom_hash
+        .as_ref()
+        .map(|h| args.save_dir.join(format!("{h}.state")));
+
+    if let Some(p) = &sram_path {
+        if let Ok(bytes) = fs::read(p) {
+            let n = core.load_sram(&bytes);
+            log::info!("SRAM: loaded {n} bytes from {}", p.display());
+        }
+    }
 
     // We do our own NTSC (vendored blargg snes_ntsc, RF preset) on the raw
     // frame, so keep the core's built-in filter off.
@@ -204,7 +244,16 @@ fn main() -> Result<()> {
     let mut next = Instant::now();
     let mut frames: u32 = 0;
     let mut last_dims = (0u32, 0u32);
-    log::info!("running: rf ntsc + crt tube");
+
+    // Run-ahead: only if the core actually serializes.
+    let mut runahead = args.runahead;
+    if runahead > 0 && core.save_state().is_none() {
+        log::warn!("core has no save state — run-ahead disabled");
+        runahead = 0;
+    }
+    let mut spec_state: Vec<u8> = Vec::new();
+    let mut last_sram = core.sram();
+    log::info!("running: rf ntsc + crt tube, run-ahead {runahead}");
 
     'run: loop {
         for ev in platform.poll(&mut input) {
@@ -216,6 +265,19 @@ fn main() -> Result<()> {
                     paused = !paused;
                     log::info!("{}", if paused { "paused" } else { "resumed" });
                 }
+                UiEvent::SaveState => match (&state_path, core.save_state()) {
+                    (Some(p), Some(s)) => match fs::write(p, &s) {
+                        Ok(_) => log::info!("state saved ({} KiB)", s.len() / 1024),
+                        Err(e) => log::warn!("state save failed: {e}"),
+                    },
+                    _ => log::warn!("no state slot (unidentified ROM?)"),
+                },
+                UiEvent::LoadState => match state_path.as_ref().map(fs::read) {
+                    Some(Ok(s)) if core.load_state(&s) => log::info!("state loaded"),
+                    Some(Ok(_)) => log::warn!("core rejected the state file"),
+                    Some(Err(e)) => log::warn!("no state to load: {e}"),
+                    None => log::warn!("no state slot (unidentified ROM?)"),
+                },
             }
         }
 
@@ -226,6 +288,15 @@ fn main() -> Result<()> {
             core.run();
             frames += 1;
             audio.queue(core.audio());
+
+            // Speculative frames past the shown one; their audio is discarded.
+            let speculated = runahead > 0 && core.save_state_into(&mut spec_state);
+            if speculated {
+                for _ in 0..runahead {
+                    core.run();
+                }
+            }
+
             if let Some(frame) = core.take_frame() {
                 let dims = (frame.width, frame.height);
                 if dims != last_dims {
@@ -273,6 +344,21 @@ fn main() -> Result<()> {
                     }
                 }
             }
+
+            // Rewind past the speculative frames to the real state.
+            if speculated {
+                core.load_state(&spec_state);
+            }
+
+            // Periodically flush battery SRAM if it changed.
+            if frames.is_multiple_of(SRAM_FLUSH_FRAMES) {
+                if let (Some(p), Some(cur)) = (&sram_path, core.sram()) {
+                    if last_sram.as_ref() != Some(&cur) {
+                        let _ = fs::write(p, &cur);
+                        last_sram = Some(cur);
+                    }
+                }
+            }
         }
 
         next += frame_time;
@@ -282,6 +368,16 @@ fn main() -> Result<()> {
         } else {
             // Fell behind; resync so we don't spiral.
             next = now;
+        }
+    }
+
+    // Final SRAM flush on the way out.
+    if let (Some(p), Some(cur)) = (&sram_path, core.sram()) {
+        if last_sram.as_ref() != Some(&cur) {
+            match fs::write(p, &cur) {
+                Ok(_) => log::info!("SRAM flushed -> {}", p.display()),
+                Err(e) => log::warn!("SRAM flush failed: {e}"),
+            }
         }
     }
 

@@ -68,6 +68,12 @@ pub const RETRO_DEVICE_ID_JOYPAD_MASK: c_uint = 256;
 pub const RETRO_REGION_NTSC: c_uint = 0;
 pub const RETRO_REGION_PAL: c_uint = 1;
 
+// --- Memory region ids -----------------------------------------------------
+pub const RETRO_MEMORY_SAVE_RAM: c_uint = 0;
+pub const RETRO_MEMORY_RTC: c_uint = 1;
+pub const RETRO_MEMORY_SYSTEM_RAM: c_uint = 2;
+pub const RETRO_MEMORY_VIDEO_RAM: c_uint = 3;
+
 pub const RETRO_LOG_DEBUG: c_uint = 0;
 pub const RETRO_LOG_INFO: c_uint = 1;
 pub const RETRO_LOG_WARN: c_uint = 2;
@@ -146,6 +152,8 @@ pub type FnSetControllerPortDevice = unsafe extern "C" fn(c_uint, c_uint);
 pub type FnLoadGame = unsafe extern "C" fn(*const retro_game_info) -> bool;
 pub type FnSerialize = unsafe extern "C" fn(*mut c_void, usize) -> bool;
 pub type FnUnserialize = unsafe extern "C" fn(*const c_void, usize) -> bool;
+pub type FnGetMemoryData = unsafe extern "C" fn(c_uint) -> *mut c_void;
+pub type FnGetMemorySize = unsafe extern "C" fn(c_uint) -> usize;
 
 /// Symbols resolved from the shared object. Names match `libretro.h` exactly.
 pub struct CoreApi {
@@ -169,4 +177,6 @@ pub struct CoreApi {
     pub retro_serialize_size: FnUsize,
     pub retro_serialize: FnSerialize,
     pub retro_unserialize: FnUnserialize,
+    pub retro_get_memory_data: FnGetMemoryData,
+    pub retro_get_memory_size: FnGetMemorySize,
 }

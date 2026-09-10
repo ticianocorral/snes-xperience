@@ -4,9 +4,11 @@ Emulador de SNES com moldura estática — projeto pessoal, sem fins comerciais.
 Ver [`plano-emulador-moldura.md`](plano-emulador-moldura.md) para o desenho
 completo.
 
-Estado atual: **Fase 0 — provar as premissas.** O que existe aqui é o
-esqueleto das quatro camadas e as duas ferramentas de verificação da Fase 0.
-Ainda não há moldura, nem seletor, nem painel.
+Estado atual: **Fase 1 — emulador feio que funciona.** As quatro camadas estão
+de pé; `emu-run` carrega e roda uma ROM com vídeo, som, gamepad, save state,
+SRAM de bateria e run-ahead. Visualização fixa: NTSC RF + tubo CRT. Ainda não há
+moldura, seletor nem painel. Ver [`docs/fase-0.md`](docs/fase-0.md) e
+[`docs/fase-1.md`](docs/fase-1.md).
 
 ## Arquitetura
 
@@ -17,7 +19,9 @@ Quatro camadas, dependências só para baixo (plano §2):
 | Apresentação  | `xperience-app`      | binários que amarram tudo (`emu-run`, `scrape-test`)   |
 | Domínio       | `xperience-domain`   | identificação de ROM, ScreenScraper                    |
 | Emulação      | `xperience-emulation`| core libretro carregado em runtime, laço de execução   |
-| Plataforma    | `xperience-platform` | SDL3: janela, 3 modos de escala, áudio, gamepad        |
+| Plataforma    | `xperience-platform` | SDL3: janela, tubo CRT (`render_geometry`), áudio, gamepad |
+
+`xperience-ntsc` é um crate folha à parte: o `snes_ntsc` do blargg vendorizado.
 
 A camada de emulação não sabe que existe uma moldura; a de plataforma não
 conhece o core.

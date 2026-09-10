@@ -52,6 +52,11 @@ impl Button {
 
 pub const MAX_PORTS: usize = 2;
 
+/// Battery-backed cartridge SRAM (`retro_get_memory_data` id).
+pub const MEMORY_SAVE_RAM: c_uint = RETRO_MEMORY_SAVE_RAM;
+/// Console work RAM.
+pub const MEMORY_SYSTEM_RAM: c_uint = RETRO_MEMORY_SYSTEM_RAM;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PixelFormat {
     Rgb1555,
@@ -205,6 +210,8 @@ impl Core {
             retro_serialize_size: sym!("retro_serialize_size", sys::FnUsize),
             retro_serialize: sym!("retro_serialize", sys::FnSerialize),
             retro_unserialize: sym!("retro_unserialize", sys::FnUnserialize),
+            retro_get_memory_data: sym!("retro_get_memory_data", sys::FnGetMemoryData),
+            retro_get_memory_size: sym!("retro_get_memory_size", sys::FnGetMemorySize),
         };
 
         let found = unsafe { (api.retro_api_version)() };
@@ -415,14 +422,20 @@ impl Core {
     }
 
     pub fn save_state(&mut self) -> Option<Vec<u8>> {
+        let mut buf = Vec::new();
+        self.save_state_into(&mut buf).then_some(buf)
+    }
+
+    /// Serialize into a reused buffer (resized as needed). Cheap enough to call
+    /// every frame for run-ahead. Returns false if the core has no state.
+    pub fn save_state_into(&mut self, buf: &mut Vec<u8>) -> bool {
         let size = self.serialize_size();
         if size == 0 {
-            return None;
+            return false;
         }
-        let mut buf = vec![0u8; size];
-        let ok = self
-            .enter(|api| unsafe { (api.retro_serialize)(buf.as_mut_ptr() as *mut c_void, size) });
-        ok.then_some(buf)
+        buf.clear();
+        buf.resize(size, 0);
+        self.enter(|api| unsafe { (api.retro_serialize)(buf.as_mut_ptr() as *mut c_void, size) })
     }
 
     pub fn load_state(&mut self, buf: &[u8]) -> bool {
@@ -433,6 +446,49 @@ impl Core {
 
     pub fn reset(&mut self) {
         self.enter(|api| unsafe { (api.retro_reset)() });
+    }
+
+    // --- core memory (battery SRAM, work RAM) ---------------------------
+    /// Snapshot a core memory region. `id` is one of `MEMORY_*`.
+    pub fn memory(&mut self, id: c_uint) -> Option<Vec<u8>> {
+        let (ptr, size) = self.enter(|api| unsafe {
+            (
+                (api.retro_get_memory_data)(id),
+                (api.retro_get_memory_size)(id),
+            )
+        });
+        if ptr.is_null() || size == 0 {
+            return None;
+        }
+        // Safety: the core owns this buffer for the life of the loaded game.
+        Some(unsafe { std::slice::from_raw_parts(ptr as *const u8, size) }.to_vec())
+    }
+
+    /// Copy `bytes` back into a core memory region (e.g. restore battery SRAM
+    /// after `load_game`). Extra bytes are ignored; a short slice leaves the
+    /// tail untouched. Returns the number of bytes written.
+    pub fn write_memory(&mut self, id: c_uint, bytes: &[u8]) -> usize {
+        let (ptr, size) = self.enter(|api| unsafe {
+            (
+                (api.retro_get_memory_data)(id),
+                (api.retro_get_memory_size)(id),
+            )
+        });
+        if ptr.is_null() || size == 0 {
+            return 0;
+        }
+        let n = bytes.len().min(size);
+        unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr as *mut u8, n) };
+        n
+    }
+
+    /// Battery-backed cartridge SRAM, if this game has any.
+    pub fn sram(&mut self) -> Option<Vec<u8>> {
+        self.memory(RETRO_MEMORY_SAVE_RAM)
+    }
+
+    pub fn load_sram(&mut self, bytes: &[u8]) -> usize {
+        self.write_memory(RETRO_MEMORY_SAVE_RAM, bytes)
     }
 
     /// Run `body` with the thread-local callback pointer set to our state.

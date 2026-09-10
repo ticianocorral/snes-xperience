@@ -46,6 +46,8 @@ pub enum UiEvent {
     ToggleFullscreen,
     Reset,
     TogglePause,
+    SaveState,
+    LoadState,
 }
 
 /// Per-frame button state. Filled by `Platform::poll`.
