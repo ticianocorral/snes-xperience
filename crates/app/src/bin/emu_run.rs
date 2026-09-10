@@ -14,20 +14,24 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Context, Result};
+use xperience_app::config::Config;
 use xperience_emulation::{Button, Core, PixelFormat as EmuFormat};
 use xperience_ntsc::{NtscFilter, Preset};
 use xperience_platform::{FrameRef, PixelFormat as PlatFormat, Platform, UiEvent};
 
 /// How often to flush battery SRAM to disk while playing (frames ≈ 10 s).
 const SRAM_FLUSH_FRAMES: u32 = 600;
+/// Save-state slots (keys 0..9 of the ROM hash).
+const SLOTS: u8 = 10;
 
 struct Args {
     core: PathBuf,
     rom: PathBuf,
     system_dir: PathBuf,
     save_dir: PathBuf,
-    /// Speculative frames run past the shown one to hide input latency.
-    runahead: u32,
+    config: Option<PathBuf>,
+    /// Speculative frames past the shown one; `None` = take the config value.
+    runahead: Option<u32>,
     /// Headless self-check: run N frames, save the composited window, exit.
     shot: Option<PathBuf>,
     shot_frame: u32,
@@ -38,7 +42,8 @@ fn parse_args() -> Result<Args> {
     let mut rom = None;
     let mut system_dir = None;
     let mut save_dir = None;
-    let mut runahead = 1u32;
+    let mut config = None;
+    let mut runahead = None;
     let mut shot = None;
     let mut shot_frame = 180u32;
 
@@ -73,12 +78,20 @@ fn parse_args() -> Result<Args> {
                         .into(),
                 )
             }
+            "--config" => {
+                config = Some(
+                    it.next()
+                        .ok_or_else(|| anyhow!("--config needs a path"))?
+                        .into(),
+                )
+            }
             "--runahead" => {
-                runahead = it
-                    .next()
-                    .ok_or_else(|| anyhow!("--runahead needs a number"))?
-                    .parse()
-                    .map_err(|_| anyhow!("--runahead wants a number (0 disables)"))?
+                runahead = Some(
+                    it.next()
+                        .ok_or_else(|| anyhow!("--runahead needs a number"))?
+                        .parse()
+                        .map_err(|_| anyhow!("--runahead wants a number (0 disables)"))?,
+                )
             }
             "--shot" => {
                 shot = Some(
@@ -111,6 +124,7 @@ fn parse_args() -> Result<Args> {
         rom,
         system_dir,
         save_dir,
+        config,
         runahead,
         shot,
         shot_frame,
@@ -118,14 +132,16 @@ fn parse_args() -> Result<Args> {
 }
 
 const HELP: &str = "emu-run --core <lib> --rom <game.sfc> [--system-dir D] [--save-dir D]\n\
-       [--runahead N]   speculative frames to hide input lag (default 1, 0 off)\n\
+       [--config config.toml] [--runahead N]\n\
        [--shot out.bmp [--shot-frame N]]   headless: run N frames, dump one, exit\n\
 \n\
 Presentation is fixed: RF NTSC + CRT-tube warp (knobs are consts in the source).\n\
-Battery SRAM and a save-state slot live next to --save-dir, keyed by ROM hash.\n\
+Battery SRAM and 10 save-state slots live next to --save-dir, keyed by ROM hash.\n\
+Keyboard binds and the run-ahead default come from config.toml (see docs/fase-1).\n\
 \n\
-keys: arrows=dpad  Z=B X=A A=Y S=X Q=L W=R  Enter=Start RShift=Select\n\
-      F2=save state  F4=load state  F=fullscreen  Backspace=reset  P=pause  Esc=quit";
+default keys: arrows=dpad  Z=B X=A A=Y S=X Q=L W=R  Enter=Start RShift=Select\n\
+      F2=save  F4=load  ] / [ =slot  F12=screenshot  F=fullscreen  Backspace=reset\n\
+      P=pause  Esc=quit";
 
 fn map_format(f: EmuFormat) -> PlatFormat {
     match f {
@@ -153,9 +169,27 @@ const PAD: [(Button, xperience_platform::PadButton); 12] = {
     ]
 };
 
+fn state_file(hash: &Option<String>, dir: &std::path::Path, slot: u8) -> Option<PathBuf> {
+    hash.as_ref().map(|h| dir.join(format!("{h}.state{slot}")))
+}
+
+/// Seconds since the epoch, for screenshot filenames.
+fn now_stamp() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
 fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     let args = parse_args()?;
+
+    let cfg = Config::load(args.config.as_deref())?;
+    if let Some(p) = &cfg.source {
+        log::info!("config: {}", p.display());
+    }
+    let runahead_cfg = args.runahead.unwrap_or(cfg.runahead);
 
     // --- load + identify -------------------------------------------------
     let mut core =
@@ -193,9 +227,7 @@ fn main() -> Result<()> {
     let sram_path = rom_hash
         .as_ref()
         .map(|h| args.save_dir.join(format!("{h}.srm")));
-    let state_path = rom_hash
-        .as_ref()
-        .map(|h| args.save_dir.join(format!("{h}.state")));
+    let mut slot: u8 = 0;
 
     if let Some(p) = &sram_path {
         if let Ok(bytes) = fs::read(p) {
@@ -231,9 +263,17 @@ fn main() -> Result<()> {
             4.0 / 3.0
         })
     .round() as u32;
+    let title = args
+        .rom
+        .file_stem()
+        .map(|s| format!("SNES Xperience — {}", s.to_string_lossy()))
+        .unwrap_or_else(|| "SNES Xperience".to_string());
     let mut video = platform
-        .create_window("SNES Xperience — Phase 0", win_w, win_h)
+        .create_window(&title, win_w, win_h)
         .map_err(|e| anyhow!(e.to_string()))?;
+    if cfg.fullscreen {
+        video.toggle_fullscreen();
+    }
     let audio = platform
         .open_audio(av.sample_rate.round().max(8000.0) as u32)
         .map_err(|e| anyhow!(e.to_string()))?;
@@ -244,19 +284,22 @@ fn main() -> Result<()> {
     let mut next = Instant::now();
     let mut frames: u32 = 0;
     let mut last_dims = (0u32, 0u32);
+    // Don't let the audio queue run more than ~0.15 s ahead (latency creep).
+    let audio_cap = (av.sample_rate / 6.0) as usize;
 
     // Run-ahead: only if the core actually serializes.
-    let mut runahead = args.runahead;
+    let mut runahead = runahead_cfg;
     if runahead > 0 && core.save_state().is_none() {
         log::warn!("core has no save state — run-ahead disabled");
         runahead = 0;
     }
     let mut spec_state: Vec<u8> = Vec::new();
     let mut last_sram = core.sram();
-    log::info!("running: rf ntsc + crt tube, run-ahead {runahead}");
+    let mut shot_request: Option<PathBuf> = None;
+    log::info!("running: rf ntsc + crt tube, run-ahead {runahead}, slot {slot}");
 
     'run: loop {
-        for ev in platform.poll(&mut input) {
+        for ev in platform.poll(&mut input, &cfg.keymap) {
             match ev {
                 UiEvent::Quit => break 'run,
                 UiEvent::ToggleFullscreen => video.toggle_fullscreen(),
@@ -265,19 +308,39 @@ fn main() -> Result<()> {
                     paused = !paused;
                     log::info!("{}", if paused { "paused" } else { "resumed" });
                 }
-                UiEvent::SaveState => match (&state_path, core.save_state()) {
-                    (Some(p), Some(s)) => match fs::write(p, &s) {
-                        Ok(_) => log::info!("state saved ({} KiB)", s.len() / 1024),
-                        Err(e) => log::warn!("state save failed: {e}"),
-                    },
-                    _ => log::warn!("no state slot (unidentified ROM?)"),
-                },
-                UiEvent::LoadState => match state_path.as_ref().map(fs::read) {
-                    Some(Ok(s)) if core.load_state(&s) => log::info!("state loaded"),
-                    Some(Ok(_)) => log::warn!("core rejected the state file"),
-                    Some(Err(e)) => log::warn!("no state to load: {e}"),
-                    None => log::warn!("no state slot (unidentified ROM?)"),
-                },
+                UiEvent::NextSlot => {
+                    slot = (slot + 1) % SLOTS;
+                    log::info!("slot {slot}");
+                }
+                UiEvent::PrevSlot => {
+                    slot = (slot + SLOTS - 1) % SLOTS;
+                    log::info!("slot {slot}");
+                }
+                UiEvent::SaveState => {
+                    match (
+                        state_file(&rom_hash, &args.save_dir, slot),
+                        core.save_state(),
+                    ) {
+                        (Some(p), Some(s)) => match fs::write(&p, &s) {
+                            Ok(_) => log::info!("slot {slot}: saved ({} KiB)", s.len() / 1024),
+                            Err(e) => log::warn!("slot {slot}: save failed: {e}"),
+                        },
+                        _ => log::warn!("no state slot (unidentified ROM?)"),
+                    }
+                }
+                UiEvent::LoadState => {
+                    match state_file(&rom_hash, &args.save_dir, slot).map(|p| fs::read(&p)) {
+                        Some(Ok(s)) if core.load_state(&s) => log::info!("slot {slot}: loaded"),
+                        Some(Ok(_)) => log::warn!("slot {slot}: core rejected the state"),
+                        Some(Err(_)) => log::warn!("slot {slot}: empty"),
+                        None => log::warn!("no state slot (unidentified ROM?)"),
+                    }
+                }
+                UiEvent::Screenshot => {
+                    let p = args.save_dir.join(format!("shot-{}.bmp", now_stamp()));
+                    // capture happens after present, below; stash the request.
+                    shot_request = Some(p);
+                }
             }
         }
 
@@ -287,7 +350,9 @@ fn main() -> Result<()> {
             }
             core.run();
             frames += 1;
-            audio.queue(core.audio());
+            if audio.queued_frames() < audio_cap {
+                audio.queue(core.audio());
+            }
 
             // Speculative frames past the shown one; their audio is discarded.
             let speculated = runahead > 0 && core.save_state_into(&mut spec_state);
@@ -333,6 +398,13 @@ fn main() -> Result<()> {
                 };
                 let aspect = core.av_info().aspect_ratio;
                 video.present(&fref, aspect);
+
+                if let Some(path) = shot_request.take() {
+                    match video.capture_bmp(&fref, aspect, &path) {
+                        Ok(_) => log::info!("screenshot -> {}", path.display()),
+                        Err(e) => log::warn!("screenshot failed: {e}"),
+                    }
+                }
 
                 if let Some(path) = &args.shot {
                     if frames >= args.shot_frame {

@@ -6,12 +6,11 @@ mod input;
 mod video;
 
 pub use audio::AudioOut;
-pub use input::{Input, PadButton, UiEvent};
+pub use input::{Input, KeyMap, PadButton, UiEvent};
 pub use video::{FrameRef, PixelFormat, Video};
 
 use sdl3::event::Event;
 use sdl3::gamepad::{Button as PadBtn, Gamepad};
-use sdl3::keyboard::Keycode;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -94,8 +93,10 @@ impl Platform {
         Input::new()
     }
 
-    /// Drain the event queue, update `input`, and return high-level UI intents.
-    pub fn poll(&mut self, input: &mut Input) -> Vec<UiEvent> {
+    /// Drain the event queue, update `input` via `keymap`, and return the UI
+    /// intents that fired this frame. Esc always quits.
+    pub fn poll(&mut self, input: &mut Input, keymap: &KeyMap) -> Vec<UiEvent> {
+        use sdl3::keyboard::Keycode;
         let mut out = Vec::new();
         let mut added = false;
         for event in self.event_pump.poll_iter() {
@@ -107,23 +108,19 @@ impl Platform {
                     repeat: false,
                     ..
                 } => {
-                    if let Some(b) = map_key(k) {
+                    if let Some(b) = keymap.pad_for(k) {
                         input.set_key(b, true);
                     }
-                    match k {
-                        Keycode::Escape => out.push(UiEvent::Quit),
-                        Keycode::F => out.push(UiEvent::ToggleFullscreen),
-                        Keycode::Backspace => out.push(UiEvent::Reset),
-                        Keycode::P => out.push(UiEvent::TogglePause),
-                        Keycode::F2 => out.push(UiEvent::SaveState),
-                        Keycode::F4 => out.push(UiEvent::LoadState),
-                        _ => {}
+                    if k == Keycode::Escape {
+                        out.push(UiEvent::Quit);
+                    } else if let Some(e) = keymap.ui_for(k) {
+                        out.push(e);
                     }
                 }
                 Event::KeyUp {
                     keycode: Some(k), ..
                 } => {
-                    if let Some(b) = map_key(k) {
+                    if let Some(b) = keymap.pad_for(k) {
                         input.set_key(b, false);
                     }
                 }
@@ -162,21 +159,3 @@ const GAMEPAD_MAP: [(PadBtn, PadButton); 12] = [
     (PadBtn::Back, PadButton::Select),
     (PadBtn::Start, PadButton::Start),
 ];
-
-fn map_key(k: Keycode) -> Option<PadButton> {
-    Some(match k {
-        Keycode::Up => PadButton::Up,
-        Keycode::Down => PadButton::Down,
-        Keycode::Left => PadButton::Left,
-        Keycode::Right => PadButton::Right,
-        Keycode::Z => PadButton::B,
-        Keycode::X => PadButton::A,
-        Keycode::A => PadButton::Y,
-        Keycode::S => PadButton::X,
-        Keycode::Q => PadButton::L,
-        Keycode::W => PadButton::R,
-        Keycode::Return => PadButton::Start,
-        Keycode::RShift => PadButton::Select,
-        _ => return None,
-    })
-}

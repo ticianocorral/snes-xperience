@@ -19,15 +19,17 @@ cargo run --release --bin emu-run -- \
 `crates/emulation` expõe `retro_serialize` / `retro_unserialize` como
 `Core::save_state` / `load_state` (e `save_state_into` para reusar buffer).
 
-No `emu-run`:
+No `emu-run`, **10 slots** (`0`–`9`), arquivo
+`<save-dir>/<sha1-da-rom>.state<n>`:
 
 | Tecla | Efeito |
 |---|---|
-| F2 | grava o estado em `<save-dir>/<sha1-da-rom>.state` |
-| F4 | recarrega esse arquivo |
+| F2 | grava no slot atual |
+| F4 | recarrega o slot atual |
+| `]` / `[` | próximo / anterior slot |
 
-Um slot só, indexado pelo **SHA1 da ROM** (plano §3.4: "Indexe pelo hash da ROM,
-nunca pelo nome do arquivo"). ROM não identificada ⇒ sem slot, o app avisa.
+Indexado pelo **SHA1 da ROM** (plano §3.4: "Indexe pelo hash da ROM, nunca pelo
+nome do arquivo"). ROM não identificada ⇒ sem slot, o app avisa.
 
 Verificação: `cargo run -p xperience-emulation --example state_check -- <core> <rom>`
 roda até o frame 600 por dois caminhos (direto, e com save no 300 + reload) e
@@ -61,10 +63,43 @@ O input lido no início do loop alimenta os dois `run()`, então o jogador vê o
 efeito do comando N frames antes. Custo: ~2× emulação + 1 save + 1 load por
 frame (823 KiB → ~50 MB/s cada lado; irrelevante).
 
-`--runahead 0` desliga. Se o core não serializa, desliga sozinho com aviso.
+`--runahead 0` desliga. `--runahead` na linha de comando sobrepõe o config. Se o
+core não serializa, desliga sozinho com aviso.
 
-## Fora do escopo da Fase 1 (ainda)
+## Config (`config.toml`)
 
-- Remapear controles (arquivo de config) — o mapa de teclado/gamepad é fixo.
-- Múltiplos slots de save state.
+Ordem de busca: `--config PATH`, `$XPERIENCE_CONFIG`,
+`$HOME/.config/snes-xperience/config.toml`. Se o último não existir, um arquivo
+padrão comentado é escrito lá.
+
+```toml
+runahead = 1
+fullscreen = false
+
+[keyboard]
+b = "Z"          # nome de tecla do SDL: "Left Shift", "F2", "]", ...
+start = "Return"
+save_state = "F2"
+slot_next = "]"
+# ...
+```
+
+Ações do teclado: os 12 botões (`up down left right a b x y l r select start`) e
+`fullscreen reset pause save_state load_state screenshot slot_next slot_prev`.
+`Esc` (sair) é fixo. Gamepad **não** é remapeável — a base de controllers do SDL
+já normaliza os aparelhos (plano §3.1).
+
+## Outras utilidades
+
+- **F12** — screenshot do quadro composto (tubo + NTSC) em
+  `<save-dir>/shot-<epoch>.bmp`.
+- **Guarda de áudio** — a fila do SDL nunca passa de ~0,15 s à frente; se
+  encher, o áudio do frame é descartado (evita latência acumulando numa sessão
+  longa — o teste de 2 h do plano §9).
+- Título da janela = nome do arquivo da ROM.
+
+## Fora do escopo da Fase 1
+
 - Seletor, moldura, painel — Fases 2 a 4.
+- Fast-forward / turbo.
+- Remap de gamepad e múltiplos perfis de config.

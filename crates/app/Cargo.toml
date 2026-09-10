@@ -22,3 +22,5 @@ xperience-ntsc = { path = "../ntsc" }
 anyhow.workspace = true
 log.workspace = true
 env_logger.workspace = true
+serde.workspace = true
+toml = "0.8"
