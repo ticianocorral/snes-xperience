@@ -3,7 +3,7 @@
 //!
 //! Usage:
 //!   emu-run --core <path/to/snes9x_libretro.{dylib,so,dll}> --rom <game.sfc>
-//!           [--system-dir DIR] [--save-dir DIR] [--scale pixel|bilinear|sharp|crt]
+//!           [--system-dir DIR] [--save-dir DIR] [--scale pixel|bilinear]
 //!
 //! The core path also reads from $XPERIENCE_CORE. See docs/fase-0.md for where
 //! to get the core.
@@ -21,7 +21,7 @@ struct Args {
     system_dir: PathBuf,
     save_dir: PathBuf,
     scale: ScaleMode,
-    /// Headless self-check: run N frames, dump the last one as a PPM, exit.
+    /// Headless self-check: run N frames, save the composited window, exit.
     shot: Option<PathBuf>,
     shot_frame: u32,
 }
@@ -31,7 +31,7 @@ fn parse_args() -> Result<Args> {
     let mut rom = None;
     let mut system_dir = None;
     let mut save_dir = None;
-    let mut scale = ScaleMode::SharpBilinear;
+    let mut scale = ScaleMode::Bilinear;
     let mut shot = None;
     let mut shot_frame = 180u32;
 
@@ -70,15 +70,13 @@ fn parse_args() -> Result<Args> {
                 scale = match it.next().as_deref() {
                     Some("pixel") => ScaleMode::PixelPerfect,
                     Some("bilinear") => ScaleMode::Bilinear,
-                    Some("sharp") => ScaleMode::SharpBilinear,
-                    Some("crt") => ScaleMode::Crt,
-                    other => bail!("--scale wants pixel|bilinear|sharp|crt, got {other:?}"),
+                    other => bail!("--scale wants pixel|bilinear, got {other:?}"),
                 }
             }
             "--shot" => {
                 shot = Some(
                     it.next()
-                        .ok_or_else(|| anyhow!("--shot needs a path"))?
+                        .ok_or_else(|| anyhow!("--shot needs a path (.bmp)"))?
                         .into(),
                 )
             }
@@ -112,56 +110,11 @@ fn parse_args() -> Result<Args> {
     })
 }
 
-const HELP: &str = "emu-run --core <lib> --rom <game.sfc> [--system-dir D] [--save-dir D] [--scale pixel|bilinear|sharp|crt]\n\
-       [--shot out.ppm [--shot-frame N]]   headless: run N frames, dump one, exit\n\
+const HELP: &str = "emu-run --core <lib> --rom <game.sfc> [--system-dir D] [--save-dir D] [--scale pixel|bilinear]\n\
+       [--shot out.bmp [--shot-frame N]]   headless: run N frames, dump one, exit\n\
 \n\
 keys: arrows=dpad  Z=B X=A A=Y S=X Q=L W=R  Enter=Start RShift=Select\n\
-      Tab=cycle scale (pixel/bilinear/sharp/crt)  F=fullscreen  Backspace=reset  P=pause  Esc=quit";
-
-/// Expand a core frame to 8-bit RGB and write it as a binary PPM (P6). Enough
-/// to eyeball that the video pipeline produces real pixels; not a real encoder.
-fn write_ppm(path: &std::path::Path, frame: &xperience_emulation::Frame) -> Result<()> {
-    let (w, h) = (frame.width as usize, frame.height as usize);
-    let bpp = frame.format.bytes_per_pixel();
-    let mut out = Vec::with_capacity(w * h * 3 + 32);
-    out.extend_from_slice(format!("P6\n{w} {h}\n255\n").as_bytes());
-    for y in 0..h {
-        let row = &frame.pixels[y * frame.pitch..y * frame.pitch + w * bpp];
-        for x in 0..w {
-            let px = &row[x * bpp..x * bpp + bpp];
-            let (r, g, b) = match frame.format {
-                EmuFormat::Rgb565 => {
-                    let v = u16::from_le_bytes([px[0], px[1]]);
-                    let r5 = (v >> 11) & 0x1f;
-                    let g6 = (v >> 5) & 0x3f;
-                    let b5 = v & 0x1f;
-                    (
-                        ((r5 << 3) | (r5 >> 2)) as u8,
-                        ((g6 << 2) | (g6 >> 4)) as u8,
-                        ((b5 << 3) | (b5 >> 2)) as u8,
-                    )
-                }
-                EmuFormat::Rgb1555 => {
-                    let v = u16::from_le_bytes([px[0], px[1]]);
-                    let r5 = (v >> 10) & 0x1f;
-                    let g5 = (v >> 5) & 0x1f;
-                    let b5 = v & 0x1f;
-                    (
-                        ((r5 << 3) | (r5 >> 2)) as u8,
-                        ((g5 << 3) | (g5 >> 2)) as u8,
-                        ((b5 << 3) | (b5 >> 2)) as u8,
-                    )
-                }
-                EmuFormat::Xrgb8888 => (px[2], px[1], px[0]),
-            };
-            out.push(r);
-            out.push(g);
-            out.push(b);
-        }
-    }
-    std::fs::write(path, out).with_context(|| format!("writing {}", path.display()))?;
-    Ok(())
-}
+      Tab=cycle scale (pixel/bilinear)  F=fullscreen  Backspace=reset  P=pause  Esc=quit";
 
 fn map_format(f: EmuFormat) -> PlatFormat {
     match f {
@@ -294,15 +247,10 @@ fn main() -> Result<()> {
 
                 if let Some(path) = &args.shot {
                     if frames >= args.shot_frame {
-                        write_ppm(path, &frame)?;
-                        log::info!(
-                            "wrote {} ({}x{}, {:?}) after {} frames",
-                            path.display(),
-                            frame.width,
-                            frame.height,
-                            frame.format,
-                            frames
-                        );
+                        video
+                            .capture_bmp(path)
+                            .map_err(|e| anyhow!(e.to_string()))?;
+                        log::info!("wrote {} after {} frames", path.display(), frames);
                         break 'run;
                     }
                 }

@@ -38,7 +38,7 @@ cargo run --release --bin emu-run -- \
   --core ~/cores/snes9x_libretro.dylib \
   --rom  ~/roms/minha-rom.sfc \
   --save-dir ./saves \
-  --scale sharp        # pixel | sharp | crt
+  --scale bilinear     # pixel | bilinear
 ```
 
 Ou defina o core por ambiente: `export XPERIENCE_CORE=~/cores/snes9x_libretro.dylib`.
@@ -53,7 +53,7 @@ Ou defina o core por ambiente: `export XPERIENCE_CORE=~/cores/snes9x_libretro.dy
 | Q / W        | L / R                                          |
 | Enter        | Start                                          |
 | Shift dir.   | Select                                         |
-| Tab          | alterna a escala (pixel → bilinear → sharp → crt) |
+| Tab          | alterna a escala (pixel ↔ bilinear)            |
 | F            | tela cheia                                     |
 | Backspace    | reset                                          |
 | P            | pausa                                          |
@@ -67,24 +67,20 @@ Um gamepad conectado é detectado automaticamente e tem prioridade de uso
 - A janela abre e mostra o jogo rodando a ~60 fps.
 - Há som contínuo, sem estouros grosseiros.
 - O gamepad controla o jogo.
-- `Tab` alterna entre **pixel perfect**, **sharp bilinear** e **crt**
-  (este último ainda é um _placeholder_ que reusa o caminho do sharp bilinear —
-  o shader de CRT é da Fase 3).
+- `Tab` alterna entre **pixel perfect** e **bilinear** (este com cantos arredondados).
 - O log inicial mostra a identificação da ROM (crc32/sha1, nome interno,
   LoROM/HiROM) e o `av_info` do core (resolução, fps, sample rate).
 
-### Modos de escala (plano §4.7)
+### Modos de escala
 
-| Modo           | Como funciona                                                        |
-|----------------|---------------------------------------------------------------------|
-| `pixel`        | escala inteira + vizinho mais próximo, centralizado, com barras     |
-| `bilinear`     | um esticão bilinear do frame cru para 4:3 — igual ao "Bilinear Filtering" do RetroArch |
-| `sharp`        | pré-escala inteira com vizinho mais próximo → bilinear preenche a altura, corrigido para 4:3 |
-| `crt`          | reservado para o shader; hoje cai no caminho do `sharp`             |
+| Modo       | Como funciona                                                        |
+|------------|--------------------------------------------------------------------|
+| `pixel`    | escala inteira + vizinho mais próximo, centralizado, com barras     |
+| `bilinear` | um esticão bilinear do frame cru para 4:3 (igual ao "Bilinear Filtering" do RetroArch) **com cantos arredondados** — evoca a geometria do tubo CRT, sem scanline nem distorção |
 
-O plano recomenda `sharp` como padrão (§4.7: "Bilinear puro sozinho não entra:
-borra sem ganho"); `bilinear` está aí porque é o filtro clássico do RetroArch e
-alguém pode preferir.
+O `sharp bilinear` e o `crt` placeholder do plano §4.7 foram removidos a pedido;
+o shader de CRT de verdade continua previsto para a Fase 3. O raio do canto é
+`CORNER_FRAC` em `crates/platform/src/video.rs`.
 
 ---
 
