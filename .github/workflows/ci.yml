@@ -26,17 +26,22 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      # SDL3 is built from vendored source (see the `vendored-sdl` feature) so we
-      # only need CMake + a C toolchain, which the runners already have. Linux
-      # still needs the X11/Wayland headers SDL links against.
+      # SDL3 is built from vendored source (see the `vendored-sdl` feature); its
+      # CMake build errors out on any missing dev package for an enabled
+      # feature, so this list mirrors SDL3's README-linux build deps.
       - name: Linux system deps
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
+            cmake pkg-config \
+            libasound2-dev libpulse-dev libdbus-1-dev libudev-dev \
             libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev \
-            libxfixes-dev libwayland-dev libxkbcommon-dev libgl1-mesa-dev \
-            libasound2-dev libpulse-dev libudev-dev
+            libxfixes-dev libxss-dev libxtst-dev libxrender-dev \
+            libxkbcommon-dev libxkbcommon-x11-dev \
+            libwayland-dev wayland-protocols libdecor-0-dev \
+            libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev \
+            libdrm-dev libgbm-dev libibus-1.0-dev
 
       - name: Format
         run: cargo fmt --all -- --check
