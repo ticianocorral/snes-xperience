@@ -1,9 +1,9 @@
 //! Phase 0 proof #1: a libretro core loads and runs, with video, sound, a pad
-//! and the three scaling modes — no bezel, no selector.
+//! and the scaling modes — no bezel, no selector.
 //!
 //! Usage:
 //!   emu-run --core <path/to/snes9x_libretro.{dylib,so,dll}> --rom <game.sfc>
-//!           [--system-dir DIR] [--save-dir DIR] [--scale pixel|sharp|crt]
+//!           [--system-dir DIR] [--save-dir DIR] [--scale pixel|bilinear|sharp|crt]
 //!
 //! The core path also reads from $XPERIENCE_CORE. See docs/fase-0.md for where
 //! to get the core.
@@ -69,9 +69,10 @@ fn parse_args() -> Result<Args> {
             "--scale" => {
                 scale = match it.next().as_deref() {
                     Some("pixel") => ScaleMode::PixelPerfect,
+                    Some("bilinear") => ScaleMode::Bilinear,
                     Some("sharp") => ScaleMode::SharpBilinear,
                     Some("crt") => ScaleMode::Crt,
-                    other => bail!("--scale wants pixel|sharp|crt, got {other:?}"),
+                    other => bail!("--scale wants pixel|bilinear|sharp|crt, got {other:?}"),
                 }
             }
             "--shot" => {
@@ -111,11 +112,11 @@ fn parse_args() -> Result<Args> {
     })
 }
 
-const HELP: &str = "emu-run --core <lib> --rom <game.sfc> [--system-dir D] [--save-dir D] [--scale pixel|sharp|crt]\n\
+const HELP: &str = "emu-run --core <lib> --rom <game.sfc> [--system-dir D] [--save-dir D] [--scale pixel|bilinear|sharp|crt]\n\
        [--shot out.ppm [--shot-frame N]]   headless: run N frames, dump one, exit\n\
 \n\
 keys: arrows=dpad  Z=B X=A A=Y S=X Q=L W=R  Enter=Start RShift=Select\n\
-      Tab=cycle scale  F=fullscreen  Backspace=reset  P=pause  Esc=quit";
+      Tab=cycle scale (pixel/bilinear/sharp/crt)  F=fullscreen  Backspace=reset  P=pause  Esc=quit";
 
 /// Expand a core frame to 8-bit RGB and write it as a binary PPM (P6). Enough
 /// to eyeball that the video pipeline produces real pixels; not a real encoder.

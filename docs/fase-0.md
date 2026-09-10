@@ -45,19 +45,19 @@ Ou defina o core por ambiente: `export XPERIENCE_CORE=~/cores/snes9x_libretro.dy
 
 ### Teclas
 
-| Tecla        | Efeito                    |
-|--------------|---------------------------|
-| setas        | direcional                |
-| Z / X        | B / A                     |
-| A / S        | Y / X                     |
-| Q / W        | L / R                     |
-| Enter        | Start                     |
-| Shift dir.   | Select                    |
-| Tab          | alterna o modo de escala  |
-| F            | tela cheia                |
-| Backspace    | reset                     |
-| P            | pausa                     |
-| Esc          | sair                      |
+| Tecla        | Efeito                                          |
+|--------------|------------------------------------------------|
+| setas        | direcional                                     |
+| Z / X        | B / A                                          |
+| A / S        | Y / X                                          |
+| Q / W        | L / R                                          |
+| Enter        | Start                                          |
+| Shift dir.   | Select                                         |
+| Tab          | alterna a escala (pixel → bilinear → sharp → crt) |
+| F            | tela cheia                                     |
+| Backspace    | reset                                          |
+| P            | pausa                                          |
+| Esc          | sair                                           |
 
 Um gamepad conectado é detectado automaticamente e tem prioridade de uso
 (plano §3.1).
@@ -73,13 +73,18 @@ Um gamepad conectado é detectado automaticamente e tem prioridade de uso
 - O log inicial mostra a identificação da ROM (crc32/sha1, nome interno,
   LoROM/HiROM) e o `av_info` do core (resolução, fps, sample rate).
 
-### Os três modos de escala (plano §4.7)
+### Modos de escala (plano §4.7)
 
 | Modo           | Como funciona                                                        |
 |----------------|---------------------------------------------------------------------|
 | `pixel`        | escala inteira + vizinho mais próximo, centralizado, com barras     |
+| `bilinear`     | um esticão bilinear do frame cru para 4:3 — igual ao "Bilinear Filtering" do RetroArch |
 | `sharp`        | pré-escala inteira com vizinho mais próximo → bilinear preenche a altura, corrigido para 4:3 |
 | `crt`          | reservado para o shader; hoje cai no caminho do `sharp`             |
+
+O plano recomenda `sharp` como padrão (§4.7: "Bilinear puro sozinho não entra:
+borra sem ganho"); `bilinear` está aí porque é o filtro clássico do RetroArch e
+alguém pode preferir.
 
 ---
 

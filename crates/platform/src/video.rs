@@ -41,11 +41,14 @@ pub struct FrameRef<'a> {
     pub pixels: &'a [u8],
 }
 
-/// The plan's three modes. `Crt` has no shader yet (Phase 3) and renders through
-/// the `SharpBilinear` path meanwhile.
+/// Scaling modes. `PixelPerfect`, `SharpBilinear` and `Crt` are the plan's three
+/// (§4.7); `Bilinear` is the plain GPU bilinear stretch, same as RetroArch's
+/// "Bilinear Filtering" toggle. `Crt` has no shader yet (Phase 3) and renders
+/// through the `SharpBilinear` path meanwhile.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScaleMode {
     PixelPerfect,
+    Bilinear,
     SharpBilinear,
     Crt,
 }
@@ -53,7 +56,8 @@ pub enum ScaleMode {
 impl ScaleMode {
     pub fn next(self) -> Self {
         match self {
-            ScaleMode::PixelPerfect => ScaleMode::SharpBilinear,
+            ScaleMode::PixelPerfect => ScaleMode::Bilinear,
+            ScaleMode::Bilinear => ScaleMode::SharpBilinear,
             ScaleMode::SharpBilinear => ScaleMode::Crt,
             ScaleMode::Crt => ScaleMode::PixelPerfect,
         }
@@ -61,6 +65,7 @@ impl ScaleMode {
     pub fn label(self) -> &'static str {
         match self {
             ScaleMode::PixelPerfect => "pixel perfect",
+            ScaleMode::Bilinear => "bilinear",
             ScaleMode::SharpBilinear => "sharp bilinear",
             ScaleMode::Crt => "crt (placeholder: sharp bilinear)",
         }
@@ -178,6 +183,17 @@ impl Video {
             4.0 / 3.0
         };
 
+        // The source texture is sampled nearest for every mode except the plain
+        // bilinear stretch.
+        {
+            let want = if mode == ScaleMode::Bilinear {
+                SdlScaleMode::Linear
+            } else {
+                SdlScaleMode::Nearest
+            };
+            self.src.as_mut().unwrap().tex.set_scale_mode(want);
+        }
+
         self.canvas.set_draw_color(Color::RGB(0, 0, 0));
         self.canvas.clear();
 
@@ -187,6 +203,13 @@ impl Video {
                 let dw = frame.width * scale;
                 let dh = frame.height * scale;
                 let dst = centered(out_w, out_h, dw, dh);
+                let src = self.src.as_ref().unwrap();
+                let _ = self.canvas.copy(&src.tex, None::<FRect>, dst);
+            }
+            ScaleMode::Bilinear => {
+                // RetroArch-style: one linear stretch of the raw frame to a
+                // 4:3 rect that fills the screen height.
+                let dst = fit_aspect(out_w, out_h, aspect);
                 let src = self.src.as_ref().unwrap();
                 let _ = self.canvas.copy(&src.tex, None::<FRect>, dst);
             }
@@ -207,13 +230,7 @@ impl Video {
                 });
 
                 // Stage 2: linear blit to a 4:3-corrected rect that fills height.
-                let mut dh = out_h;
-                let mut dw = (dh as f32 * aspect).round() as u32;
-                if dw > out_w {
-                    dw = out_w;
-                    dh = (dw as f32 / aspect).round() as u32;
-                }
-                let dst = centered(out_w, out_h, dw, dh);
+                let dst = fit_aspect(out_w, out_h, aspect);
                 let _ = self.canvas.copy(&mid.tex, None::<FRect>, dst);
 
                 self.src = Some(src);
@@ -229,4 +246,16 @@ fn centered(out_w: u32, out_h: u32, w: u32, h: u32) -> Rect {
     let x = (out_w as i32 - w as i32) / 2;
     let y = (out_h as i32 - h as i32) / 2;
     Rect::new(x, y, w, h)
+}
+
+/// Largest `aspect`-shaped rect that fits in the output, centered. Fills the
+/// height unless that would overflow the width, then fills the width.
+fn fit_aspect(out_w: u32, out_h: u32, aspect: f32) -> Rect {
+    let mut h = out_h;
+    let mut w = (h as f32 * aspect).round() as u32;
+    if w > out_w {
+        w = out_w;
+        h = (w as f32 / aspect).round() as u32;
+    }
+    centered(out_w, out_h, w, h)
 }
