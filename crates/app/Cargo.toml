@@ -1,0 +1,23 @@
+[package]
+name = "xperience-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[[bin]]
+name = "emu-run"
+path = "src/bin/emu_run.rs"
+
+[[bin]]
+name = "scrape-test"
+path = "src/bin/scrape_test.rs"
+
+[dependencies]
+xperience-emulation = { path = "../emulation" }
+xperience-platform = { path = "../platform" }
+xperience-domain = { path = "../domain" }
+anyhow.workspace = true
+log.workspace = true
+env_logger.workspace = true

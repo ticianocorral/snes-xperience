@@ -1,0 +1,19 @@
+[package]
+name = "xperience-domain"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "ROM identification (CRC32/MD5/SHA1), catalogue and ScreenScraper metadata client."
+
+[dependencies]
+anyhow.workspace = true
+thiserror.workspace = true
+log.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+ureq.workspace = true
+crc32fast.workspace = true
+md-5.workspace = true
+sha1.workspace = true
+hex.workspace = true

@@ -1,0 +1,18 @@
+[package]
+name = "xperience-platform"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "SDL3 shell: window, video output with the three scaling modes, audio queue, gamepad and keyboard input."
+
+[features]
+# Build and statically link SDL3 from vendored source (needs CMake + a C
+# compiler). Used by CI so the three runners don't depend on a system SDL3.
+# Locally, leave this off and use the SDL3 from your package manager.
+vendored-sdl = ["sdl3/build-from-source-static"]
+
+[dependencies]
+sdl3 = { version = "0.20", features = ["unsafe_textures"] }
+log.workspace = true
+thiserror.workspace = true

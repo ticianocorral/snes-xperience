@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: build & test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      # SDL3 is built from vendored source (see the `vendored-sdl` feature) so we
+      # only need CMake + a C toolchain, which the runners already have. Linux
+      # still needs the X11/Wayland headers SDL links against.
+      - name: Linux system deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev \
+            libxfixes-dev libwayland-dev libxkbcommon-dev libgl1-mesa-dev \
+            libasound2-dev libpulse-dev libudev-dev
+
+      - name: Format
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --features xperience-platform/vendored-sdl -- -D warnings
+
+      - name: Build
+        run: cargo build --workspace --features xperience-platform/vendored-sdl
+
+      - name: Test
+        run: cargo test --workspace --features xperience-platform/vendored-sdl
