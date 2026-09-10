@@ -9,7 +9,9 @@ use std::time::{Duration, Instant};
 use anyhow::{anyhow, Context, Result};
 use xperience_emulation::{Button, Core, PixelFormat as EmuFormat};
 use xperience_ntsc::{NtscFilter, Preset};
-use xperience_platform::{FrameRef, PixelFormat as PlatFormat, Platform, UiEvent, MAX_PORTS};
+use xperience_platform::{
+    Cabinet, FrameRef, PixelFormat as PlatFormat, Platform, UiEvent, MAX_PORTS,
+};
 
 use crate::config::Config;
 
@@ -79,9 +81,15 @@ fn now_stamp() -> u64 {
         .unwrap_or(0)
 }
 
-/// Load the core + ROM, open a window on `plat`, and run until the player leaves.
-/// The `plat` outlives the call so `xperience` can reuse it for the next screen.
-pub fn run_game(plat: &mut Platform, spec: &GameSpec, cfg: &Config) -> Result<GameExit> {
+/// Load the core + ROM and run until the player leaves, drawing into `cab` (the
+/// one persistent window). `plat` and `cab` both outlive the call so `xperience`
+/// can reuse them for the next screen.
+pub fn run_game(
+    plat: &mut Platform,
+    cab: &mut Cabinet,
+    spec: &GameSpec,
+    cfg: &Config,
+) -> Result<GameExit> {
     let runahead_cfg = spec.runahead.unwrap_or(cfg.runahead);
 
     // --- load + identify -------------------------------------------------
@@ -146,26 +154,7 @@ pub fn run_game(plat: &mut Platform, spec: &GameSpec, cfg: &Config) -> Result<Ga
         av.sample_rate
     );
 
-    // --- window + audio ----------------------------------------------------
-    let win_h = 672u32;
-    let win_w = ((win_h as f32)
-        * if av.aspect_ratio > 0.0 {
-            av.aspect_ratio
-        } else {
-            4.0 / 3.0
-        })
-    .round() as u32;
-    let title = spec
-        .rom
-        .file_stem()
-        .map(|s| format!("SNES Xperience — {}", s.to_string_lossy()))
-        .unwrap_or_else(|| "SNES Xperience".to_string());
-    let mut video = plat
-        .create_window(&title, win_w, win_h)
-        .map_err(|e| anyhow!(e.to_string()))?;
-    if cfg.fullscreen {
-        video.toggle_fullscreen();
-    }
+    // --- audio -----------------------------------------------------------
     let audio = plat
         .open_audio(av.sample_rate.round().max(8000.0) as u32)
         .map_err(|e| anyhow!(e.to_string()))?;
@@ -199,7 +188,7 @@ pub fn run_game(plat: &mut Platform, spec: &GameSpec, cfg: &Config) -> Result<Ga
                 UiEvent::FrameStep => step_once = true,
                 // Held state; platform surfaces it via input.fast_forward().
                 UiEvent::FastForward => {}
-                UiEvent::ToggleFullscreen => video.toggle_fullscreen(),
+                UiEvent::ToggleFullscreen => cab.toggle_fullscreen(),
                 UiEvent::Reset => core.reset(),
                 UiEvent::TogglePause => {
                     paused = !paused;
@@ -306,10 +295,10 @@ pub fn run_game(plat: &mut Platform, spec: &GameSpec, cfg: &Config) -> Result<Ga
                     }
                 };
                 let aspect = core.av_info().aspect_ratio;
-                video.present(&fref, aspect);
+                cab.present_frame(&fref, aspect);
 
                 if let Some(path) = shot_request.take() {
-                    match video.capture_bmp(&fref, aspect, &path) {
+                    match cab.capture_bmp(&fref, aspect, &path) {
                         Ok(_) => log::info!("screenshot -> {}", path.display()),
                         Err(e) => log::warn!("screenshot failed: {e}"),
                     }
@@ -317,8 +306,7 @@ pub fn run_game(plat: &mut Platform, spec: &GameSpec, cfg: &Config) -> Result<Ga
 
                 if let Some((path, at)) = &spec.shot {
                     if frames >= *at {
-                        video
-                            .capture_bmp(&fref, aspect, path)
+                        cab.capture_bmp(&fref, aspect, path)
                             .map_err(|e| anyhow!(e.to_string()))?;
                         log::info!("wrote {} after {} frames", path.display(), frames);
                         break 'run GameExit::Quit;

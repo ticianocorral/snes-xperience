@@ -47,12 +47,15 @@ fn main() -> Result<()> {
         });
 
     let mut plat = Platform::new().map_err(|e| anyhow!(e.to_string()))?;
+    let mut cab = plat
+        .create_cabinet("SNES Xperience", 1280, 800)
+        .map_err(|e| anyhow!(e.to_string()))?;
     let opts = ShelfOpts {
         order,
         max_frames,
         scrape,
     };
-    match shelf::run(&mut plat, &catalog, &opts)? {
+    match shelf::run(&mut plat, &mut cab, &catalog, &opts)? {
         Pick::Play(path) => {
             println!("{}", path.display());
             Ok(())

@@ -39,11 +39,16 @@ aviso — só o incremento de _minor_ marca um conjunto de mudanças.
   título em texto) e sinopse longa numa região recortada (`Ui::clip`) que rola
   sozinha após ~1,3 s parada. `Ui::wrapped_height` (com teste) dimensiona o
   scroll; o decodificador de arte agora também trata os `wheel` (≤512 px, alfa).
-- **Gabinete atrás do tubo** (Fase 3): o `Video` recua a tela do jogo num
-  gabinete escuro — limpa com a cor do recuo, desenha uma malha de anel
+- **Gabinete atrás do tubo** (Fase 3): a tela do jogo é recuada num gabinete
+  escuro — limpa com a cor do recuo, desenha uma malha de anel
   (`build_bezel_mesh`) da borda da janela até a tela e então o tubo CRT dentro.
   `screen_area` / `fit_aspect_in` dão o vão 4:3 com queixo maior; a malha é
   cacheada por tamanho. A imagem do jogo fica sendo a coisa mais clara do quadro.
+- **Janela única** (Fase 3): `Ui` + `Video` viraram um tipo só, `Cabinet`, que
+  tem o caminho do jogo (`present_frame`) e o 2D da estante (`begin_2d` / `fill`
+  / `text` / … / `present_2d`, coordenadas no vão da tela). `xperience` cria um
+  `Cabinet` e passa `&mut` dele pra `shelf::run` e `runner::run_game` — a troca
+  estante↔jogo não recria janela. Testes de `screen_area` / `fit_aspect_in`.
 
 ## [0.1.0] — 2026-09-10
 

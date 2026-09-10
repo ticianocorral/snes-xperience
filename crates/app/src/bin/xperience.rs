@@ -140,6 +140,13 @@ fn main() -> Result<()> {
     }
 
     let mut plat = Platform::new().map_err(|e| anyhow!(e.to_string()))?;
+    // One window for the whole session — shelf and game both draw into it.
+    let mut cab = plat
+        .create_cabinet("SNES Xperience", 1280, 800)
+        .map_err(|e| anyhow!(e.to_string()))?;
+    if cfg.fullscreen {
+        cab.toggle_fullscreen();
+    }
     let shelf_opts = ShelfOpts {
         order: args.order,
         max_frames: None,
@@ -147,7 +154,7 @@ fn main() -> Result<()> {
     };
 
     loop {
-        let rom = match shelf::run(&mut plat, &catalog, &shelf_opts)? {
+        let rom = match shelf::run(&mut plat, &mut cab, &catalog, &shelf_opts)? {
             Pick::Quit => break,
             Pick::Play(p) => p,
         };
@@ -159,7 +166,7 @@ fn main() -> Result<()> {
             runahead: args.runahead,
             shot: None,
         };
-        match run_game(&mut plat, &spec, &cfg)? {
+        match run_game(&mut plat, &mut cab, &spec, &cfg)? {
             GameExit::ToShelf => continue,
             GameExit::Quit => break,
         }

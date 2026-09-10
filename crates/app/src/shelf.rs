@@ -9,12 +9,12 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{bail, Result};
 use xperience_domain::{
     download_art, ArtPaths, Catalog, CatalogEntry, Client, Credentials, GameInfo, Order, RomId,
     ScrapeError,
 };
-use xperience_platform::{MenuNav, Platform};
+use xperience_platform::{Cabinet, MenuNav, Platform};
 
 const TILE_W: u32 = 150;
 const TILE_H: u32 = 200;
@@ -107,9 +107,14 @@ fn wheel_id(sha1: &str) -> u64 {
     u64::from_str_radix(sha1.get(16..32).unwrap_or("0"), 16).unwrap_or(0)
 }
 
-/// Show the shelf on `plat` until the player picks a game or cancels. The `plat`
-/// outlives the call; the shelf window is created and dropped inside.
-pub fn run(plat: &mut Platform, catalog: &Catalog, opts: &ShelfOpts) -> Result<Pick> {
+/// Show the shelf in `cab` (the one persistent window) until the player picks a
+/// game or cancels. `plat` and `cab` both outlive the call.
+pub fn run(
+    plat: &mut Platform,
+    cab: &mut Cabinet,
+    catalog: &Catalog,
+    opts: &ShelfOpts,
+) -> Result<Pick> {
     let mut all = catalog.list(opts.order)?;
     if all.is_empty() {
         bail!("catalogue is empty — run:  library scan --roms <dir>");
@@ -150,10 +155,6 @@ pub fn run(plat: &mut Platform, catalog: &Catalog, opts: &ShelfOpts) -> Result<P
         std::thread::spawn(move || scrape_worker(creds, art_dir, job_rx, scraped_tx));
     }
 
-    let mut ui = plat
-        .create_ui_window("SNES Xperience", 1280, 800)
-        .map_err(|e| anyhow!(e.to_string()))?;
-
     let mut sel: usize = 0;
     let mut top_row: usize = 0;
     let mut search = String::new();
@@ -181,7 +182,7 @@ pub fn run(plat: &mut Platform, catalog: &Catalog, opts: &ShelfOpts) -> Result<P
 
         // Drain decoded covers.
         while let Ok(c) = decoded_rx.try_recv() {
-            ui.set_image(c.id, c.w, c.h, &c.rgba);
+            cab.set_image(c.id, c.w, c.h, &c.rgba);
         }
 
         // Drain scrape results; a hit rewrites the catalogue and the view.
@@ -224,10 +225,10 @@ pub fn run(plat: &mut Platform, catalog: &Catalog, opts: &ShelfOpts) -> Result<P
             sel = view.len().saturating_sub(1);
         }
 
-        let (win_w, win_h) = ui.size();
-        let grid_w = win_w.saturating_sub(PANEL_W + MARGIN as u32 * 2);
+        let (scr_w, scr_h) = cab.screen_size();
+        let grid_w = scr_w.saturating_sub(PANEL_W + MARGIN as u32 * 2);
         let cols = (grid_w / (TILE_W + GAP)).max(1) as usize;
-        let vis_rows = ((win_h as i32 - MARGIN * 2 - 40) / (TILE_H + GAP) as i32).max(1) as usize;
+        let vis_rows = ((scr_h as i32 - MARGIN * 2 - 40) / (TILE_H + GAP) as i32).max(1) as usize;
 
         // Input.
         let m = plat.poll_menu();
@@ -235,7 +236,7 @@ pub fn run(plat: &mut Platform, catalog: &Catalog, opts: &ShelfOpts) -> Result<P
             return Ok(Pick::Quit);
         }
         if m.toggle_fullscreen {
-            ui.toggle_fullscreen();
+            cab.toggle_fullscreen();
         }
         if m.backspace {
             search.pop();
@@ -305,7 +306,7 @@ pub fn run(plat: &mut Platform, catalog: &Catalog, opts: &ShelfOpts) -> Result<P
         }
 
         // --- draw --------------------------------------------------------
-        ui.begin(BG);
+        cab.begin_2d(BG);
 
         // Search line.
         let label = if search.is_empty() {
@@ -313,7 +314,7 @@ pub fn run(plat: &mut Platform, catalog: &Catalog, opts: &ShelfOpts) -> Result<P
         } else {
             format!("search: {search}_   ({} match)", view.len())
         };
-        ui.text(MARGIN, MARGIN - 12, 2, DIM, &label);
+        cab.text(MARGIN, MARGIN - 12, 2, DIM, &label);
 
         let grid_x0 = MARGIN;
         let grid_y0 = MARGIN + 28;
@@ -326,12 +327,12 @@ pub fn run(plat: &mut Platform, catalog: &Catalog, opts: &ShelfOpts) -> Result<P
             let x = grid_x0 + col as i32 * (TILE_W + GAP) as i32;
             let y = grid_y0 + (row - top_row) as i32 * (TILE_H + GAP) as i32;
 
-            ui.fill(x, y, TILE_W, TILE_H, TILE_BG);
+            cab.fill(x, y, TILE_W, TILE_H, TILE_BG);
             let id = cover_id(&entry.rom.sha1);
-            if ui.has_image(id) {
-                ui.image_fit(id, x + 4, y + 4, TILE_W - 8, TILE_H - 8);
+            if cab.has_image(id) {
+                cab.image_fit(id, x + 4, y + 4, TILE_W - 8, TILE_H - 8);
             } else {
-                ui.text_wrapped(
+                cab.text_wrapped(
                     x + 8,
                     y + 10,
                     TILE_W - 16,
@@ -341,13 +342,13 @@ pub fn run(plat: &mut Platform, catalog: &Catalog, opts: &ShelfOpts) -> Result<P
                 );
             }
             if i == sel {
-                ui.outline(x - 3, y - 3, TILE_W + 6, TILE_H + 6, 3, HILITE);
+                cab.outline(x - 3, y - 3, TILE_W + 6, TILE_H + 6, 3, HILITE);
             }
         }
 
         // --- details panel ---------------------------------------------
-        let px = (win_w - PANEL_W) as i32;
-        ui.fill(px, 0, PANEL_W, win_h, (24, 24, 28, 255));
+        let px = (scr_w - PANEL_W) as i32;
+        cab.fill(px, 0, PANEL_W, scr_h, (24, 24, 28, 255));
         if let Some(e) = view.get(sel) {
             let ix = px + 22;
             let inner_w = PANEL_W - 44;
@@ -355,11 +356,11 @@ pub fn run(plat: &mut Platform, catalog: &Catalog, opts: &ShelfOpts) -> Result<P
 
             // Header: the wheel logo if we have it, else the title in text.
             let wid = wheel_id(&e.rom.sha1);
-            if ui.has_image(wid) {
-                ui.image_fit(wid, ix, iy, inner_w, 72);
+            if cab.has_image(wid) {
+                cab.image_fit(wid, ix, iy, inner_w, 72);
                 iy += 72 + 12;
             } else {
-                iy = ui.text_wrapped(ix, iy, inner_w, 2, TEXT, &e.title()) + 8;
+                iy = cab.text_wrapped(ix, iy, inner_w, 2, TEXT, &e.title()) + 8;
             }
 
             let m = e.meta.as_ref();
@@ -375,8 +376,8 @@ pub fn run(plat: &mut Platform, catalog: &Catalog, opts: &ShelfOpts) -> Result<P
             ];
             for (k, v) in rows {
                 if let Some(v) = v {
-                    ui.text(ix, iy, 1, DIM, k);
-                    ui.text(ix + 90, iy, 1, TEXT, v);
+                    cab.text(ix, iy, 1, DIM, k);
+                    cab.text(ix + 90, iy, 1, TEXT, v);
                     iy += 16;
                 }
             }
@@ -385,15 +386,15 @@ pub fn run(plat: &mut Platform, catalog: &Catalog, opts: &ShelfOpts) -> Result<P
                 // Scrollable region between the ficha and the footer. After a
                 // short rest it creeps upward until the end is visible.
                 let vp_y = iy;
-                let vp_h = (win_h as i32 - 40 - vp_y).max(0);
+                let vp_h = (scr_h as i32 - 40 - vp_y).max(0);
                 if vp_h > 12 {
-                    let overflow = (ui.wrapped_height(inner_w, 1, s) - vp_h).max(0);
+                    let overflow = (cab.wrapped_height(inner_w, 1, s) - vp_h).max(0);
                     if dwell > SYNOPSIS_HOLD_FRAMES {
                         synopsis_scroll = (synopsis_scroll + 1).min(overflow);
                     }
-                    ui.clip(Some((px, vp_y, PANEL_W, vp_h as u32)));
-                    ui.text_wrapped(ix, vp_y - synopsis_scroll, inner_w, 1, DIM, s);
-                    ui.clip(None);
+                    cab.clip(Some((px, vp_y, PANEL_W, vp_h as u32)));
+                    cab.text_wrapped(ix, vp_y - synopsis_scroll, inner_w, 1, DIM, s);
+                    cab.clip(None);
                 }
             } else if e.meta.is_none() {
                 let note = if quota_hit {
@@ -405,18 +406,18 @@ pub fn run(plat: &mut Platform, catalog: &Catalog, opts: &ShelfOpts) -> Result<P
                 } else {
                     "not scraped (no credentials)"
                 };
-                ui.text(ix, iy, 1, DIM, note);
+                cab.text(ix, iy, 1, DIM, note);
             }
         }
-        ui.text(
+        cab.text(
             px + 22,
-            win_h as i32 - 30,
+            scr_h as i32 - 30,
             1,
             DIM,
             "A / Enter: play   B / Esc: quit",
         );
 
-        ui.present();
+        cab.present_2d();
 
         let elapsed = started.elapsed();
         if elapsed < frame {

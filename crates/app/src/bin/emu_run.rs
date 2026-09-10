@@ -146,6 +146,12 @@ fn main() -> Result<()> {
     }
 
     let mut platform = xperience_platform::Platform::new().map_err(|e| anyhow!(e.to_string()))?;
+    let mut cabinet = platform
+        .create_cabinet("SNES Xperience", 1024, 768)
+        .map_err(|e| anyhow!(e.to_string()))?;
+    if cfg.fullscreen {
+        cabinet.toggle_fullscreen();
+    }
     let spec = GameSpec {
         core: args.core,
         rom: args.rom,
@@ -155,7 +161,7 @@ fn main() -> Result<()> {
         shot: args.shot.map(|p| (p, args.shot_frame)),
     };
     // Standalone: "back" and "close" both just end the process.
-    run_game(&mut platform, &spec, &cfg)?;
+    run_game(&mut platform, &mut cabinet, &spec, &cfg)?;
     log::info!("bye");
     Ok(())
 }

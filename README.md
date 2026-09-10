@@ -22,7 +22,7 @@ Quatro camadas, dependências só para baixo (plano §2):
 | Apresentação  | `xperience-app`      | binários (`xperience`, `emu-run`, `selector`, `library`, `scrape-test`) + módulos `runner` / `shelf` que eles compartilham |
 | Domínio       | `xperience-domain`   | identificação de ROM, catálogo SQLite, ScreenScraper   |
 | Emulação      | `xperience-emulation`| core libretro carregado em runtime, laço de execução   |
-| Plataforma    | `xperience-platform` | SDL3: janela, tubo CRT (`render_geometry`), camada 2D do seletor, áudio, gamepad |
+| Plataforma    | `xperience-platform` | SDL3: o `Cabinet` (janela única — gabinete, tubo CRT, camada 2D do seletor), áudio, gamepad |
 
 `xperience-ntsc` é um crate folha à parte: o `snes_ntsc` do blargg vendorizado.
 

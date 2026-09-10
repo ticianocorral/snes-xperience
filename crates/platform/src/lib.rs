@@ -2,14 +2,12 @@
 //! the architecture knows SDL exists.
 
 mod audio;
+mod cabinet;
 mod input;
-mod ui;
-mod video;
 
 pub use audio::AudioOut;
+pub use cabinet::{Cabinet, FrameRef, PixelFormat};
 pub use input::{Input, KeyMap, PadButton, UiEvent, MAX_PORTS};
-pub use ui::Ui;
-pub use video::{FrameRef, PixelFormat, Video};
 
 use sdl3::event::Event;
 use sdl3::gamepad::{Button as PadBtn, Gamepad};
@@ -124,13 +122,15 @@ impl Platform {
         }
     }
 
-    pub fn create_ui_window(
+    /// The one window: a dark cabinet with the screen recessed into it. Both the
+    /// game and the selector draw into that screen area; nothing recreates it.
+    pub fn create_cabinet(
         &self,
         title: &str,
         width: u32,
         height: u32,
-    ) -> Result<Ui, PlatformError> {
-        Ui::new(&self.video_subsystem, title, width, height)
+    ) -> Result<Cabinet, PlatformError> {
+        Cabinet::new(&self.video_subsystem, title, width, height)
     }
 
     /// Drain events for a menu screen: directional nav (keyboard arrows repeat;
@@ -189,15 +189,6 @@ impl Platform {
             self.menu_prev[i] = down;
         }
         out
-    }
-
-    pub fn create_window(
-        &self,
-        title: &str,
-        width: u32,
-        height: u32,
-    ) -> Result<Video, PlatformError> {
-        Video::new(&self.video_subsystem, title, width, height)
     }
 
     pub fn open_audio(&self, sample_rate: u32) -> Result<AudioOut, PlatformError> {
