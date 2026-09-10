@@ -9,6 +9,18 @@ aviso — só o incremento de _minor_ marca um conjunto de mudanças.
 
 ## [Não lançado]
 
+### Adicionado
+
+- **Catálogo** (`xperience-domain`): `library::scan` varre uma pasta
+  recursivamente e hasheia os ROMs; `Catalog` é um cache SQLite (`rusqlite`
+  bundled) com as tabelas `rom` e `meta`, ordenação de estante (§3.1: último
+  jogado → recém-adicionado), `unscraped`, `prune_missing`.
+- **ScreenScraper**: `GameInfo` (antes `GameMedia`) traz ano, desenvolvedora,
+  editora, gênero, jogadores, sinopse e a capa `box-2D`; `Client::download`
+  salva arte em disco; erro de cota agora é distinto.
+- Binário **`library`** (`scan` / `scrape` / `list`) para montar e preencher o
+  catálogo pela linha de comando.
+
 ## [0.1.0] — 2026-09-10
 
 Primeira versão marcada. Cobre as Fases 0 e 1 do

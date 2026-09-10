@@ -128,7 +128,7 @@ fn main() -> Result<()> {
         match client.lookup(&id, &name) {
             Ok(media) => {
                 matched += 1;
-                if media.has_both() {
+                if media.has_cartridge_media() {
                     both += 1;
                 }
                 if let (Some(t), Some(m)) = (&media.requests_today, &media.max_requests_per_day) {

@@ -2,14 +2,13 @@
 
 Emulador de SNES com moldura estática — projeto pessoal, sem fins comerciais.
 Ver [`docs/plano-emulador-moldura.md`](docs/plano-emulador-moldura.md) para o
-desenho completo, e [`docs/fase-0.md`](docs/fase-0.md) /
-[`docs/fase-1.md`](docs/fase-1.md) para o que já foi feito.
+desenho completo, e `docs/fase-0.md` … `docs/fase-2.md` para o que já foi feito.
 
-Estado atual: **Fase 1 — emulador feio que funciona.** As quatro camadas estão
-de pé; `emu-run` carrega e roda uma ROM com vídeo, som, gamepad, save state,
-SRAM de bateria e run-ahead. Visualização fixa: NTSC RF + tubo CRT. Ainda não há
-moldura, seletor nem painel. Ver [`docs/fase-0.md`](docs/fase-0.md) e
-[`docs/fase-1.md`](docs/fase-1.md).
+Estado atual: **Fase 2 — o seletor (em andamento).** As Fases 0 e 1 estão
+prontas: `emu-run` roda uma ROM com vídeo, som, gamepad, save state, SRAM e
+run-ahead, visual fixo NTSC RF + tubo CRT. Da Fase 2 já existe o catálogo
+(varredura de pasta, hash, cache SQLite, ScreenScraper) via o binário `library`;
+falta a estante na tela. Ainda não há moldura nem painel.
 
 ## Arquitetura
 
@@ -17,8 +16,8 @@ Quatro camadas, dependências só para baixo (plano §2):
 
 | Camada        | Crate                | Responsabilidade                                        |
 |---------------|----------------------|--------------------------------------------------------|
-| Apresentação  | `xperience-app`      | binários que amarram tudo (`emu-run`, `scrape-test`)   |
-| Domínio       | `xperience-domain`   | identificação de ROM, ScreenScraper                    |
+| Apresentação  | `xperience-app`      | binários (`emu-run`, `library`, `scrape-test`)         |
+| Domínio       | `xperience-domain`   | identificação de ROM, catálogo SQLite, ScreenScraper   |
 | Emulação      | `xperience-emulation`| core libretro carregado em runtime, laço de execução   |
 | Plataforma    | `xperience-platform` | SDL3: janela, tubo CRT (`render_geometry`), áudio, gamepad |
 
