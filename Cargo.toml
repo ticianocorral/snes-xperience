@@ -4,6 +4,7 @@ members = [
     "crates/emulation",
     "crates/platform",
     "crates/domain",
+    "crates/ntsc",
     "crates/app",
 ]
 

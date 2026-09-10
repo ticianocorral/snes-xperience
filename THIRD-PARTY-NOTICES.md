@@ -22,6 +22,19 @@ substituto natural é o **ares** (licença ISC, v121+).
 
 A camada de plataforma usa [SDL3](https://www.libsdl.org/), sob a licença zlib.
 
+## snes_ntsc (LGPL v2.1+)
+
+`crates/ntsc/vendor/snes_ntsc/` contém `snes_ntsc` 0.2.2 de Shay Green (blargg),
+sob **LGPL v2.1 ou posterior**. Fonte verbatim de
+`github.com/libretro/snes9x/tree/master/filter`; só `shim.c` é nosso. O preset
+`Rf` em `crates/ntsc/src/lib.rs` é uma parametrização nossa (composite + menos
+resolução + mais artefato/franja/bleed, sem merge de campos).
+
+A LGPL exige que o usuário possa recompilar/religar essa parte. Como o projeto é
+código aberto e não comercial, distribuir o binário junto do fonte cobre isso.
+Se um dia virar produto fechado, linkar `snes_ntsc` dinamicamente ou fornecer os
+objetos para religação.
+
 ## libretro-database — pasta `cht` (Fase 4)
 
 Os cheats virão da pasta `cht` do `libretro-database` (licença MIT), embutidos

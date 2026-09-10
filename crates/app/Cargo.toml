@@ -18,6 +18,7 @@ path = "src/bin/scrape_test.rs"
 xperience-emulation = { path = "../emulation" }
 xperience-platform = { path = "../platform" }
 xperience-domain = { path = "../domain" }
+xperience-ntsc = { path = "../ntsc" }
 anyhow.workspace = true
 log.workspace = true
 env_logger.workspace = true

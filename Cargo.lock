@@ -1083,6 +1083,7 @@ dependencies = [
  "log",
  "xperience-domain",
  "xperience-emulation",
+ "xperience-ntsc",
  "xperience-platform",
 ]
 
@@ -1110,6 +1111,13 @@ dependencies = [
  "libloading",
  "log",
  "thiserror",
+]
+
+[[package]]
+name = "xperience-ntsc"
+version = "0.0.0"
+dependencies = [
+ "cc",
 ]
 
 [[package]]

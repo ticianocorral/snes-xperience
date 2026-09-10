@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Context, Result};
 use xperience_emulation::{Button, Core, PixelFormat as EmuFormat};
+use xperience_ntsc::{NtscFilter, Preset};
 use xperience_platform::{FrameRef, PixelFormat as PlatFormat, Platform, ScaleMode, UiEvent};
 
 struct Args {
@@ -21,55 +22,41 @@ struct Args {
     system_dir: PathBuf,
     save_dir: PathBuf,
     scale: ScaleMode,
-    /// Blargg NTSC preset for the core (`snes9x_blargg`).
-    ntsc: Ntsc,
+    /// Vendored blargg snes_ntsc preset; `None` = filter off.
+    ntsc: Option<Preset>,
     /// Headless self-check: run N frames, save the composited window, exit.
     shot: Option<PathBuf>,
     shot_frame: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Ntsc {
-    Disabled,
-    Monochrome,
-    Composite,
-    SVideo,
+fn parse_ntsc(s: &str) -> Option<Option<Preset>> {
+    Some(match s {
+        "off" | "none" | "disabled" => None,
+        "rf" => Some(Preset::Rf),
+        "composite" => Some(Preset::Composite),
+        "svideo" | "s-video" => Some(Preset::SVideo),
+        "rgb" => Some(Preset::Rgb),
+        "mono" | "monochrome" => Some(Preset::Monochrome),
+        _ => return None,
+    })
 }
 
-impl Ntsc {
-    /// Value for the `snes9x_blargg` core option.
-    fn core_value(self) -> &'static str {
-        match self {
-            Ntsc::Disabled => "disabled",
-            Ntsc::Monochrome => "monochrome",
-            Ntsc::Composite => "composite",
-            Ntsc::SVideo => "s-video",
-        }
+/// off -> rf -> composite -> s-video -> rgb -> monochrome -> off
+fn next_ntsc(cur: Option<Preset>) -> Option<Preset> {
+    match cur {
+        None => Some(Preset::Rf),
+        Some(Preset::Rf) => Some(Preset::Composite),
+        Some(Preset::Composite) => Some(Preset::SVideo),
+        Some(Preset::SVideo) => Some(Preset::Rgb),
+        Some(Preset::Rgb) => Some(Preset::Monochrome),
+        Some(Preset::Monochrome) => None,
     }
-    fn label(self) -> &'static str {
-        match self {
-            Ntsc::Disabled => "off",
-            Ntsc::Monochrome => "monochrome",
-            Ntsc::Composite => "composite (RF-style)",
-            Ntsc::SVideo => "s-video",
-        }
-    }
-    fn next(self) -> Self {
-        match self {
-            Ntsc::Disabled => Ntsc::Composite,
-            Ntsc::Composite => Ntsc::SVideo,
-            Ntsc::SVideo => Ntsc::Monochrome,
-            Ntsc::Monochrome => Ntsc::Disabled,
-        }
-    }
-    fn parse(s: &str) -> Option<Self> {
-        Some(match s {
-            "off" | "disabled" | "none" => Ntsc::Disabled,
-            "mono" | "monochrome" => Ntsc::Monochrome,
-            "composite" | "rf" => Ntsc::Composite,
-            "svideo" | "s-video" => Ntsc::SVideo,
-            _ => return None,
-        })
+}
+
+fn ntsc_label(p: Option<Preset>) -> &'static str {
+    match p {
+        None => "off",
+        Some(p) => p.label(),
     }
 }
 
@@ -79,7 +66,7 @@ fn parse_args() -> Result<Args> {
     let mut system_dir = None;
     let mut save_dir = None;
     let mut scale = ScaleMode::Bilinear;
-    let mut ntsc = Ntsc::Composite;
+    let mut ntsc = Some(Preset::Rf);
     let mut shot = None;
     let mut shot_frame = 180u32;
 
@@ -123,8 +110,9 @@ fn parse_args() -> Result<Args> {
             }
             "--ntsc" => {
                 let v = it.next().ok_or_else(|| anyhow!("--ntsc needs a value"))?;
-                ntsc = Ntsc::parse(&v)
-                    .ok_or_else(|| anyhow!("--ntsc wants off|monochrome|composite|svideo"))?;
+                ntsc = parse_ntsc(&v).ok_or_else(|| {
+                    anyhow!("--ntsc wants off|rf|composite|svideo|rgb|monochrome")
+                })?;
             }
             "--shot" => {
                 shot = Some(
@@ -165,7 +153,7 @@ fn parse_args() -> Result<Args> {
 }
 
 const HELP: &str = "emu-run --core <lib> --rom <game.sfc> [--system-dir D] [--save-dir D]\n\
-       [--scale pixel|bilinear] [--ntsc off|monochrome|composite|svideo]\n\
+       [--scale pixel|bilinear] [--ntsc off|rf|composite|svideo|rgb|monochrome]\n\
        [--shot out.bmp [--shot-frame N]]   headless: run N frames, dump one, exit\n\
 \n\
 keys: arrows=dpad  Z=B X=A A=Y S=X Q=L W=R  Enter=Start RShift=Select\n\
@@ -226,11 +214,13 @@ fn main() -> Result<()> {
     core.load_game(&args.rom, &rom_bytes)
         .context("core rejected the ROM")?;
 
-    // Apply the Blargg NTSC preset *after* load_game — retro_init/load_game
-    // repopulate the core's option table from its own defaults.
-    let mut ntsc = args.ntsc;
-    core.set_variable("snes9x_blargg", ntsc.core_value());
-    log::info!("ntsc filter: {}", ntsc.label());
+    // We do our own NTSC (vendored blargg snes_ntsc) on the raw frame, so keep
+    // the core's built-in filter off.
+    core.set_variable("snes9x_blargg", "disabled");
+
+    let mut ntsc_choice = args.ntsc;
+    let mut ntsc = ntsc_choice.map(NtscFilter::new);
+    log::info!("ntsc filter: {}", ntsc_label(ntsc_choice));
 
     let av = core.av_info();
     log::info!(
@@ -280,9 +270,13 @@ fn main() -> Result<()> {
                     log::info!("scale = {}", scale.label());
                 }
                 UiEvent::CycleNtsc => {
-                    ntsc = ntsc.next();
-                    core.set_variable("snes9x_blargg", ntsc.core_value());
-                    log::info!("ntsc filter: {}", ntsc.label());
+                    ntsc_choice = next_ntsc(ntsc_choice);
+                    match (&mut ntsc, ntsc_choice) {
+                        (Some(f), Some(p)) => f.set_preset(p),
+                        (slot, Some(p)) => *slot = Some(NtscFilter::new(p)),
+                        (slot, None) => *slot = None,
+                    }
+                    log::info!("ntsc filter: {}", ntsc_label(ntsc_choice));
                 }
                 UiEvent::Reset => core.reset(),
                 UiEvent::TogglePause => {
@@ -310,12 +304,30 @@ fn main() -> Result<()> {
                     );
                     last_dims = dims;
                 }
-                let fref = FrameRef {
-                    width: frame.width,
-                    height: frame.height,
-                    pitch: frame.pitch,
-                    format: map_format(frame.format),
-                    pixels: &frame.pixels,
+                // Run the vendored NTSC filter on RGB565 frames; otherwise pass
+                // the raw framebuffer straight through.
+                let fref = match (&mut ntsc, frame.format) {
+                    (Some(filter), EmuFormat::Rgb565) => {
+                        let (out, ow, oh) =
+                            filter.process(&frame.pixels, frame.width, frame.height, frame.pitch);
+                        let bytes = unsafe {
+                            std::slice::from_raw_parts(out.as_ptr() as *const u8, out.len() * 2)
+                        };
+                        FrameRef {
+                            width: ow,
+                            height: oh,
+                            pitch: ow as usize * 2,
+                            format: PlatFormat::Rgb565,
+                            pixels: bytes,
+                        }
+                    }
+                    _ => FrameRef {
+                        width: frame.width,
+                        height: frame.height,
+                        pitch: frame.pitch,
+                        format: map_format(frame.format),
+                        pixels: &frame.pixels,
+                    },
                 };
                 let aspect = core.av_info().aspect_ratio;
                 video.present(&fref, aspect, scale);
