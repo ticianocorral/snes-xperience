@@ -37,8 +37,7 @@ Nada de moldura, seletor ou painel nesta fase.
 cargo run --release --bin emu-run -- \
   --core ~/cores/snes9x_libretro.dylib \
   --rom  ~/roms/minha-rom.sfc \
-  --save-dir ./saves \
-  --scale bilinear --ntsc rf   # scale: pixel|bilinear  ntsc: off|rf|composite|svideo|rgb|monochrome
+  --save-dir ./saves
 ```
 
 Ou defina o core por ambiente: `export XPERIENCE_CORE=~/cores/snes9x_libretro.dylib`.
@@ -53,8 +52,6 @@ Ou defina o core por ambiente: `export XPERIENCE_CORE=~/cores/snes9x_libretro.dy
 | Q / W        | L / R                                          |
 | Enter        | Start                                          |
 | Shift dir.   | Select                                         |
-| Tab          | alterna a escala (pixel ↔ bilinear)            |
-| N            | alterna o filtro NTSC (off/rf/composite/s-video/rgb/mono) |
 | F            | tela cheia                                     |
 | Backspace    | reset                                          |
 | P            | pausa                                          |
@@ -68,28 +65,30 @@ Um gamepad conectado é detectado automaticamente e tem prioridade de uso
 - A janela abre e mostra o jogo rodando a ~60 fps.
 - Há som contínuo, sem estouros grosseiros.
 - O gamepad controla o jogo.
-- `Tab` alterna entre **pixel perfect** e **bilinear + tubo CRT**.
-- `N` alterna o filtro Blargg NTSC do core (`composite` = visual RF).
+- A imagem aparece com o visual definitivo: **NTSC RF + tubo CRT**.
 - O log inicial mostra a identificação da ROM (crc32/sha1, nome interno,
   LoROM/HiROM) e o `av_info` do core (resolução, fps, sample rate).
 
-### Modos de escala e filtro
+### A visualização
 
-| Modo       | Como funciona                                                        |
-|------------|--------------------------------------------------------------------|
-| `pixel`    | escala inteira + vizinho mais próximo, centralizado, com barras     |
-| `bilinear` | amostragem linear desenhada através de uma **malha com distorção de barril** (`render_geometry`): a imagem estufa como tubo de TV, bordas curvas, cantos cortados e vinheta nas quinas. Sem scanline. |
+Só existe um caminho de apresentação, fixo:
 
-O filtro **NTSC** é o `snes_ntsc` 0.2.2 do blargg, vendorizado em
-`crates/ntsc/` (LGPL). `--ntsc` / tecla `N` alterna
-`off → rf → composite → s-video → rgb → monochrome`. O `rf` é o visual de antena
-(composite mais sujo, sem merge de campos); a saída de 256 vira 602 de largura,
-que a malha do tubo reescala. O `snes9x_blargg` do core fica desligado.
+1. **NTSC RF** — o frame cru passa pelo `snes_ntsc` 0.2.2 do blargg,
+   vendorizado em `crates/ntsc/` (LGPL), com o preset `Rf` (composite mais
+   sujo, sem merge de campos, fase de burst animada). 256 de largura vira 602.
+   O `snes9x_blargg` do core fica desligado.
+2. **Tubo CRT** — o resultado é amostrado com bilinear e desenhado por uma
+   malha com distorção de barril (`render_geometry`): a imagem estufa como
+   tubo de TV, bordas curvas, cantos cortados, vinheta nas quinas. Sem
+   scanline.
 
-Constantes do tubo em `crates/platform/src/video.rs`: `CRT_WARP` (curvatura),
-`CRT_VIGNETTE`, `CRT_GRID`. O `sharp bilinear` e o `crt` placeholder do plano
-§4.7 foram removidos a pedido; um shader de CRT completo (scanline, máscara de
-fósforo) continua previsto para a Fase 3.
+Os ajustes ficam em constantes no fonte, não em flags:
+`crates/platform/src/video.rs` → `CRT_WARP` (curvatura), `CRT_VIGNETTE`,
+`CRT_GRID`; `crates/ntsc/src/lib.rs` → `Preset::Rf` (`artifacts`, `fringing`,
+`bleed`, `resolution`).
+
+Um shader de CRT completo (scanline, máscara de fósforo) continua previsto
+para a Fase 3.
 
 ---
 

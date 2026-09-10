@@ -7,7 +7,7 @@ mod video;
 
 pub use audio::AudioOut;
 pub use input::{Input, PadButton, UiEvent};
-pub use video::{FrameRef, PixelFormat, ScaleMode, Video};
+pub use video::{FrameRef, PixelFormat, Video};
 
 use sdl3::event::Event;
 use sdl3::gamepad::{Button as PadBtn, Gamepad};
@@ -113,8 +113,6 @@ impl Platform {
                     match k {
                         Keycode::Escape => out.push(UiEvent::Quit),
                         Keycode::F => out.push(UiEvent::ToggleFullscreen),
-                        Keycode::Tab => out.push(UiEvent::CycleScaleMode),
-                        Keycode::N => out.push(UiEvent::CycleNtsc),
                         Keycode::Backspace => out.push(UiEvent::Reset),
                         Keycode::P => out.push(UiEvent::TogglePause),
                         _ => {}

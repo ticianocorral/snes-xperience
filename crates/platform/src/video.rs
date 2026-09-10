@@ -1,14 +1,11 @@
-//! Window plus scaling modes.
-//!
-//! - `PixelPerfect`: integer nearest, letterboxed.
-//! - `Bilinear`: linear-sampled and drawn through a barrel-distorted mesh so the
-//!   picture bulges like a CRT tube (curved edges, corner cut-off, edge
-//!   vignette). No scanlines. Pair it with the core's Blargg NTSC option for the
-//!   composite/RF colour bleed.
+//! Window and the single presentation path: the frame is linear-sampled and
+//! drawn through a barrel-distorted mesh so it bulges like a CRT tube (curved
+//! edges, corners cut off, edge vignette). No scanlines. The NTSC colour bleed
+//! is applied upstream (see `xperience-ntsc`).
 
 use sdl3::pixels::{Color, FColor, PixelFormat as SdlFormat};
 use sdl3::rect::Rect;
-use sdl3::render::{FPoint, ScaleMode as SdlScaleMode, Texture, Vertex, WindowCanvas};
+use sdl3::render::{ScaleMode as SdlScaleMode, Texture, Vertex, WindowCanvas};
 use sdl3::VideoSubsystem;
 
 use crate::PlatformError;
@@ -53,30 +50,9 @@ pub struct FrameRef<'a> {
     pub pixels: &'a [u8],
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ScaleMode {
-    PixelPerfect,
-    Bilinear,
-}
-
-impl ScaleMode {
-    pub fn next(self) -> Self {
-        match self {
-            ScaleMode::PixelPerfect => ScaleMode::Bilinear,
-            ScaleMode::Bilinear => ScaleMode::PixelPerfect,
-        }
-    }
-    pub fn label(self) -> &'static str {
-        match self {
-            ScaleMode::PixelPerfect => "pixel perfect",
-            ScaleMode::Bilinear => "bilinear + crt tube",
-        }
-    }
-}
-
 pub struct Video {
     canvas: WindowCanvas,
-    /// Streaming texture at native core resolution.
+    /// Streaming texture at the incoming frame's resolution.
     src: Option<SrcTexture>,
     /// Cached CRT mesh; rebuilt only when the game rect resizes.
     mesh: Option<CrtMesh>,
@@ -134,7 +110,6 @@ impl Video {
         &mut self,
         frame: &FrameRef,
         aspect_ratio: f32,
-        mode: ScaleMode,
         path: &std::path::Path,
     ) -> Result<(), PlatformError> {
         self.ensure_src(frame.width, frame.height, frame.format);
@@ -144,14 +119,8 @@ impl Video {
             .canvas
             .output_size()
             .unwrap_or((frame.width, frame.height));
-        let aspect = if aspect_ratio > 0.0 {
-            aspect_ratio
-        } else {
-            4.0 / 3.0
-        };
-        let dst = fit_aspect(out_w, out_h, aspect);
+        let dst = fit_aspect(out_w, out_h, resolve_aspect(aspect_ratio));
         self.ensure_mesh(dst);
-        self.set_src_filter(mode);
 
         let mut target = self
             .canvas
@@ -164,7 +133,7 @@ impl Video {
         let outcome = self.canvas.with_texture_canvas(&mut target, |c| {
             c.set_draw_color(Color::RGB(0, 0, 0));
             c.clear();
-            draw(c, &src, &mesh, dst, mode);
+            let _ = c.render_geometry(&mesh.verts, Some(&src.tex), &mesh.indices[..]);
             saved = c
                 .read_pixels(None::<Rect>)
                 .and_then(|s| s.save_bmp(path))
@@ -189,24 +158,17 @@ impl Video {
             .expect("upload frame");
     }
 
-    fn set_src_filter(&mut self, mode: ScaleMode) {
-        let want = match mode {
-            ScaleMode::PixelPerfect => SdlScaleMode::Nearest,
-            ScaleMode::Bilinear => SdlScaleMode::Linear,
-        };
-        self.src.as_mut().unwrap().tex.set_scale_mode(want);
-    }
-
     fn ensure_src(&mut self, w: u32, h: u32, format: PixelFormat) {
         let stale = match &self.src {
             Some(s) => s.w != w || s.h != h || s.format != format,
             None => true,
         };
         if stale {
-            let tex = self
+            let mut tex = self
                 .canvas
                 .create_texture_streaming(format.sdl(), w, h)
                 .expect("create streaming texture");
+            tex.set_scale_mode(SdlScaleMode::Linear);
             self.src = Some(SrcTexture { tex, w, h, format });
         }
     }
@@ -219,8 +181,8 @@ impl Video {
         self.mesh = Some(build_crt_mesh(dst));
     }
 
-    /// Draw one frame. `aspect_ratio <= 0` means "use 4:3".
-    pub fn present(&mut self, frame: &FrameRef, aspect_ratio: f32, mode: ScaleMode) {
+    /// Draw one frame to the window. `aspect_ratio <= 0` means "use 4:3".
+    pub fn present(&mut self, frame: &FrameRef, aspect_ratio: f32) {
         self.ensure_src(frame.width, frame.height, frame.format);
         self.upload(frame);
 
@@ -228,21 +190,17 @@ impl Video {
             .canvas
             .output_size()
             .unwrap_or((frame.width, frame.height));
-        let aspect = if aspect_ratio > 0.0 {
-            aspect_ratio
-        } else {
-            4.0 / 3.0
-        };
-        let dst = fit_aspect(out_w, out_h, aspect);
+        let dst = fit_aspect(out_w, out_h, resolve_aspect(aspect_ratio));
         self.ensure_mesh(dst);
-        self.set_src_filter(mode);
 
         self.canvas.set_draw_color(Color::RGB(0, 0, 0));
         self.canvas.clear();
 
         let src = self.src.take().unwrap();
         let mesh = self.mesh.take().unwrap();
-        draw(&mut self.canvas, &src, &mesh, dst, mode);
+        let _ = self
+            .canvas
+            .render_geometry(&mesh.verts, Some(&src.tex), &mesh.indices[..]);
         self.src = Some(src);
         self.mesh = Some(mesh);
 
@@ -250,24 +208,11 @@ impl Video {
     }
 }
 
-/// Draw the game into the current render target. `dst` is the 4:3 fit rect.
-fn draw<T: sdl3::render::RenderTarget>(
-    canvas: &mut sdl3::render::Canvas<T>,
-    src: &SrcTexture,
-    mesh: &CrtMesh,
-    dst: Rect,
-    mode: ScaleMode,
-) {
-    match mode {
-        ScaleMode::PixelPerfect => {
-            let (ow, oh) = canvas.output_size().unwrap_or((dst.width(), dst.height()));
-            let scale = ((ow / src.w).min(oh / src.h)).max(1);
-            let d = centered(ow, oh, src.w * scale, src.h * scale);
-            let _ = canvas.copy(&src.tex, None::<sdl3::render::FRect>, d);
-        }
-        ScaleMode::Bilinear => {
-            let _ = canvas.render_geometry(&mesh.verts, Some(&src.tex), &mesh.indices[..]);
-        }
+fn resolve_aspect(a: f32) -> f32 {
+    if a > 0.0 {
+        a
+    } else {
+        4.0 / 3.0
     }
 }
 
@@ -317,9 +262,9 @@ fn build_crt_mesh(dst: Rect) -> CrtMesh {
             let shade = (1.0 - CRT_VIGNETTE * r2 * r2).clamp(0.0, 1.0);
 
             verts.push(Vertex {
-                position: FPoint::new(px, py),
+                position: sdl3::render::FPoint::new(px, py),
                 color: FColor::RGBA(shade, shade, shade, 1.0),
-                tex_coord: FPoint::new(u, v),
+                tex_coord: sdl3::render::FPoint::new(u, v),
             });
         }
     }
