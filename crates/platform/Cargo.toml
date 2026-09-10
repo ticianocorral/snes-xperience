@@ -4,7 +4,8 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "SDL3 shell: window, video output with the three scaling modes, audio queue, gamepad and keyboard input."
+repository.workspace = true
+description = "SDL3 shell: window, CRT-tube video output, audio queue, gamepad and keyboard input."
 
 [features]
 # Build and statically link SDL3 from vendored source (needs CMake + a C

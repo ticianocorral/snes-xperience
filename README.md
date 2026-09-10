@@ -50,8 +50,8 @@ cargo build --features xperience-platform/vendored-sdl
 
 Duas provas, descritas em [`docs/fase-0.md`](docs/fase-0.md):
 
-1. **`emu-run`** — um core libretro (snes9x) carrega, roda uma ROM, com vídeo,
-   som, gamepad e os três modos de escala.
+1. **`emu-run`** — um core libretro (snes9x) carrega e roda uma ROM com vídeo,
+   som, gamepad, save state, SRAM e run-ahead. Visual fixo: NTSC RF + tubo CRT.
    ```bash
    cargo run --bin emu-run -- --core caminho/snes9x_libretro.dylib --rom jogo.sfc
    ```
@@ -63,6 +63,19 @@ Duas provas, descritas em [`docs/fase-0.md`](docs/fase-0.md):
    ```
 
 Nenhum core, ROM ou credencial é distribuído com o projeto. Ver `docs/fase-0.md`.
+
+## Versionamento
+
+Segue [SemVer 2.0.0](https://semver.org/lang/pt-BR/). Todo o workspace compartilha
+uma versão (`[workspace.package]` em `Cargo.toml`). Enquanto for `0.x`, a API das
+crates e as flags de linha de comando podem mudar entre _minors_ — cada release
+é uma tag `vX.Y.Z` e um item no [`CHANGELOG.md`](CHANGELOG.md).
+
+- _major_ (`1.0.0`): reservado para quando a moldura/seletor existirem e a
+  interface estabilizar.
+- _minor_: novos recursos ou mudança de comportamento observável (hoje, ~uma
+  fase do plano).
+- _patch_: correções sem mudança de interface.
 
 ## Licenças de terceiros
 

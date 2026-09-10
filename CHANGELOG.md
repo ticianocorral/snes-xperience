@@ -1,0 +1,52 @@
+# Changelog
+
+Todas as mudanças relevantes deste projeto são registradas aqui.
+
+O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o
+versionamento segue [SemVer](https://semver.org/lang/pt-BR/). Enquanto a versão
+for `0.x`, a API das crates e a interface de linha de comando podem mudar sem
+aviso — só o incremento de _minor_ marca um conjunto de mudanças.
+
+## [Não lançado]
+
+## [0.1.0] — 2026-09-10
+
+Primeira versão marcada. Cobre as Fases 0 e 1 do
+[plano](docs/plano-emulador-moldura.md): o esqueleto das quatro camadas e um
+emulador utilitário completo, sem moldura nem seletor.
+
+### Adicionado
+
+- **Workspace de quatro camadas** (`emulation` → `platform` → `domain` → `app`),
+  mais o crate folha `ntsc`. CI em Linux/macOS/Windows com SDL3 vendorizado.
+- **Emulação** (`xperience-emulation`): carregador de core libretro em runtime
+  com FFI de `libretro.h`, laço de frame (vídeo/áudio/entrada), save states
+  (`retro_serialize`), SRAM de bateria (`retro_get_memory_data`).
+- **Plataforma** (`xperience-platform`): janela SDL3, saída de vídeo por malha
+  com distorção de barril (tubo CRT via `render_geometry`, vinheta, sem
+  scanline), áudio push com guarda de latência, teclado remapeável (`KeyMap`) e
+  até dois gamepads.
+- **Domínio** (`xperience-domain`): identificação de ROM (CRC32/MD5/SHA1 sem
+  header de copiadora) e cliente ScreenScraper `jeuInfos` que extrai as mídias
+  `texture` e `wheel`.
+- **NTSC** (`xperience-ntsc`): `snes_ntsc` 0.2.2 do blargg vendorizado
+  (LGPL-2.1+), wrapper seguro e preset `Rf` (visual de antena).
+- **`emu-run`**: roda uma ROM com o visual fixo NTSC RF + tubo CRT; 10 slots de
+  save state indexados pelo SHA1 da ROM; persistência de SRAM; run-ahead
+  (`--runahead`, padrão 1); fast-forward, frame-step, dois jogadores;
+  screenshot (F12); `config.toml` para binds de teclado e padrões.
+- **`scrape-test`**: verifica a cobertura de `texture`/`wheel` do ScreenScraper
+  para uma amostra de ROMs (prova 2 da Fase 0).
+- Exemplos `probe` e `state_check` no crate de emulação.
+
+### Notas
+
+- O core do snes9x, ROMs e BIOS **não** acompanham o repositório
+  (ver [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) e
+  [`docs/fase-0.md`](docs/fase-0.md)).
+- O "modo CRT" completo do plano §4.7 (scanline, máscara de fósforo) fica para
+  a Fase 3; os três modos de escala originais foram substituídos por essa
+  visualização única a pedido.
+
+[Não lançado]: https://github.com/ticianocorral/snes-xperience/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/ticianocorral/snes-xperience/releases/tag/v0.1.0
