@@ -6,7 +6,7 @@ mod input;
 mod video;
 
 pub use audio::AudioOut;
-pub use input::{Input, KeyMap, PadButton, UiEvent};
+pub use input::{Input, KeyMap, PadButton, UiEvent, MAX_PORTS};
 pub use video::{FrameRef, PixelFormat, Video};
 
 use sdl3::event::Event;
@@ -39,7 +39,8 @@ pub struct Platform {
     pub audio_subsystem: sdl3::AudioSubsystem,
     event_pump: sdl3::EventPump,
     gamepad_subsystem: sdl3::GamepadSubsystem,
-    gamepad: Option<Gamepad>,
+    /// Open gamepads, in order — index n drives port n.
+    gamepads: Vec<Gamepad>,
 }
 
 impl Platform {
@@ -55,23 +56,27 @@ impl Platform {
             audio_subsystem,
             event_pump,
             gamepad_subsystem,
-            gamepad: None,
+            gamepads: Vec::new(),
         };
-        me.open_first_gamepad();
+        me.refresh_gamepads();
         Ok(me)
     }
 
-    fn open_first_gamepad(&mut self) {
-        if self.gamepad.is_some() {
+    /// Re-open the connected gamepads (up to `MAX_PORTS`). Cheap enough to run
+    /// on every add/remove event.
+    fn refresh_gamepads(&mut self) {
+        self.gamepads.clear();
+        let Ok(ids) = self.gamepad_subsystem.gamepads() else {
             return;
-        }
-        if let Ok(ids) = self.gamepad_subsystem.gamepads() {
-            for id in ids {
-                if let Ok(pad) = self.gamepad_subsystem.open(id) {
-                    log::info!("gamepad: {}", pad.name().unwrap_or_default());
-                    self.gamepad = Some(pad);
-                    break;
-                }
+        };
+        for id in ids.into_iter().take(input::MAX_PORTS) {
+            if let Ok(pad) = self.gamepad_subsystem.open(id) {
+                log::info!(
+                    "gamepad port {}: {}",
+                    self.gamepads.len(),
+                    pad.name().unwrap_or_default()
+                );
+                self.gamepads.push(pad);
             }
         }
     }
@@ -98,11 +103,11 @@ impl Platform {
     pub fn poll(&mut self, input: &mut Input, keymap: &KeyMap) -> Vec<UiEvent> {
         use sdl3::keyboard::Keycode;
         let mut out = Vec::new();
-        let mut added = false;
+        let mut devices_changed = false;
         for event in self.event_pump.poll_iter() {
             match event {
                 Event::Quit { .. } => out.push(UiEvent::Quit),
-                Event::GamepadAdded { .. } => added = true,
+                Event::GamepadAdded { .. } | Event::GamepadRemoved { .. } => devices_changed = true,
                 Event::KeyDown {
                     keycode: Some(k),
                     repeat: false,
@@ -114,7 +119,11 @@ impl Platform {
                     if k == Keycode::Escape {
                         out.push(UiEvent::Quit);
                     } else if let Some(e) = keymap.ui_for(k) {
-                        out.push(e);
+                        match e {
+                            // Held state, not an edge.
+                            UiEvent::FastForward => input.set_fast_forward(true),
+                            _ => out.push(e),
+                        }
                     }
                 }
                 Event::KeyUp {
@@ -123,23 +132,27 @@ impl Platform {
                     if let Some(b) = keymap.pad_for(k) {
                         input.set_key(b, false);
                     }
+                    if keymap.ui_for(k) == Some(UiEvent::FastForward) {
+                        input.set_fast_forward(false);
+                    }
                 }
                 _ => {}
             }
         }
-        if added {
-            self.open_first_gamepad();
+        if devices_changed {
+            self.refresh_gamepads();
         }
-        self.sample_gamepad(input);
+        self.sample_gamepads(input);
         out
     }
 
-    fn sample_gamepad(&self, input: &mut Input) {
-        input.clear_pad();
-        let Some(pad) = &self.gamepad else { return };
-        for (btn, mapped) in GAMEPAD_MAP {
-            if pad.button(btn) {
-                input.set_pad(mapped, true);
+    fn sample_gamepads(&self, input: &mut Input) {
+        input.clear_pads();
+        for (port, pad) in self.gamepads.iter().enumerate() {
+            for (btn, mapped) in GAMEPAD_MAP {
+                if pad.button(btn) {
+                    input.set_pad(port, mapped, true);
+                }
             }
         }
     }

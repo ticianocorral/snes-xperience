@@ -17,12 +17,14 @@ use anyhow::{anyhow, bail, Context, Result};
 use xperience_app::config::Config;
 use xperience_emulation::{Button, Core, PixelFormat as EmuFormat};
 use xperience_ntsc::{NtscFilter, Preset};
-use xperience_platform::{FrameRef, PixelFormat as PlatFormat, Platform, UiEvent};
+use xperience_platform::{FrameRef, PixelFormat as PlatFormat, Platform, UiEvent, MAX_PORTS};
 
 /// How often to flush battery SRAM to disk while playing (frames ≈ 10 s).
 const SRAM_FLUSH_FRAMES: u32 = 600;
 /// Save-state slots (keys 0..9 of the ROM hash).
 const SLOTS: u8 = 10;
+/// Emulated frames per shown frame while fast-forward is held.
+const FF_SPEED: u32 = 8;
 
 struct Args {
     core: PathBuf,
@@ -137,11 +139,12 @@ const HELP: &str = "emu-run --core <lib> --rom <game.sfc> [--system-dir D] [--sa
 \n\
 Presentation is fixed: RF NTSC + CRT-tube warp (knobs are consts in the source).\n\
 Battery SRAM and 10 save-state slots live next to --save-dir, keyed by ROM hash.\n\
+Player 1 = keyboard or gamepad 1; player 2 = gamepad 2.\n\
 Keyboard binds and the run-ahead default come from config.toml (see docs/fase-1).\n\
 \n\
 default keys: arrows=dpad  Z=B X=A A=Y S=X Q=L W=R  Enter=Start RShift=Select\n\
-      F2=save  F4=load  ] / [ =slot  F12=screenshot  F=fullscreen  Backspace=reset\n\
-      P=pause  Esc=quit";
+      F2=save  F4=load  ] / [ =slot  Tab=fast-forward  \\=frame-step (paused)\n\
+      F12=screenshot  F=fullscreen  Backspace=reset  P=pause  Esc=quit";
 
 fn map_format(f: EmuFormat) -> PlatFormat {
     match f {
@@ -299,9 +302,13 @@ fn main() -> Result<()> {
     log::info!("running: rf ntsc + crt tube, run-ahead {runahead}, slot {slot}");
 
     'run: loop {
+        let mut step_once = false;
         for ev in platform.poll(&mut input, &cfg.keymap) {
             match ev {
                 UiEvent::Quit => break 'run,
+                UiEvent::FrameStep => step_once = true,
+                // Held state; platform surfaces it via input.fast_forward().
+                UiEvent::FastForward => {}
                 UiEvent::ToggleFullscreen => video.toggle_fullscreen(),
                 UiEvent::Reset => core.reset(),
                 UiEvent::TogglePause => {
@@ -344,9 +351,12 @@ fn main() -> Result<()> {
             }
         }
 
-        if !paused {
-            for (rb, pb) in PAD {
-                core.set_button(0, rb, input.held(pb));
+        let ff = input.fast_forward() && !paused;
+        if !paused || step_once {
+            for port in 0..MAX_PORTS {
+                for (rb, pb) in PAD {
+                    core.set_button(port, rb, input.held(port, pb));
+                }
             }
             core.run();
             frames += 1;
@@ -354,8 +364,17 @@ fn main() -> Result<()> {
                 audio.queue(core.audio());
             }
 
+            // Fast-forward: extra emulated frames with no audio, no run-ahead.
+            if ff {
+                for _ in 1..FF_SPEED {
+                    core.run();
+                    frames += 1;
+                }
+            }
+
             // Speculative frames past the shown one; their audio is discarded.
-            let speculated = runahead > 0 && core.save_state_into(&mut spec_state);
+            let speculated =
+                runahead > 0 && !ff && !step_once && core.save_state_into(&mut spec_state);
             if speculated {
                 for _ in 0..runahead {
                     core.run();
@@ -433,13 +452,18 @@ fn main() -> Result<()> {
             }
         }
 
-        next += frame_time;
-        let now = Instant::now();
-        if next > now {
-            std::thread::sleep(next - now);
+        if ff {
+            // Run flat out; don't accumulate a pacing debt.
+            next = Instant::now();
         } else {
-            // Fell behind; resync so we don't spiral.
-            next = now;
+            next += frame_time;
+            let now = Instant::now();
+            if next > now {
+                std::thread::sleep(next - now);
+            } else {
+                // Fell behind; resync so we don't spiral.
+                next = now;
+            }
         }
     }
 

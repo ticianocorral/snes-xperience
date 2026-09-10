@@ -85,9 +85,21 @@ slot_next = "]"
 ```
 
 Ações do teclado: os 12 botões (`up down left right a b x y l r select start`) e
-`fullscreen reset pause save_state load_state screenshot slot_next slot_prev`.
-`Esc` (sair) é fixo. Gamepad **não** é remapeável — a base de controllers do SDL
-já normaliza os aparelhos (plano §3.1).
+`fullscreen reset pause save_state load_state screenshot slot_next slot_prev
+frame_step fast_forward`. `Esc` (sair) é fixo. Gamepad **não** é remapeável — a
+base de controllers do SDL já normaliza os aparelhos (plano §3.1).
+
+## Dois jogadores
+
+Jogador 1 = teclado **ou** o 1º gamepad; jogador 2 = o 2º gamepad. `Platform`
+mantém até `MAX_PORTS` (2) gamepads abertos e reabre a lista em qualquer evento
+de conexão/desconexão. `Input::held(port, botão)`.
+
+## Fast-forward e frame-step
+
+- **Tab** (segurar) — roda `FF_SPEED` (8) frames emulados por frame exibido, sem
+  áudio e sem run-ahead; o limitador de fps é solto enquanto está segurado.
+- **`\`** — com o jogo **pausado** (`P`), avança exatamente um frame.
 
 ## Outras utilidades
 
@@ -101,5 +113,5 @@ já normaliza os aparelhos (plano §3.1).
 ## Fora do escopo da Fase 1
 
 - Seletor, moldura, painel — Fases 2 a 4.
-- Fast-forward / turbo.
 - Remap de gamepad e múltiplos perfis de config.
+- OSD / menu na tela (por enquanto o feedback é no log).

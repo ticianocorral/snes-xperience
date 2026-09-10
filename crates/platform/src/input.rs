@@ -70,6 +70,9 @@ impl FromStr for PadButton {
     }
 }
 
+/// Controller ports. The SNES has more with a multitap; two covers the plan.
+pub const MAX_PORTS: usize = 2;
+
 /// High-level events the app acts on. Meaning (e.g. "power off") is decided a
 /// layer up; the platform only reports the intent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -83,6 +86,11 @@ pub enum UiEvent {
     Screenshot,
     NextSlot,
     PrevSlot,
+    /// Advance a single frame (only acted on while paused).
+    FrameStep,
+    /// Held state, not an edge — `FastForward` is filtered out of the event
+    /// stream and surfaced via [`Input::fast_forward`].
+    FastForward,
 }
 
 impl UiEvent {
@@ -97,11 +105,13 @@ impl UiEvent {
             UiEvent::Screenshot => "screenshot",
             UiEvent::NextSlot => "slot_next",
             UiEvent::PrevSlot => "slot_prev",
+            UiEvent::FrameStep => "frame_step",
+            UiEvent::FastForward => "fast_forward",
             UiEvent::Quit => return None,
         })
     }
 
-    pub const BINDABLE: [UiEvent; 8] = [
+    pub const BINDABLE: [UiEvent; 10] = [
         UiEvent::ToggleFullscreen,
         UiEvent::Reset,
         UiEvent::TogglePause,
@@ -110,6 +120,8 @@ impl UiEvent {
         UiEvent::Screenshot,
         UiEvent::NextSlot,
         UiEvent::PrevSlot,
+        UiEvent::FrameStep,
+        UiEvent::FastForward,
     ];
 }
 
@@ -148,6 +160,8 @@ impl KeyMap {
             ("F12", UiEvent::Screenshot),
             ("]", UiEvent::NextSlot),
             ("[", UiEvent::PrevSlot),
+            ("\\", UiEvent::FrameStep),
+            ("Tab", UiEvent::FastForward),
         ];
         let mut m = KeyMap::default();
         for (name, b) in pad {
@@ -207,11 +221,13 @@ impl KeyMap {
     }
 }
 
-/// Per-frame button state. Filled by `Platform::poll`.
+/// Per-frame button state. Filled by `Platform::poll`. Keyboard drives port 0;
+/// gamepad *n* drives port *n*.
 #[derive(Default)]
 pub struct Input {
     keys: [bool; 12],
-    pad: [bool; 12],
+    pads: [[bool; 12]; MAX_PORTS],
+    fast_forward: bool,
 }
 
 impl Input {
@@ -219,21 +235,32 @@ impl Input {
         Self::default()
     }
 
-    /// Held on keyboard or gamepad this frame.
-    pub fn held(&self, b: PadButton) -> bool {
+    /// Button `b` held on `port` this frame (keyboard counts for port 0).
+    pub fn held(&self, port: usize, b: PadButton) -> bool {
         let i = b as usize;
-        self.keys[i] || self.pad[i]
+        (port == 0 && self.keys[i]) || (port < MAX_PORTS && self.pads[port][i])
+    }
+
+    /// The fast-forward key is down.
+    pub fn fast_forward(&self) -> bool {
+        self.fast_forward
     }
 
     pub(crate) fn set_key(&mut self, b: PadButton, down: bool) {
         self.keys[b as usize] = down;
     }
 
-    pub(crate) fn set_pad(&mut self, b: PadButton, down: bool) {
-        self.pad[b as usize] = down;
+    pub(crate) fn set_pad(&mut self, port: usize, b: PadButton, down: bool) {
+        if port < MAX_PORTS {
+            self.pads[port][b as usize] = down;
+        }
     }
 
-    pub(crate) fn clear_pad(&mut self) {
-        self.pad = [false; 12];
+    pub(crate) fn set_fast_forward(&mut self, down: bool) {
+        self.fast_forward = down;
+    }
+
+    pub(crate) fn clear_pads(&mut self) {
+        self.pads = [[false; 12]; MAX_PORTS];
     }
 }
