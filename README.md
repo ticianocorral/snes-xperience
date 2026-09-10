@@ -6,9 +6,10 @@ desenho completo, e `docs/fase-0.md` … `docs/fase-2.md` para o que já foi fei
 
 Estado atual: **Fase 2 — o seletor (em andamento).** As Fases 0 e 1 estão
 prontas: `emu-run` roda uma ROM com vídeo, som, gamepad, save state, SRAM e
-run-ahead, visual fixo NTSC RF + tubo CRT. Da Fase 2 já existe o catálogo
-(varredura de pasta, hash, cache SQLite, ScreenScraper) via o binário `library`;
-falta a estante na tela. Ainda não há moldura nem painel.
+run-ahead, visual fixo NTSC RF + tubo CRT. Da Fase 2 já existem o catálogo
+(`library`: varredura, hash, cache SQLite, ScreenScraper) e a estante na tela
+(`selector`: capas, navegação por gamepad, busca, preenchimento progressivo).
+`scripts/play.sh` encadeia os dois. Ainda não há moldura nem painel.
 
 ## Arquitetura
 
@@ -19,7 +20,7 @@ Quatro camadas, dependências só para baixo (plano §2):
 | Apresentação  | `xperience-app`      | binários (`emu-run`, `library`, `scrape-test`)         |
 | Domínio       | `xperience-domain`   | identificação de ROM, catálogo SQLite, ScreenScraper   |
 | Emulação      | `xperience-emulation`| core libretro carregado em runtime, laço de execução   |
-| Plataforma    | `xperience-platform` | SDL3: janela, tubo CRT (`render_geometry`), áudio, gamepad |
+| Plataforma    | `xperience-platform` | SDL3: janela, tubo CRT (`render_geometry`), camada 2D do seletor, áudio, gamepad |
 
 `xperience-ntsc` é um crate folha à parte: o `snes_ntsc` do blargg vendorizado.
 

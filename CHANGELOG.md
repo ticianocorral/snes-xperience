@@ -20,6 +20,11 @@ aviso — só o incremento de _minor_ marca um conjunto de mudanças.
   salva arte em disco; erro de cota agora é distinto.
 - Binário **`library`** (`scan` / `scrape` / `list`) para montar e preencher o
   catálogo pela linha de comando.
+- **Seletor** (`selector`): estante rolável de capas com painel de detalhes,
+  navegação por gamepad/teclado, busca por digitação e preenchimento
+  progressivo das capas numa thread. Imprime o caminho da ROM escolhida.
+  Camada 2D nova em `xperience-platform` (`Ui`: rects, texto `font8x8`,
+  imagens) e `Platform::poll_menu`. `scripts/play.sh` encadeia seletor → jogo.
 
 ## [0.1.0] — 2026-09-10
 

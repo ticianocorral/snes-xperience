@@ -19,6 +19,10 @@ path = "src/bin/scrape_test.rs"
 name = "library"
 path = "src/bin/library.rs"
 
+[[bin]]
+name = "selector"
+path = "src/bin/selector.rs"
+
 [dependencies]
 xperience-emulation = { path = "../emulation" }
 xperience-platform = { path = "../platform" }
@@ -29,3 +33,4 @@ log.workspace = true
 env_logger.workspace = true
 serde.workspace = true
 toml = "0.8"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }

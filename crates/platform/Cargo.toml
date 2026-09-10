@@ -15,5 +15,6 @@ vendored-sdl = ["sdl3/build-from-source-static"]
 
 [dependencies]
 sdl3 = { version = "0.20", features = ["unsafe_textures"] }
+font8x8 = "0.3"
 log.workspace = true
 thiserror.workspace = true

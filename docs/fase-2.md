@@ -5,12 +5,16 @@ estante com capas, navegação por gamepad, preenchimento progressivo.
 
 Progresso:
 
-- [x] **Varredura + hash + catálogo** (este documento)
-- [ ] **Busca de metadados sob demanda** — parcial: já há o `scrape` em lote
-- [ ] **Estante com capas** (UI)
-- [ ] **Navegação por gamepad**
-- [ ] **Preenchimento progressivo** (placeholder → capa conforme chega)
-- [ ] **Busca por digitação**
+- [x] **Varredura + hash + catálogo**
+- [x] **Estante com capas** (`selector`)
+- [x] **Navegação por gamepad**
+- [x] **Preenchimento progressivo** (placeholder → capa conforme decodifica)
+- [x] **Busca por digitação**
+- [ ] **Busca de metadados sob demanda** — hoje é só o `library scrape` em lote
+- [ ] Um binário `xperience` único (seletor → jogo → seletor) — hoje via
+      `scripts/play.sh`
+- [ ] Ficha completa (número de jogadores já vem; falta polir layout/scroll da
+      sinopse)
 
 ## Catálogo (`xperience-domain`)
 
@@ -64,8 +68,31 @@ library list                 [--catalog PATH] [--order shelf|name]
   no ambiente.
 - `list` — imprime a estante em texto.
 
+## Seletor (`selector`)
+
+Estante rolável de capas + painel de detalhes à direita, tudo desenhado numa
+camada 2D mínima (`xperience-platform::Ui`): retângulos, texto 8×8 (`font8x8`,
+sem fonte de sistema) e imagens com letterbox. Sem OSD/menu — feio que funciona.
+
+```bash
+selector [--catalog PATH] [--order shelf|name]
+```
+
+- **Navegação:** setas / d-pad movem a seleção na grade; PgUp/PgDn e ombros do
+  controle pulam uma página; Home/End; A/Enter escolhe; B/Esc sai (ou limpa a
+  busca). Gamepad em primeiro lugar (§3.1).
+- **Busca por digitação:** basta digitar — filtra por substring no título,
+  Backspace edita, Esc limpa.
+- **Preenchimento progressivo:** as capas em disco são decodificadas
+  (`image`, redimensionadas para ~320 px) numa thread e viram textura conforme
+  chegam; enquanto isso o tile mostra o título.
+- **Saída:** imprime o caminho da ROM escolhida no stdout e sai 0; cancelou,
+  sai 1. `mark_played` é chamado na escolha.
+
+`scripts/play.sh <core>` encadeia `selector` → `emu-run` num laço até cancelar,
+até existir um binário `xperience` que faça isso sem shell.
+
 ## A seguir
 
-A UI da estante (SDL3 + `sdl3-image` para as capas), navegação por gamepad,
-placeholder → capa progressivo, e um binário que lança o jogo escolhido
-reaproveitando o laço do `emu-run` (refactor previsto).
+Scrape sob demanda (ao navegar/escolher, não só o lote), o binário `xperience`
+único reaproveitando o laço do `emu-run` (refactor), e polimento do painel.

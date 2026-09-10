@@ -3,15 +3,44 @@
 
 mod audio;
 mod input;
+mod ui;
 mod video;
 
 pub use audio::AudioOut;
 pub use input::{Input, KeyMap, PadButton, UiEvent, MAX_PORTS};
+pub use ui::Ui;
 pub use video::{FrameRef, PixelFormat, Video};
 
 use sdl3::event::Event;
 use sdl3::gamepad::{Button as PadBtn, Gamepad};
 use thiserror::Error;
+
+/// A directional / confirm / back intent from the selector's controls.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MenuNav {
+    Up,
+    Down,
+    Left,
+    Right,
+    Confirm,
+    Back,
+    PageUp,
+    PageDown,
+    Home,
+    End,
+}
+
+/// One frame's worth of menu input.
+#[derive(Default)]
+pub struct MenuInput {
+    pub quit: bool,
+    pub nav: Vec<MenuNav>,
+    /// Characters typed this frame (search box).
+    pub typed: String,
+    pub backspace: bool,
+    pub clear_search: bool,
+    pub toggle_fullscreen: bool,
+}
 
 #[derive(Debug, Error)]
 pub enum PlatformError {
@@ -41,7 +70,20 @@ pub struct Platform {
     gamepad_subsystem: sdl3::GamepadSubsystem,
     /// Open gamepads, in order — index n drives port n.
     gamepads: Vec<Gamepad>,
+    /// Rising-edge tracking for `poll_menu`'s gamepad buttons.
+    menu_prev: [bool; MENU_PAD_MAP.len()],
 }
+
+const MENU_PAD_MAP: [(PadBtn, MenuNav); 8] = [
+    (PadBtn::DPadUp, MenuNav::Up),
+    (PadBtn::DPadDown, MenuNav::Down),
+    (PadBtn::DPadLeft, MenuNav::Left),
+    (PadBtn::DPadRight, MenuNav::Right),
+    (PadBtn::South, MenuNav::Confirm),
+    (PadBtn::East, MenuNav::Back),
+    (PadBtn::LeftShoulder, MenuNav::PageUp),
+    (PadBtn::RightShoulder, MenuNav::PageDown),
+];
 
 impl Platform {
     pub fn new() -> Result<Self, PlatformError> {
@@ -57,6 +99,7 @@ impl Platform {
             event_pump,
             gamepad_subsystem,
             gamepads: Vec::new(),
+            menu_prev: [false; MENU_PAD_MAP.len()],
         };
         me.refresh_gamepads();
         Ok(me)
@@ -79,6 +122,73 @@ impl Platform {
                 self.gamepads.push(pad);
             }
         }
+    }
+
+    pub fn create_ui_window(
+        &self,
+        title: &str,
+        width: u32,
+        height: u32,
+    ) -> Result<Ui, PlatformError> {
+        Ui::new(&self.video_subsystem, title, width, height)
+    }
+
+    /// Drain events for a menu screen: directional nav (keyboard arrows repeat;
+    /// gamepad d-pad/buttons on rising edge), confirm/back, and typed search
+    /// characters.
+    pub fn poll_menu(&mut self) -> MenuInput {
+        use sdl3::keyboard::Keycode;
+        let mut out = MenuInput::default();
+        let mut devices_changed = false;
+        for event in self.event_pump.poll_iter() {
+            match event {
+                Event::Quit { .. } => out.quit = true,
+                Event::GamepadAdded { .. } | Event::GamepadRemoved { .. } => devices_changed = true,
+                Event::KeyDown {
+                    keycode: Some(k),
+                    repeat,
+                    ..
+                } => match k {
+                    Keycode::Up => out.nav.push(MenuNav::Up),
+                    Keycode::Down => out.nav.push(MenuNav::Down),
+                    Keycode::Left => out.nav.push(MenuNav::Left),
+                    Keycode::Right => out.nav.push(MenuNav::Right),
+                    Keycode::Return | Keycode::KpEnter => out.nav.push(MenuNav::Confirm),
+                    Keycode::Escape => out.nav.push(MenuNav::Back),
+                    Keycode::PageUp => out.nav.push(MenuNav::PageUp),
+                    Keycode::PageDown => out.nav.push(MenuNav::PageDown),
+                    Keycode::Home => out.nav.push(MenuNav::Home),
+                    Keycode::End => out.nav.push(MenuNav::End),
+                    Keycode::Backspace => out.backspace = true,
+                    Keycode::F if !repeat => out.toggle_fullscreen = true,
+                    _ => {
+                        let name = k.name();
+                        if name == "Space" {
+                            out.typed.push(' ');
+                        } else if name.len() == 1 {
+                            let c = name.chars().next().unwrap();
+                            if c.is_ascii_alphanumeric() {
+                                out.typed.push(c.to_ascii_lowercase());
+                            }
+                        }
+                    }
+                },
+                _ => {}
+            }
+        }
+        if devices_changed {
+            self.refresh_gamepads();
+        }
+        // Gamepad: rising edges only.
+        let pad = self.gamepads.first();
+        for (i, (btn, nav)) in MENU_PAD_MAP.iter().enumerate() {
+            let down = pad.map(|p| p.button(*btn)).unwrap_or(false);
+            if down && !self.menu_prev[i] {
+                out.nav.push(*nav);
+            }
+            self.menu_prev[i] = down;
+        }
+        out
     }
 
     pub fn create_window(
