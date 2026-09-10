@@ -141,6 +141,18 @@ impl Ui {
         cy
     }
 
+    /// Height [`Ui::text_wrapped`] would take for `s` at `max_w` / `scale`,
+    /// without drawing — for sizing a scroll region.
+    pub fn wrapped_height(&self, max_w: u32, scale: u32, s: &str) -> i32 {
+        wrapped_height(max_w, scale, s)
+    }
+
+    /// Clip subsequent drawing to `rect` (window pixels); `None` clears it.
+    pub fn clip(&mut self, rect: Option<(i32, i32, u32, u32)>) {
+        self.canvas
+            .set_clip_rect(rect.map(|(x, y, w, h)| Rect::new(x, y, w, h)));
+    }
+
     pub fn has_image(&self, id: u64) -> bool {
         self.images.contains_key(&id)
     }
@@ -184,6 +196,37 @@ impl Ui {
     }
 }
 
+/// Line-count math shared by [`Ui::text_wrapped`]'s layout and
+/// [`Ui::wrapped_height`]. Mirrors the wrap loop: greedy word packing into
+/// `cols` chars, hard-splitting any word longer than a line.
+fn wrapped_height(max_w: u32, scale: u32, s: &str) -> i32 {
+    let cell = (GLYPH * scale) as i32;
+    let cols = (max_w / (GLYPH * scale)).max(1) as usize;
+    let mut lines = 0i32;
+    let mut len = 0usize;
+    let mut open = false;
+    for word in s.split_whitespace() {
+        if open && len + 1 + word.len() > cols {
+            lines += 1;
+            len = 0;
+            open = false;
+        }
+        if open {
+            len += 1;
+        }
+        len += word.len();
+        open = true;
+        while len > cols {
+            lines += 1;
+            len -= cols;
+        }
+    }
+    if open {
+        lines += 1;
+    }
+    lines * (cell + 2)
+}
+
 fn build_font_atlas(canvas: &mut WindowCanvas) -> Result<Texture, PlatformError> {
     let cols = 128u32;
     let w = cols * GLYPH;
@@ -216,5 +259,23 @@ trait FullscreenBool {
 impl FullscreenBool for sdl3::video::FullscreenType {
     fn is_true(&self) -> bool {
         !matches!(self, sdl3::video::FullscreenType::Off)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{wrapped_height, GLYPH};
+
+    #[test]
+    fn wrapped_height_counts_lines() {
+        let row = GLYPH as i32 + 2; // one line's advance at scale 1
+        assert_eq!(wrapped_height(80, 1, ""), 0);
+        // 80px / 8px = 10 cols. "hello world" -> "hello" + " world" = 11 > 10,
+        // so two lines.
+        assert_eq!(wrapped_height(80, 1, "hello world"), 2 * row);
+        // Fits on one line.
+        assert_eq!(wrapped_height(80, 1, "hello you"), row);
+        // A single word longer than the line is hard-split.
+        assert_eq!(wrapped_height(80, 1, &"x".repeat(25)), 3 * row);
     }
 }

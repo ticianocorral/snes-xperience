@@ -12,8 +12,8 @@ Progresso:
 - [x] **Busca por digitação**
 - [x] **Binário `xperience` único** (estante → jogo → estante, sem shell)
 - [x] **Busca de metadados sob demanda** (o jogo em foco é scrapeado na hora)
-- [ ] Ficha completa (número de jogadores já vem; falta polir layout/scroll da
-      sinopse)
+- [x] **Ficha completa** (logo `wheel` no topo quando existe; sinopse longa rola
+      sozinha dentro de uma região recortada)
 
 ## Catálogo (`xperience-domain`)
 
@@ -82,9 +82,14 @@ selector [--catalog PATH] [--order shelf|name] [--no-scrape]
   busca). Gamepad em primeiro lugar (§3.1).
 - **Busca por digitação:** basta digitar — filtra por substring no título,
   Backspace edita, Esc limpa.
-- **Preenchimento progressivo:** as capas em disco são decodificadas
-  (`image`, redimensionadas para ~320 px) numa thread e viram textura conforme
-  chegam; enquanto isso o tile mostra o título.
+- **Preenchimento progressivo:** capas e logos (`wheel`) em disco são
+  decodificados (`image`, reduzidos para ≤512 px, alfa preservado) numa thread e
+  viram textura conforme chegam; enquanto isso o tile mostra o título.
+- **Ficha:** o painel mostra o logo `wheel` no topo quando existe (senão o
+  título em texto), depois ano/desenvolvedora/editora/gênero/jogadores/região/
+  partidas, e a sinopse. Sinopse longa fica numa região recortada (`Ui::clip`)
+  que, depois de ~1,3 s parada, rola sozinha até o fim aparecer; recomeça ao
+  trocar de jogo.
 - **Scrape sob demanda:** com `SS_DEVID` / `SS_DEVPASSWORD` no ambiente, quando a
   seleção pousa num jogo sem ficha por ~8 quadros, uma thread consulta o
   ScreenScraper, baixa capa/texture/wheel para `<dir do catálogo>/art` e grava a
@@ -125,7 +130,10 @@ janela da estante e a do jogo são criadas e destruídas a cada troca. A distin�
 
 Padrões ficam em `~/.local/share/snes-xperience/` (`catalog.db`, `saves/`).
 
-## A seguir
+## Fase 2 — concluída
 
-Polimento do painel de detalhes: scroll da sinopse longa, e talvez usar a
-`wheel` (logo) no lugar do título em texto.
+Todos os itens do §6 do plano estão feitos: varredura + catálogo, estante com
+capas, navegação por gamepad, preenchimento progressivo, busca por digitação,
+scrape sob demanda, o binário `xperience` único e a ficha completa. O que falta
+pro projeto é a **moldura** (Fase 3): o mesmo tubo CRT do `emu-run` como janela
+sempre presente, com a estante e o jogo desenhados dentro dela.

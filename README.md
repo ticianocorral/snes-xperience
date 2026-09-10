@@ -4,13 +4,13 @@ Emulador de SNES com moldura estática — projeto pessoal, sem fins comerciais.
 Ver [`docs/plano-emulador-moldura.md`](docs/plano-emulador-moldura.md) para o
 desenho completo, e `docs/fase-0.md` … `docs/fase-2.md` para o que já foi feito.
 
-Estado atual: **Fase 2 — o seletor (em andamento).** As Fases 0 e 1 estão
-prontas: `emu-run` roda uma ROM com vídeo, som, gamepad, save state, SRAM e
-run-ahead, visual fixo NTSC RF + tubo CRT. Da Fase 2 já existem o catálogo
-(`library`: varredura, hash, cache SQLite, ScreenScraper), a estante na tela
-(`selector`: capas, navegação por gamepad, busca, preenchimento progressivo) e o
-binário `xperience`, que junta estante → jogo → estante num processo só. Ainda
-não há moldura, e o painel de detalhes é cru.
+Estado atual: **Fases 0–2 prontas.** `emu-run` roda uma ROM com vídeo, som,
+gamepad, save state, SRAM e run-ahead, visual fixo NTSC RF + tubo CRT. A Fase 2
+entregou o catálogo (`library`: varredura, hash, cache SQLite, ScreenScraper), a
+estante na tela (`selector`: capas, navegação por gamepad, busca, preenchimento
+progressivo, scrape sob demanda, ficha com logo e sinopse rolante) e o binário
+`xperience`, que junta estante → jogo → estante num processo só. Falta a
+**moldura** (Fase 3).
 
 ## Arquitetura
 

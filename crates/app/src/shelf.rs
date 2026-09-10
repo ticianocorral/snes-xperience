@@ -33,6 +33,8 @@ const DIM: (u8, u8, u8) = (150, 150, 158);
 const SCRAPE_DWELL_FRAMES: u32 = 8;
 /// Politeness gap between ScreenScraper calls on the worker thread.
 const SCRAPE_GAP: Duration = Duration::from_millis(700);
+/// Frames to hold a long synopsis still before it starts auto-scrolling (~1.3 s).
+const SYNOPSIS_HOLD_FRAMES: u32 = 80;
 
 /// What the player did on the shelf.
 pub enum Pick {
@@ -94,8 +96,15 @@ enum ScrapeMsg {
     Quota,
 }
 
+/// Texture key for a game's cover — first 64 bits of the SHA1.
 fn cover_id(sha1: &str) -> u64 {
     u64::from_str_radix(sha1.get(..16).unwrap_or("0"), 16).unwrap_or(0)
+}
+
+/// Texture key for a game's wheel logo — the *next* 64 bits, so it can't
+/// collide with any `cover_id`.
+fn wheel_id(sha1: &str) -> u64 {
+    u64::from_str_radix(sha1.get(16..32).unwrap_or("0"), 16).unwrap_or(0)
 }
 
 /// Show the shelf on `plat` until the player picks a game or cancels. The `plat`
@@ -106,23 +115,27 @@ pub fn run(plat: &mut Platform, catalog: &Catalog, opts: &ShelfOpts) -> Result<P
         bail!("catalogue is empty — run:  library scan --roms <dir>");
     }
 
-    // Background cover decoder — a fed queue so freshly-scraped covers can join.
-    let (cover_tx, cover_rx) = mpsc::channel::<(u64, PathBuf)>();
+    // Background art decoder — a fed queue so freshly-scraped covers/wheels join.
+    let (art_tx, art_rx) = mpsc::channel::<(u64, PathBuf)>();
     let (decoded_tx, decoded_rx) = mpsc::channel::<DecodedCover>();
     for e in &all {
-        if let Some(p) = e.meta.as_ref().and_then(|m| m.cover_path.clone()) {
-            if Path::new(&p).is_file() {
-                let _ = cover_tx.send((cover_id(&e.rom.sha1), PathBuf::from(p)));
+        let Some(m) = e.meta.as_ref() else { continue };
+        for (id, path) in [
+            (cover_id(&e.rom.sha1), m.cover_path.clone()),
+            (wheel_id(&e.rom.sha1), m.wheel_path.clone()),
+        ] {
+            if let Some(p) = path.filter(|p| Path::new(p).is_file()) {
+                let _ = art_tx.send((id, PathBuf::from(p)));
             }
         }
     }
     std::thread::spawn(move || {
-        while let Ok((id, path)) = cover_rx.recv() {
-            match decode_cover(&path) {
+        while let Ok((id, path)) = art_rx.recv() {
+            match decode_art(&path) {
                 Ok((w, h, rgba)) => {
                     let _ = decoded_tx.send(DecodedCover { id, w, h, rgba });
                 }
-                Err(e) => log::warn!("cover {}: {e}", path.display()),
+                Err(e) => log::warn!("art {}: {e}", path.display()),
             }
         }
     });
@@ -154,8 +167,10 @@ pub fn run(plat: &mut Platform, catalog: &Catalog, opts: &ShelfOpts) -> Result<P
         .map(|e| e.rom.sha1.clone())
         .collect();
     let mut quota_hit = false;
+    // Frames the selection has sat still (drives on-demand scrape + synopsis scroll).
     let mut dwell: u32 = 0;
     let mut dwell_sha1: Option<String> = None;
+    let mut synopsis_scroll: i32 = 0;
 
     loop {
         let started = Instant::now();
@@ -178,7 +193,10 @@ pub fn run(plat: &mut Platform, catalog: &Catalog, opts: &ShelfOpts) -> Result<P
                         log::warn!("catalogue set_meta {sha1}: {e}");
                     }
                     if let Some(cover) = &art.cover {
-                        let _ = cover_tx.send((cover_id(&sha1), PathBuf::from(cover)));
+                        let _ = art_tx.send((cover_id(&sha1), PathBuf::from(cover)));
+                    }
+                    if let Some(wheel) = &art.wheel {
+                        let _ = art_tx.send((wheel_id(&sha1), PathBuf::from(wheel)));
                     }
                     refresh = true;
                 }
@@ -256,23 +274,24 @@ pub fn run(plat: &mut Platform, catalog: &Catalog, opts: &ShelfOpts) -> Result<P
             }
         }
 
-        // On-demand scrape: once the selection has rested on an unscraped game.
-        if scrape_enabled && !quota_hit {
-            let cur = view.get(sel).map(|e| e.rom.sha1.clone());
-            if cur == dwell_sha1 {
-                dwell += 1;
-            } else {
-                dwell = 0;
-                dwell_sha1 = cur;
-            }
-            if dwell == SCRAPE_DWELL_FRAMES {
-                if let Some(e) = view.get(sel) {
-                    if e.meta.is_none() && requested.insert(e.rom.sha1.clone()) {
-                        let _ = job_tx.send(ScrapeJob {
-                            sha1: e.rom.sha1.clone(),
-                            path: PathBuf::from(&e.rom.path),
-                        });
-                    }
+        // How long has the selection sat on this game?
+        let cur = view.get(sel).map(|e| e.rom.sha1.clone());
+        if cur == dwell_sha1 {
+            dwell += 1;
+        } else {
+            dwell = 0;
+            dwell_sha1 = cur;
+            synopsis_scroll = 0;
+        }
+
+        // On-demand scrape: once it has rested on an unscraped game.
+        if scrape_enabled && !quota_hit && dwell == SCRAPE_DWELL_FRAMES {
+            if let Some(e) = view.get(sel) {
+                if e.meta.is_none() && requested.insert(e.rom.sha1.clone()) {
+                    let _ = job_tx.send(ScrapeJob {
+                        sha1: e.rom.sha1.clone(),
+                        path: PathBuf::from(&e.rom.path),
+                    });
                 }
             }
         }
@@ -331,8 +350,17 @@ pub fn run(plat: &mut Platform, catalog: &Catalog, opts: &ShelfOpts) -> Result<P
         ui.fill(px, 0, PANEL_W, win_h, (24, 24, 28, 255));
         if let Some(e) = view.get(sel) {
             let ix = px + 22;
+            let inner_w = PANEL_W - 44;
             let mut iy = MARGIN;
-            iy = ui.text_wrapped(ix, iy, PANEL_W - 44, 2, TEXT, &e.title()) + 8;
+
+            // Header: the wheel logo if we have it, else the title in text.
+            let wid = wheel_id(&e.rom.sha1);
+            if ui.has_image(wid) {
+                ui.image_fit(wid, ix, iy, inner_w, 72);
+                iy += 72 + 12;
+            } else {
+                iy = ui.text_wrapped(ix, iy, inner_w, 2, TEXT, &e.title()) + 8;
+            }
 
             let m = e.meta.as_ref();
             let plays = e.rom.play_count.to_string();
@@ -354,7 +382,19 @@ pub fn run(plat: &mut Platform, catalog: &Catalog, opts: &ShelfOpts) -> Result<P
             }
             iy += 10;
             if let Some(s) = m.and_then(|m| m.synopsis.as_deref()) {
-                ui.text_wrapped(ix, iy, PANEL_W - 44, 1, DIM, s);
+                // Scrollable region between the ficha and the footer. After a
+                // short rest it creeps upward until the end is visible.
+                let vp_y = iy;
+                let vp_h = (win_h as i32 - 40 - vp_y).max(0);
+                if vp_h > 12 {
+                    let overflow = (ui.wrapped_height(inner_w, 1, s) - vp_h).max(0);
+                    if dwell > SYNOPSIS_HOLD_FRAMES {
+                        synopsis_scroll = (synopsis_scroll + 1).min(overflow);
+                    }
+                    ui.clip(Some((px, vp_y, PANEL_W, vp_h as u32)));
+                    ui.text_wrapped(ix, vp_y - synopsis_scroll, inner_w, 1, DIM, s);
+                    ui.clip(None);
+                }
             } else if e.meta.is_none() {
                 let note = if quota_hit {
                     "scrape quota reached"
@@ -435,10 +475,11 @@ fn scrape_worker(
     }
 }
 
-fn decode_cover(path: &Path) -> Result<(u32, u32, Vec<u8>)> {
-    let img = image::open(path)?;
-    // Downscale for memory; the tile is small and sampled linearly.
-    let img = img.thumbnail(320, 420).to_rgba8();
+/// Decode a cover or wheel PNG/JPEG to tightly-packed RGBA, downscaled for
+/// memory (covers feed 150px tiles, wheels a ~340px panel slot — 512 covers both
+/// at >2x and keeps alpha for the transparent wheels).
+fn decode_art(path: &Path) -> Result<(u32, u32, Vec<u8>)> {
+    let img = image::open(path)?.thumbnail(512, 512).to_rgba8();
     let (w, h) = img.dimensions();
     Ok((w, h, img.into_raw()))
 }

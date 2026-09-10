@@ -35,6 +35,10 @@ aviso — só o incremento de _minor_ marca um conjunto de mudanças.
   jogo, ~700 ms entre chamadas, para ao esgotar a cota); a ficha e a capa
   entram na hora. `--no-scrape` desliga. O download de arte virou
   `xperience_domain::art::download_art`, compartilhado com o `library scrape`.
+- **Ficha completa** no painel: logo `wheel` no topo quando existe (senão o
+  título em texto) e sinopse longa numa região recortada (`Ui::clip`) que rola
+  sozinha após ~1,3 s parada. `Ui::wrapped_height` (com teste) dimensiona o
+  scroll; o decodificador de arte agora também trata os `wheel` (≤512 px, alfa).
 
 ## [0.1.0] — 2026-09-10
 
