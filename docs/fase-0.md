@@ -38,7 +38,7 @@ cargo run --release --bin emu-run -- \
   --core ~/cores/snes9x_libretro.dylib \
   --rom  ~/roms/minha-rom.sfc \
   --save-dir ./saves \
-  --scale bilinear     # pixel | bilinear
+  --scale bilinear --ntsc composite   # scale: pixel|bilinear  ntsc: off|monochrome|composite|svideo
 ```
 
 Ou defina o core por ambiente: `export XPERIENCE_CORE=~/cores/snes9x_libretro.dylib`.
@@ -54,6 +54,7 @@ Ou defina o core por ambiente: `export XPERIENCE_CORE=~/cores/snes9x_libretro.dy
 | Enter        | Start                                          |
 | Shift dir.   | Select                                         |
 | Tab          | alterna a escala (pixel ↔ bilinear)            |
+| N            | alterna o filtro NTSC (off/composite/s-video/mono) |
 | F            | tela cheia                                     |
 | Backspace    | reset                                          |
 | P            | pausa                                          |
@@ -67,20 +68,26 @@ Um gamepad conectado é detectado automaticamente e tem prioridade de uso
 - A janela abre e mostra o jogo rodando a ~60 fps.
 - Há som contínuo, sem estouros grosseiros.
 - O gamepad controla o jogo.
-- `Tab` alterna entre **pixel perfect** e **bilinear** (este com cantos arredondados).
+- `Tab` alterna entre **pixel perfect** e **bilinear + tubo CRT**.
+- `N` alterna o filtro Blargg NTSC do core (`composite` = visual RF).
 - O log inicial mostra a identificação da ROM (crc32/sha1, nome interno,
   LoROM/HiROM) e o `av_info` do core (resolução, fps, sample rate).
 
-### Modos de escala
+### Modos de escala e filtro
 
 | Modo       | Como funciona                                                        |
 |------------|--------------------------------------------------------------------|
 | `pixel`    | escala inteira + vizinho mais próximo, centralizado, com barras     |
-| `bilinear` | um esticão bilinear do frame cru para 4:3 (igual ao "Bilinear Filtering" do RetroArch) **com cantos arredondados** — evoca a geometria do tubo CRT, sem scanline nem distorção |
+| `bilinear` | amostragem linear desenhada através de uma **malha com distorção de barril** (`render_geometry`): a imagem estufa como tubo de TV, bordas curvas, cantos cortados e vinheta nas quinas. Sem scanline. |
 
-O `sharp bilinear` e o `crt` placeholder do plano §4.7 foram removidos a pedido;
-o shader de CRT de verdade continua previsto para a Fase 3. O raio do canto é
-`CORNER_FRAC` em `crates/platform/src/video.rs`.
+O filtro **NTSC** é o `snes9x_blargg` do próprio core (`--ntsc` / tecla `N`):
+`composite` é o visual RF (sangramento de cor, borrão horizontal; o core passa a
+entregar 602×224). `monochrome`, `s-video` e `off` também disponíveis.
+
+Constantes do tubo em `crates/platform/src/video.rs`: `CRT_WARP` (curvatura),
+`CRT_VIGNETTE`, `CRT_GRID`. O `sharp bilinear` e o `crt` placeholder do plano
+§4.7 foram removidos a pedido; um shader de CRT completo (scanline, máscara de
+fósforo) continua previsto para a Fase 3.
 
 ---
 

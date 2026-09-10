@@ -114,6 +114,7 @@ impl Platform {
                         Keycode::Escape => out.push(UiEvent::Quit),
                         Keycode::F => out.push(UiEvent::ToggleFullscreen),
                         Keycode::Tab => out.push(UiEvent::CycleScaleMode),
+                        Keycode::N => out.push(UiEvent::CycleNtsc),
                         Keycode::Backspace => out.push(UiEvent::Reset),
                         Keycode::P => out.push(UiEvent::TogglePause),
                         _ => {}

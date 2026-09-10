@@ -45,6 +45,7 @@ pub enum UiEvent {
     Quit,
     ToggleFullscreen,
     CycleScaleMode,
+    CycleNtsc,
     Reset,
     TogglePause,
 }

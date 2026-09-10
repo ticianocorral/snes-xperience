@@ -21,9 +21,56 @@ struct Args {
     system_dir: PathBuf,
     save_dir: PathBuf,
     scale: ScaleMode,
+    /// Blargg NTSC preset for the core (`snes9x_blargg`).
+    ntsc: Ntsc,
     /// Headless self-check: run N frames, save the composited window, exit.
     shot: Option<PathBuf>,
     shot_frame: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Ntsc {
+    Disabled,
+    Monochrome,
+    Composite,
+    SVideo,
+}
+
+impl Ntsc {
+    /// Value for the `snes9x_blargg` core option.
+    fn core_value(self) -> &'static str {
+        match self {
+            Ntsc::Disabled => "disabled",
+            Ntsc::Monochrome => "monochrome",
+            Ntsc::Composite => "composite",
+            Ntsc::SVideo => "s-video",
+        }
+    }
+    fn label(self) -> &'static str {
+        match self {
+            Ntsc::Disabled => "off",
+            Ntsc::Monochrome => "monochrome",
+            Ntsc::Composite => "composite (RF-style)",
+            Ntsc::SVideo => "s-video",
+        }
+    }
+    fn next(self) -> Self {
+        match self {
+            Ntsc::Disabled => Ntsc::Composite,
+            Ntsc::Composite => Ntsc::SVideo,
+            Ntsc::SVideo => Ntsc::Monochrome,
+            Ntsc::Monochrome => Ntsc::Disabled,
+        }
+    }
+    fn parse(s: &str) -> Option<Self> {
+        Some(match s {
+            "off" | "disabled" | "none" => Ntsc::Disabled,
+            "mono" | "monochrome" => Ntsc::Monochrome,
+            "composite" | "rf" => Ntsc::Composite,
+            "svideo" | "s-video" => Ntsc::SVideo,
+            _ => return None,
+        })
+    }
 }
 
 fn parse_args() -> Result<Args> {
@@ -32,6 +79,7 @@ fn parse_args() -> Result<Args> {
     let mut system_dir = None;
     let mut save_dir = None;
     let mut scale = ScaleMode::Bilinear;
+    let mut ntsc = Ntsc::Composite;
     let mut shot = None;
     let mut shot_frame = 180u32;
 
@@ -73,6 +121,11 @@ fn parse_args() -> Result<Args> {
                     other => bail!("--scale wants pixel|bilinear, got {other:?}"),
                 }
             }
+            "--ntsc" => {
+                let v = it.next().ok_or_else(|| anyhow!("--ntsc needs a value"))?;
+                ntsc = Ntsc::parse(&v)
+                    .ok_or_else(|| anyhow!("--ntsc wants off|monochrome|composite|svideo"))?;
+            }
             "--shot" => {
                 shot = Some(
                     it.next()
@@ -105,16 +158,18 @@ fn parse_args() -> Result<Args> {
         system_dir,
         save_dir,
         scale,
+        ntsc,
         shot,
         shot_frame,
     })
 }
 
-const HELP: &str = "emu-run --core <lib> --rom <game.sfc> [--system-dir D] [--save-dir D] [--scale pixel|bilinear]\n\
+const HELP: &str = "emu-run --core <lib> --rom <game.sfc> [--system-dir D] [--save-dir D]\n\
+       [--scale pixel|bilinear] [--ntsc off|monochrome|composite|svideo]\n\
        [--shot out.bmp [--shot-frame N]]   headless: run N frames, dump one, exit\n\
 \n\
 keys: arrows=dpad  Z=B X=A A=Y S=X Q=L W=R  Enter=Start RShift=Select\n\
-      Tab=cycle scale (pixel/bilinear)  F=fullscreen  Backspace=reset  P=pause  Esc=quit";
+      Tab=cycle scale  N=cycle NTSC  F=fullscreen  Backspace=reset  P=pause  Esc=quit";
 
 fn map_format(f: EmuFormat) -> PlatFormat {
     match f {
@@ -170,6 +225,13 @@ fn main() -> Result<()> {
 
     core.load_game(&args.rom, &rom_bytes)
         .context("core rejected the ROM")?;
+
+    // Apply the Blargg NTSC preset *after* load_game — retro_init/load_game
+    // repopulate the core's option table from its own defaults.
+    let mut ntsc = args.ntsc;
+    core.set_variable("snes9x_blargg", ntsc.core_value());
+    log::info!("ntsc filter: {}", ntsc.label());
+
     let av = core.av_info();
     log::info!(
         "av: {}x{} (max {}x{}) aspect={:.3} fps={:.3} sr={:.0}",
@@ -205,6 +267,7 @@ fn main() -> Result<()> {
     let frame_time = Duration::from_secs_f64(1.0 / av.fps.max(1.0));
     let mut next = Instant::now();
     let mut frames: u32 = 0;
+    let mut last_dims = (0u32, 0u32);
     log::info!("running. scale = {}", scale.label());
 
     'run: loop {
@@ -215,6 +278,11 @@ fn main() -> Result<()> {
                 UiEvent::CycleScaleMode => {
                     scale = scale.next();
                     log::info!("scale = {}", scale.label());
+                }
+                UiEvent::CycleNtsc => {
+                    ntsc = ntsc.next();
+                    core.set_variable("snes9x_blargg", ntsc.core_value());
+                    log::info!("ntsc filter: {}", ntsc.label());
                 }
                 UiEvent::Reset => core.reset(),
                 UiEvent::TogglePause => {
@@ -232,23 +300,30 @@ fn main() -> Result<()> {
             frames += 1;
             audio.queue(core.audio());
             if let Some(frame) = core.take_frame() {
-                let pf = map_format(frame.format);
-                video.present(
-                    &FrameRef {
-                        width: frame.width,
-                        height: frame.height,
-                        pitch: frame.pitch,
-                        format: pf,
-                        pixels: &frame.pixels,
-                    },
-                    core.av_info().aspect_ratio,
-                    scale,
-                );
+                let dims = (frame.width, frame.height);
+                if dims != last_dims {
+                    log::info!(
+                        "core framebuffer: {}x{} ({:?})",
+                        dims.0,
+                        dims.1,
+                        frame.format
+                    );
+                    last_dims = dims;
+                }
+                let fref = FrameRef {
+                    width: frame.width,
+                    height: frame.height,
+                    pitch: frame.pitch,
+                    format: map_format(frame.format),
+                    pixels: &frame.pixels,
+                };
+                let aspect = core.av_info().aspect_ratio;
+                video.present(&fref, aspect, scale);
 
                 if let Some(path) = &args.shot {
                     if frames >= args.shot_frame {
                         video
-                            .capture_bmp(path)
+                            .capture_bmp(&fref, aspect, scale, path)
                             .map_err(|e| anyhow!(e.to_string()))?;
                         log::info!("wrote {} after {} frames", path.display(), frames);
                         break 'run;

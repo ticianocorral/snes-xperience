@@ -277,6 +277,32 @@ impl Core {
             CString::new(save.to_string_lossy().into_owned()).unwrap_or_default();
     }
 
+    /// Override a core option by key (e.g. `snes9x_blargg` = `composite`).
+    /// Upserts into the variable table and flags it dirty so the core re-reads
+    /// it on the next `run()`. Call after `init()` — `retro_init` repopulates the
+    /// table from the core's own defaults.
+    pub fn set_variable(&mut self, key: &str, value: &str) {
+        let (Ok(k), Ok(v)) = (CString::new(key), CString::new(value)) else {
+            return;
+        };
+        if let Some(slot) = self.state.variables.iter_mut().find(|(ek, _)| *ek == k) {
+            slot.1 = v;
+        } else {
+            self.state.variables.push((k, v));
+        }
+        self.state.variables_dirty = true;
+    }
+
+    /// Current value of a core option, if set.
+    pub fn variable(&self, key: &str) -> Option<&str> {
+        let k = CString::new(key).ok()?;
+        self.state
+            .variables
+            .iter()
+            .find(|(ek, _)| *ek == k)
+            .and_then(|(_, v)| v.to_str().ok())
+    }
+
     /// Register callbacks and call `retro_init`. Idempotent-unsafe: call once.
     pub fn init(&mut self) {
         self.enter(|api| unsafe {

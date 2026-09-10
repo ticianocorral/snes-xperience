@@ -1,19 +1,23 @@
-//! Window plus scaling modes (plan §4.7, trimmed).
+//! Window plus scaling modes.
 //!
-//! Two modes: `PixelPerfect` (integer nearest, letterboxed) and `Bilinear`
-//! (RetroArch-style linear stretch to 4:3). `Bilinear` also gets rounded
-//! corners — a nod to CRT-tube geometry, without scanlines or barrel warp.
+//! - `PixelPerfect`: integer nearest, letterboxed.
+//! - `Bilinear`: linear-sampled and drawn through a barrel-distorted mesh so the
+//!   picture bulges like a CRT tube (curved edges, corner cut-off, edge
+//!   vignette). No scanlines. Pair it with the core's Blargg NTSC option for the
+//!   composite/RF colour bleed.
 
-use sdl3::pixels::{Color, PixelFormat as SdlFormat};
+use sdl3::pixels::{Color, FColor, PixelFormat as SdlFormat};
 use sdl3::rect::Rect;
-use sdl3::render::{BlendMode, FRect, ScaleMode as SdlScaleMode, Texture, WindowCanvas};
+use sdl3::render::{FPoint, ScaleMode as SdlScaleMode, Texture, Vertex, WindowCanvas};
 use sdl3::VideoSubsystem;
 
 use crate::PlatformError;
 
-/// Corner radius as a fraction of the shorter side of the game rect. Tuned to
-/// read as a CRT-tube corner without eating picture.
-const CORNER_FRAC: f32 = 0.06;
+/// CRT tube shape. `WARP` is how hard the edges bow (0 = flat); `VIGNETTE` is
+/// how much the corners darken; `GRID` is the mesh resolution.
+const CRT_WARP: f32 = 0.10;
+const CRT_VIGNETTE: f32 = 0.22;
+const CRT_GRID: usize = 32;
 
 /// Pixel layout of a core framebuffer. Mirrors `xperience_emulation::PixelFormat`
 /// so the platform layer stays independent of the emulation crate.
@@ -65,7 +69,7 @@ impl ScaleMode {
     pub fn label(self) -> &'static str {
         match self {
             ScaleMode::PixelPerfect => "pixel perfect",
-            ScaleMode::Bilinear => "bilinear (rounded corners)",
+            ScaleMode::Bilinear => "bilinear + crt tube",
         }
     }
 }
@@ -74,8 +78,8 @@ pub struct Video {
     canvas: WindowCanvas,
     /// Streaming texture at native core resolution.
     src: Option<SrcTexture>,
-    /// Black corner overlay for the bilinear mode, sized to the game rect.
-    corners: Option<CornerMask>,
+    /// Cached CRT mesh; rebuilt only when the game rect resizes.
+    mesh: Option<CrtMesh>,
     fullscreen: bool,
 }
 
@@ -86,8 +90,9 @@ struct SrcTexture {
     format: PixelFormat,
 }
 
-struct CornerMask {
-    tex: Texture,
+struct CrtMesh {
+    verts: Vec<Vertex>,
+    indices: Vec<i32>,
     w: u32,
     h: u32,
 }
@@ -112,7 +117,7 @@ impl Video {
         Ok(Self {
             canvas,
             src: None,
-            corners: None,
+            mesh: None,
             fullscreen: false,
         })
     }
@@ -122,18 +127,74 @@ impl Video {
         let _ = self.canvas.window_mut().set_fullscreen(self.fullscreen);
     }
 
-    /// Read back the composited window and save it as a BMP. Used by the
-    /// headless self-check so the real output (rounded corners included) can be
-    /// eyeballed without watching the window.
-    pub fn capture_bmp(&self, path: &std::path::Path) -> Result<(), PlatformError> {
-        let surface = self
+    /// Render one frame into an offscreen target and save it as a BMP. Works
+    /// headless (a background window never composites on macOS), so the real
+    /// output — CRT warp and all — can be eyeballed without watching the window.
+    pub fn capture_bmp(
+        &mut self,
+        frame: &FrameRef,
+        aspect_ratio: f32,
+        mode: ScaleMode,
+        path: &std::path::Path,
+    ) -> Result<(), PlatformError> {
+        self.ensure_src(frame.width, frame.height, frame.format);
+        self.upload(frame);
+
+        let (out_w, out_h) = self
             .canvas
-            .read_pixels(None::<Rect>)
+            .output_size()
+            .unwrap_or((frame.width, frame.height));
+        let aspect = if aspect_ratio > 0.0 {
+            aspect_ratio
+        } else {
+            4.0 / 3.0
+        };
+        let dst = fit_aspect(out_w, out_h, aspect);
+        self.ensure_mesh(dst);
+        self.set_src_filter(mode);
+
+        let mut target = self
+            .canvas
+            .create_texture_target(SdlFormat::RGBA32, out_w, out_h)
             .map_err(|e| PlatformError::Sdl(e.to_string()))?;
-        surface
-            .save_bmp(path)
-            .map_err(|e| PlatformError::Sdl(e.to_string()))?;
-        Ok(())
+
+        let src = self.src.take().unwrap();
+        let mesh = self.mesh.take().unwrap();
+        let mut saved: Result<(), PlatformError> = Ok(());
+        let outcome = self.canvas.with_texture_canvas(&mut target, |c| {
+            c.set_draw_color(Color::RGB(0, 0, 0));
+            c.clear();
+            draw(c, &src, &mesh, dst, mode);
+            saved = c
+                .read_pixels(None::<Rect>)
+                .and_then(|s| s.save_bmp(path))
+                .map_err(|e| PlatformError::Sdl(e.to_string()));
+        });
+        self.src = Some(src);
+        self.mesh = Some(mesh);
+        outcome.map_err(|e| PlatformError::Sdl(e.to_string()))?;
+        saved
+    }
+
+    fn upload(&mut self, frame: &FrameRef) {
+        let expected_pitch = frame.width as usize * frame.format.bytes_per_pixel();
+        let src = self.src.as_mut().unwrap();
+        let pitch = if frame.pitch == 0 {
+            expected_pitch
+        } else {
+            frame.pitch
+        };
+        src.tex
+            .update(None, frame.pixels, pitch)
+            .expect("upload frame");
+    }
+
+    fn set_src_filter(&mut self, mode: ScaleMode) {
+        let want = match mode {
+            ScaleMode::PixelPerfect => SdlScaleMode::Nearest,
+            ScaleMode::Bilinear => SdlScaleMode::Linear,
+        };
+        self.src.as_mut().unwrap().tex.set_scale_mode(want);
     }
 
     fn ensure_src(&mut self, w: u32, h: u32, format: PixelFormat) {
@@ -150,40 +211,18 @@ impl Video {
         }
     }
 
-    /// (Re)build the rounded-corner overlay to match a `w`x`h` game rect.
-    fn ensure_corners(&mut self, w: u32, h: u32) {
-        if matches!(&self.corners, Some(c) if c.w == w && c.h == h) {
+    fn ensure_mesh(&mut self, dst: Rect) {
+        let (w, h) = (dst.width(), dst.height());
+        if matches!(&self.mesh, Some(m) if m.w == w && m.h == h) {
             return;
         }
-        let radius = (w.min(h) as f32 * CORNER_FRAC).round().max(6.0);
-        let pixels = corner_mask_rgba(w, h, radius);
-        let mut tex = self
-            .canvas
-            .create_texture_streaming(SdlFormat::RGBA32, w, h)
-            .expect("create corner mask texture");
-        tex.update(None, &pixels, w as usize * 4)
-            .expect("fill mask");
-        tex.set_blend_mode(BlendMode::Blend);
-        tex.set_scale_mode(SdlScaleMode::Linear);
-        self.corners = Some(CornerMask { tex, w, h });
+        self.mesh = Some(build_crt_mesh(dst));
     }
 
     /// Draw one frame. `aspect_ratio <= 0` means "use 4:3".
     pub fn present(&mut self, frame: &FrameRef, aspect_ratio: f32, mode: ScaleMode) {
         self.ensure_src(frame.width, frame.height, frame.format);
-
-        let expected_pitch = frame.width as usize * frame.format.bytes_per_pixel();
-        {
-            let src = self.src.as_mut().unwrap();
-            let pitch = if frame.pitch == 0 {
-                expected_pitch
-            } else {
-                frame.pitch
-            };
-            src.tex
-                .update(None, frame.pixels, pitch)
-                .expect("upload frame");
-        }
+        self.upload(frame);
 
         let (out_w, out_h) = self
             .canvas
@@ -194,39 +233,41 @@ impl Video {
         } else {
             4.0 / 3.0
         };
-
-        // Nearest for pixel-perfect, linear for the bilinear stretch.
-        {
-            let want = match mode {
-                ScaleMode::PixelPerfect => SdlScaleMode::Nearest,
-                ScaleMode::Bilinear => SdlScaleMode::Linear,
-            };
-            self.src.as_mut().unwrap().tex.set_scale_mode(want);
-        }
+        let dst = fit_aspect(out_w, out_h, aspect);
+        self.ensure_mesh(dst);
+        self.set_src_filter(mode);
 
         self.canvas.set_draw_color(Color::RGB(0, 0, 0));
         self.canvas.clear();
 
-        match mode {
-            ScaleMode::PixelPerfect => {
-                let scale = ((out_w / frame.width).min(out_h / frame.height)).max(1);
-                let dst = centered(out_w, out_h, frame.width * scale, frame.height * scale);
-                let src = self.src.as_ref().unwrap();
-                let _ = self.canvas.copy(&src.tex, None::<FRect>, dst);
-            }
-            ScaleMode::Bilinear => {
-                let dst = fit_aspect(out_w, out_h, aspect);
-                self.ensure_corners(dst.width(), dst.height());
-                let src = self.src.take().unwrap();
-                let corners = self.corners.take().unwrap();
-                let _ = self.canvas.copy(&src.tex, None::<FRect>, dst);
-                let _ = self.canvas.copy(&corners.tex, None::<FRect>, dst);
-                self.src = Some(src);
-                self.corners = Some(corners);
-            }
-        }
+        let src = self.src.take().unwrap();
+        let mesh = self.mesh.take().unwrap();
+        draw(&mut self.canvas, &src, &mesh, dst, mode);
+        self.src = Some(src);
+        self.mesh = Some(mesh);
 
         self.canvas.present();
+    }
+}
+
+/// Draw the game into the current render target. `dst` is the 4:3 fit rect.
+fn draw<T: sdl3::render::RenderTarget>(
+    canvas: &mut sdl3::render::Canvas<T>,
+    src: &SrcTexture,
+    mesh: &CrtMesh,
+    dst: Rect,
+    mode: ScaleMode,
+) {
+    match mode {
+        ScaleMode::PixelPerfect => {
+            let (ow, oh) = canvas.output_size().unwrap_or((dst.width(), dst.height()));
+            let scale = ((ow / src.w).min(oh / src.h)).max(1);
+            let d = centered(ow, oh, src.w * scale, src.h * scale);
+            let _ = canvas.copy(&src.tex, None::<sdl3::render::FRect>, d);
+        }
+        ScaleMode::Bilinear => {
+            let _ = canvas.render_geometry(&mesh.verts, Some(&src.tex), &mesh.indices[..]);
+        }
     }
 }
 
@@ -248,46 +289,57 @@ fn fit_aspect(out_w: u32, out_h: u32, aspect: f32) -> Rect {
     centered(out_w, out_h, w, h)
 }
 
-/// An RGBA buffer that is transparent inside a rounded rectangle and opaque
-/// black in the four corners outside it, with a 1px soft edge.
-fn corner_mask_rgba(w: u32, h: u32, radius: f32) -> Vec<u8> {
-    let (wf, hf) = (w as f32, h as f32);
-    let r = radius.min(wf / 2.0).min(hf / 2.0);
-    let mut buf = vec![0u8; w as usize * h as usize * 4];
+/// Build a textured grid over `dst` whose vertex positions are barrel-distorted
+/// (edges bow out, corners pull in) with an edge vignette baked into the vertex
+/// colours. Texture coordinates stay a plain grid, so the picture — not just the
+/// outline — curves.
+fn build_crt_mesh(dst: Rect) -> CrtMesh {
+    let n = CRT_GRID;
+    let (ox, oy) = (dst.x() as f32, dst.y() as f32);
+    let (dw, dh) = (dst.width() as f32, dst.height() as f32);
 
-    for y in 0..h {
-        for x in 0..w {
-            let px = x as f32 + 0.5;
-            let py = y as f32 + 0.5;
+    let mut verts = Vec::with_capacity((n + 1) * (n + 1));
+    for j in 0..=n {
+        for i in 0..=n {
+            let u = i as f32 / n as f32; // 0..1 texture / grid coord
+            let v = j as f32 / n as f32;
+            let cx = u * 2.0 - 1.0; // -1..1
+            let cy = v * 2.0 - 1.0;
 
-            // Circle centre for whichever corner this pixel sits in.
-            let cx = if px < r {
-                r
-            } else if px > wf - r {
-                wf - r
-            } else {
-                px
-            };
-            let cy = if py < r {
-                r
-            } else if py > hf - r {
-                hf - r
-            } else {
-                py
-            };
+            // Barrel: corners move toward the centre, mid-edges stay put.
+            let dx = cx * (1.0 - CRT_WARP * cy * cy);
+            let dy = cy * (1.0 - CRT_WARP * cx * cx);
 
-            // Only the corner boxes can be outside the rounded rect.
-            let in_corner_box = (px < r || px > wf - r) && (py < r || py > hf - r);
-            let alpha = if in_corner_box {
-                let d = ((px - cx).powi(2) + (py - cy).powi(2)).sqrt();
-                (d - r + 0.5).clamp(0.0, 1.0)
-            } else {
-                0.0
-            };
+            let px = ox + (dx * 0.5 + 0.5) * dw;
+            let py = oy + (dy * 0.5 + 0.5) * dh;
 
-            let i = (y as usize * w as usize + x as usize) * 4;
-            buf[i + 3] = (alpha * 255.0).round() as u8; // R,G,B stay 0 (black)
+            let r2 = (cx * cx + cy * cy).min(2.0) / 2.0;
+            let shade = (1.0 - CRT_VIGNETTE * r2 * r2).clamp(0.0, 1.0);
+
+            verts.push(Vertex {
+                position: FPoint::new(px, py),
+                color: FColor::RGBA(shade, shade, shade, 1.0),
+                tex_coord: FPoint::new(u, v),
+            });
         }
     }
-    buf
+
+    let stride = (n + 1) as i32;
+    let mut indices = Vec::with_capacity(n * n * 6);
+    for j in 0..n as i32 {
+        for i in 0..n as i32 {
+            let a = j * stride + i;
+            let b = a + 1;
+            let c = a + stride;
+            let d = c + 1;
+            indices.extend_from_slice(&[a, c, b, b, c, d]);
+        }
+    }
+
+    CrtMesh {
+        verts,
+        indices,
+        w: dst.width(),
+        h: dst.height(),
+    }
 }
