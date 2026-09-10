@@ -1,8 +1,9 @@
 # SNES Xperience
 
 Emulador de SNES com moldura estática — projeto pessoal, sem fins comerciais.
-Ver [`plano-emulador-moldura.md`](plano-emulador-moldura.md) para o desenho
-completo.
+Ver [`docs/plano-emulador-moldura.md`](docs/plano-emulador-moldura.md) para o
+desenho completo, e [`docs/fase-0.md`](docs/fase-0.md) /
+[`docs/fase-1.md`](docs/fase-1.md) para o que já foi feito.
 
 Estado atual: **Fase 1 — emulador feio que funciona.** As quatro camadas estão
 de pé; `emu-run` carrega e roda uma ROM com vídeo, som, gamepad, save state,

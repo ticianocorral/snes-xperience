@@ -3,7 +3,7 @@
 *.pdb
 .DS_Store
 
-# Local Phase 0 assets — never commit ROMs, BIOS or cores
+# Local runtime assets — never commit ROMs, BIOS, cores or player data
 /cores/
 /roms/
 /saves/
@@ -15,7 +15,12 @@
 *.dylib
 *.so
 *.dll
+*.srm
+*.state
+*.state[0-9]
+shot-*.bmp
 
-# Secrets
+# Config and secrets (the app's default config lives in ~/.config)
+config.toml
 .env
 screenscraper.toml
