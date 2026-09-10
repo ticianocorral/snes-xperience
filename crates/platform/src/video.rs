@@ -15,7 +15,7 @@ use crate::PlatformError;
 
 /// CRT tube shape. `WARP` is how hard the edges bow (0 = flat); `VIGNETTE` is
 /// how much the corners darken; `GRID` is the mesh resolution.
-const CRT_WARP: f32 = 0.10;
+const CRT_WARP: f32 = 0.06;
 const CRT_VIGNETTE: f32 = 0.22;
 const CRT_GRID: usize = 32;
 
