@@ -31,8 +31,10 @@ fn main() -> Result<()> {
         Some("name") => Order::Name,
         _ => Order::Shelf,
     };
-    // Headless smoke test: run N frames then exit 0 without picking anything.
+    // Headless smoke test: run N frames then exit 0 without picking anything;
+    // with --shot, save the last frame (shelf through the tube) as a BMP.
     let max_frames: Option<u64> = arg(&args, "--frames").and_then(|s| s.parse().ok());
+    let shot = arg(&args, "--shot").map(PathBuf::from);
     let no_scrape = args.iter().any(|a| a == "--no-scrape");
 
     let catalog = Catalog::open(&catalog_path)
@@ -53,6 +55,7 @@ fn main() -> Result<()> {
     let opts = ShelfOpts {
         order,
         max_frames,
+        shot,
         scrape,
     };
     match shelf::run(&mut plat, &mut cab, &catalog, &opts)? {

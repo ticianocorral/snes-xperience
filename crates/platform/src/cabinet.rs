@@ -80,10 +80,17 @@ pub struct Cabinet {
     mesh: Option<CrtMesh>,
     /// Cached cabinet mesh; rebuilt only when the window or screen rect changes.
     bezel: Option<BezelMesh>,
+    /// Render target the selector draws its flat 2D into, then composited
+    /// through the tube like a game frame.
+    screen_tex: Option<SizedTex>,
+    /// Small streaming texture for the signal-off snow.
+    noise_tex: Option<SizedTex>,
+    noise: Vec<u8>,
+    rng: u32,
     /// 128 glyphs laid out horizontally, white on transparent (2D path).
     font: Texture,
     images: HashMap<u64, ImgTex>,
-    /// The current inner-screen rect; 2D draw calls are offset into it.
+    /// The current inner-screen rect (the tube opening).
     screen: Rect,
     fullscreen: bool,
 }
@@ -93,6 +100,13 @@ struct SrcTexture {
     w: u32,
     h: u32,
     format: PixelFormat,
+}
+
+/// A plain RGBA texture kept at a known size.
+struct SizedTex {
+    tex: Texture,
+    w: u32,
+    h: u32,
 }
 
 struct CrtMesh {
@@ -142,6 +156,10 @@ impl Cabinet {
             src: None,
             mesh: None,
             bezel: None,
+            screen_tex: None,
+            noise_tex: None,
+            noise: Vec::new(),
+            rng: 0x9E37_79B9,
             font,
             images: HashMap::new(),
             screen: screen_area(w, h),
@@ -290,26 +308,110 @@ impl Cabinet {
 
     // --- 2D path (selector) --------------------------------------------
     //
-    // Coordinates passed in are screen-local (0,0 = top-left of the recess);
-    // every call is offset by the screen origin and clipped to the screen.
+    // The selector draws flat 2D into an offscreen buffer the size of the tube
+    // opening, which is then composited through the CRT mesh just like a game
+    // frame — so the shelf bulges with the same tube.
 
-    /// Start a 2D frame: fill the recess with `bg`, clamp drawing to it.
-    pub fn begin_2d(&mut self, bg: (u8, u8, u8)) {
-        let (w, h) = self.canvas.output_size().unwrap_or((1280, 720));
-        self.screen = screen_area(w, h);
-        self.ensure_bezel(w, h, self.screen);
+    /// Register/replace an image from tightly-packed RGBA8 (call between frames).
+    pub fn set_image(&mut self, id: u64, w: u32, h: u32, rgba: &[u8]) {
+        if w == 0 || h == 0 || rgba.len() < (w * h * 4) as usize {
+            return;
+        }
+        let mut tex = match self.canvas.create_texture_static(SdlFormat::RGBA32, w, h) {
+            Ok(t) => t,
+            Err(e) => {
+                log::warn!("cabinet: texture {w}x{h}: {e}");
+                return;
+            }
+        };
+        if tex.update(None, rgba, (w * 4) as usize).is_err() {
+            return;
+        }
+        tex.set_blend_mode(BlendMode::Blend);
+        tex.set_scale_mode(SdlScaleMode::Linear);
+        self.images.insert(id, ImgTex { tex, w, h });
+    }
 
+    /// Draw a 2D frame: `draw` renders into a screen-sized buffer (coords
+    /// 0..screen), which is then warped through the tube, framed and presented.
+    pub fn frame_2d<F: FnOnce(&mut Screen)>(&mut self, bg: (u8, u8, u8), draw: F) {
+        self.paint_2d(bg, draw);
+        self.composite_screen();
+        self.canvas.present();
+    }
+
+    /// Like [`Cabinet::frame_2d`] but composited into an offscreen target and
+    /// saved as a BMP (headless — a background window never composites on macOS).
+    pub fn capture_2d<F: FnOnce(&mut Screen)>(
+        &mut self,
+        bg: (u8, u8, u8),
+        draw: F,
+        path: &std::path::Path,
+    ) -> Result<(), PlatformError> {
+        self.paint_2d(bg, draw);
+
+        let (ww, wh) = self.canvas.output_size().unwrap_or((1280, 720));
+        let mesh = build_crt_mesh(self.screen);
+        let mut target = self
+            .canvas
+            .create_texture_target(SdlFormat::RGBA32, ww, wh)
+            .map_err(|e| PlatformError::Sdl(e.to_string()))?;
+        let st = self.screen_tex.take().unwrap();
+        let bezel = self.bezel.take().unwrap();
+        let mut saved: Result<(), PlatformError> = Ok(());
+        let outcome = self.canvas.with_texture_canvas(&mut target, |c| {
+            c.set_draw_color(Color::RGB(RECESS.0, RECESS.1, RECESS.2));
+            c.clear();
+            let _ = c.render_geometry(&mesh.verts, Some(&st.tex), &mesh.indices[..]);
+            let _ = c.render_geometry(&bezel.verts, None, &bezel.indices[..]);
+            saved = c
+                .read_pixels(None::<Rect>)
+                .and_then(|s| s.save_bmp(path))
+                .map_err(|e| PlatformError::Sdl(e.to_string()));
+        });
+        self.screen_tex = Some(st);
+        self.bezel = Some(bezel);
+        outcome.map_err(|e| PlatformError::Sdl(e.to_string()))?;
+        saved
+    }
+
+    /// One frame of signal-off snow through the tube. `level` 1.0 = a full
+    /// blizzard, 0.0 = a dim, near-still hiss. Never a full-screen flash.
+    pub fn present_static(&mut self, level: f32) {
+        let (ww, wh) = self.canvas.output_size().unwrap_or((1280, 720));
+        self.screen = screen_area(ww, wh);
+        self.ensure_bezel(ww, wh, self.screen);
+
+        const NW: u32 = 320;
+        const NH: u32 = 240;
+        self.ensure_noise_tex(NW, NH);
+        let k = level.clamp(0.0, 1.0);
+        let hi = (26.0 + 150.0 * k) as u32; // cap well under white
+        let lo = (6.0 * k) as u32;
+        let span = hi - lo + 1;
+        {
+            let Self { noise, rng, .. } = &mut *self;
+            if noise.len() != (NW * NH * 4) as usize {
+                *noise = vec![0u8; (NW * NH * 4) as usize];
+            }
+            for px in noise.as_chunks_mut::<4>().0 {
+                *rng ^= *rng << 13;
+                *rng ^= *rng >> 17;
+                *rng ^= *rng << 5;
+                let v = (lo + *rng % span) as u8;
+                *px = [v, v, v, 255];
+            }
+        }
+        let mesh = build_crt_mesh(self.screen);
+        let mut nt = self.noise_tex.take().unwrap();
+        let _ = nt.tex.update(None, &self.noise, (NW * 4) as usize);
         self.canvas
             .set_draw_color(Color::RGB(RECESS.0, RECESS.1, RECESS.2));
         self.canvas.clear();
-        self.canvas.set_draw_color(Color::RGB(bg.0, bg.1, bg.2));
-        let _ = self.canvas.fill_rect(self.screen);
-        self.canvas.set_clip_rect(ClippingRect::Some(self.screen));
-    }
-
-    /// Finish a 2D frame: draw the cabinet ring on top of the border, present.
-    pub fn present_2d(&mut self) {
-        self.canvas.set_clip_rect(ClippingRect::None);
+        let _ = self
+            .canvas
+            .render_geometry(&mesh.verts, Some(&nt.tex), &mesh.indices[..]);
+        self.noise_tex = Some(nt);
         let bezel = self.bezel.take().unwrap();
         let _ = self
             .canvas
@@ -318,18 +420,101 @@ impl Cabinet {
         self.canvas.present();
     }
 
-    fn ox(&self) -> i32 {
-        self.screen.x()
+    /// Render `draw` into the screen buffer. Shared by `frame_2d` / `capture_2d`.
+    fn paint_2d<F: FnOnce(&mut Screen)>(&mut self, bg: (u8, u8, u8), draw: F) {
+        let (ww, wh) = self.canvas.output_size().unwrap_or((1280, 720));
+        self.screen = screen_area(ww, wh);
+        let (sw, sh) = (self.screen.width(), self.screen.height());
+        self.ensure_screen_tex(sw, sh);
+        self.ensure_bezel(ww, wh, self.screen);
+
+        let Self {
+            canvas,
+            screen_tex,
+            font,
+            images,
+            ..
+        } = self;
+        let images = &*images;
+        let st = screen_tex.as_mut().unwrap();
+        let _ = canvas.with_texture_canvas(&mut st.tex, |c| {
+            c.set_draw_color(Color::RGB(bg.0, bg.1, bg.2));
+            c.clear();
+            let mut s = Screen {
+                canvas: c,
+                font,
+                images,
+                w: sw,
+                h: sh,
+            };
+            draw(&mut s);
+        });
+        // The clip lives on the shared underlying renderer; clear it.
+        self.canvas.set_clip_rect(ClippingRect::None);
     }
-    fn oy(&self) -> i32 {
-        self.screen.y()
+
+    /// Warp the screen buffer through the tube into the live window, then frame.
+    fn composite_screen(&mut self) {
+        let mesh = build_crt_mesh(self.screen);
+        self.canvas
+            .set_draw_color(Color::RGB(RECESS.0, RECESS.1, RECESS.2));
+        self.canvas.clear();
+        let st = self.screen_tex.take().unwrap();
+        let _ = self
+            .canvas
+            .render_geometry(&mesh.verts, Some(&st.tex), &mesh.indices[..]);
+        self.screen_tex = Some(st);
+        let bezel = self.bezel.take().unwrap();
+        let _ = self
+            .canvas
+            .render_geometry(&bezel.verts, None, &bezel.indices[..]);
+        self.bezel = Some(bezel);
+    }
+
+    fn ensure_screen_tex(&mut self, w: u32, h: u32) {
+        if matches!(&self.screen_tex, Some(s) if s.w == w && s.h == h) {
+            return;
+        }
+        let mut tex = self
+            .canvas
+            .create_texture_target(SdlFormat::RGBA32, w, h)
+            .expect("create screen target");
+        tex.set_scale_mode(SdlScaleMode::Linear);
+        self.screen_tex = Some(SizedTex { tex, w, h });
+    }
+
+    fn ensure_noise_tex(&mut self, w: u32, h: u32) {
+        if matches!(&self.noise_tex, Some(s) if s.w == w && s.h == h) {
+            return;
+        }
+        let mut tex = self
+            .canvas
+            .create_texture_streaming(SdlFormat::RGBA32, w, h)
+            .expect("create noise texture");
+        tex.set_scale_mode(SdlScaleMode::Linear);
+        self.noise_tex = Some(SizedTex { tex, w, h });
+    }
+}
+
+/// A 2D drawing surface, screen-local coordinates (0,0 = top-left of the tube
+/// opening). Handed to the `frame_2d` / `capture_2d` closure.
+pub struct Screen<'a> {
+    canvas: &'a mut WindowCanvas,
+    font: &'a mut Texture,
+    images: &'a HashMap<u64, ImgTex>,
+    w: u32,
+    h: u32,
+}
+
+impl Screen<'_> {
+    /// Size of the drawing surface.
+    pub fn size(&self) -> (u32, u32) {
+        (self.w, self.h)
     }
 
     pub fn fill(&mut self, x: i32, y: i32, w: u32, h: u32, c: (u8, u8, u8, u8)) {
         self.canvas.set_draw_color(Color::RGBA(c.0, c.1, c.2, c.3));
-        let _ = self
-            .canvas
-            .fill_rect(Rect::new(x + self.ox(), y + self.oy(), w, h));
+        let _ = self.canvas.fill_rect(Rect::new(x, y, w, h));
     }
 
     pub fn outline(&mut self, x: i32, y: i32, w: u32, h: u32, thick: u32, c: (u8, u8, u8, u8)) {
@@ -340,14 +525,11 @@ impl Cabinet {
         self.fill(x + w as i32 - t, y, thick, h, c);
     }
 
-    /// Draw `s` at screen-local `(x, y)`, `scale`x the 8px cell. Returns the
-    /// advance width.
+    /// Draw `s` at `(x, y)`, `scale`x the 8px cell. Returns the advance width.
     pub fn text(&mut self, x: i32, y: i32, scale: u32, c: (u8, u8, u8), s: &str) -> i32 {
         self.font.set_color_mod(c.0, c.1, c.2);
         let cell = (GLYPH * scale) as i32;
-        let x0 = x + self.ox();
-        let y0 = y + self.oy();
-        let mut pen = x0;
+        let mut pen = x;
         for ch in s.chars() {
             let idx = if (ch as u32) < 128 {
                 ch as u32
@@ -356,15 +538,15 @@ impl Cabinet {
             };
             if ch != ' ' {
                 let src = Rect::new(idx as i32 * GLYPH as i32, 0, GLYPH, GLYPH);
-                let dst = Rect::new(pen, y0, GLYPH * scale, GLYPH * scale);
-                let _ = self.canvas.copy(&self.font, src, dst);
+                let dst = Rect::new(pen, y, GLYPH * scale, GLYPH * scale);
+                let _ = self.canvas.copy(self.font, src, dst);
             }
             pen += cell;
         }
-        pen - x0
+        pen - x
     }
 
-    /// Word-wrap `s` into `max_w`, returning the screen-local y past the last line.
+    /// Word-wrap `s` into `max_w`, returning the y past the last line.
     pub fn text_wrapped(
         &mut self,
         x: i32,
@@ -402,52 +584,24 @@ impl Cabinet {
         cy
     }
 
-    /// Height [`Cabinet::text_wrapped`] would take for `s`, without drawing.
+    /// Height [`Screen::text_wrapped`] would take for `s`, without drawing.
     pub fn wrapped_height(&self, max_w: u32, scale: u32, s: &str) -> i32 {
         wrapped_height(max_w, scale, s)
     }
 
-    /// Clip 2D drawing to a screen-local `rect` (intersected with the screen);
-    /// `None` restores the full screen.
+    /// Clip drawing to `rect`; `None` clears the clip.
     pub fn clip(&mut self, rect: Option<(i32, i32, u32, u32)>) {
-        let full = ClippingRect::Some(self.screen);
-        let clip = match rect {
-            Some((x, y, w, h)) => full.intersection(ClippingRect::Some(Rect::new(
-                x + self.ox(),
-                y + self.oy(),
-                w,
-                h,
-            ))),
-            None => full,
-        };
-        self.canvas.set_clip_rect(clip);
+        self.canvas.set_clip_rect(match rect {
+            Some((x, y, w, h)) => ClippingRect::Some(Rect::new(x, y, w, h)),
+            None => ClippingRect::None,
+        });
     }
 
     pub fn has_image(&self, id: u64) -> bool {
         self.images.contains_key(&id)
     }
 
-    /// Register/replace an image from tightly-packed RGBA8.
-    pub fn set_image(&mut self, id: u64, w: u32, h: u32, rgba: &[u8]) {
-        if w == 0 || h == 0 || rgba.len() < (w * h * 4) as usize {
-            return;
-        }
-        let mut tex = match self.canvas.create_texture_static(SdlFormat::RGBA32, w, h) {
-            Ok(t) => t,
-            Err(e) => {
-                log::warn!("cabinet: texture {w}x{h}: {e}");
-                return;
-            }
-        };
-        if tex.update(None, rgba, (w * 4) as usize).is_err() {
-            return;
-        }
-        tex.set_blend_mode(BlendMode::Blend);
-        tex.set_scale_mode(SdlScaleMode::Linear);
-        self.images.insert(id, ImgTex { tex, w, h });
-    }
-
-    /// Draw image `id` letterboxed inside the screen-local box, centered.
+    /// Draw image `id` letterboxed inside the box, centered. No-op if unknown.
     pub fn image_fit(&mut self, id: u64, x: i32, y: i32, bw: u32, bh: u32) {
         let Some(img) = self.images.get(&id) else {
             return;
@@ -456,8 +610,8 @@ impl Cabinet {
         let scale = (bw as f32 / iw).min(bh as f32 / ih);
         let dw = (iw * scale).round() as i32;
         let dh = (ih * scale).round() as i32;
-        let dx = x + self.screen.x() + (bw as i32 - dw) / 2;
-        let dy = y + self.screen.y() + (bh as i32 - dh) / 2;
+        let dx = x + (bw as i32 - dw) / 2;
+        let dy = y + (bh as i32 - dh) / 2;
         let _ = self.canvas.copy(
             &img.tex,
             None::<sdl3::render::FRect>,

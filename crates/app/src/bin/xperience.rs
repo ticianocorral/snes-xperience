@@ -13,13 +13,14 @@
 //! out.
 
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Context, Result};
 use xperience_app::config::Config;
 use xperience_app::runner::{run_game, GameExit, GameSpec};
 use xperience_app::shelf::{self, Pick, ScrapeSetup, ShelfOpts};
 use xperience_domain::{Catalog, Credentials, Order};
-use xperience_platform::Platform;
+use xperience_platform::{Cabinet, Platform};
 
 struct Args {
     core: PathBuf,
@@ -150,6 +151,7 @@ fn main() -> Result<()> {
     let shelf_opts = ShelfOpts {
         order: args.order,
         max_frames: None,
+        shot: None,
         scrape,
     };
 
@@ -167,11 +169,54 @@ fn main() -> Result<()> {
             shot: None,
         };
         match run_game(&mut plat, &mut cab, &spec, &cfg)? {
-            GameExit::ToShelf => continue,
+            GameExit::ToShelf => signal_off(&plat, &mut cab),
             GameExit::Quit => break,
         }
     }
 
     log::info!("bye");
     Ok(())
+}
+
+/// The power-off ritual between game and shelf (plan §3.3): a short burst of
+/// RF snow through the tube with a decaying buzz, settling to a dim hiss —
+/// never a full-screen flash, and the noise cuts rather than lingers.
+fn signal_off(plat: &Platform, cab: &mut Cabinet) {
+    const RATE: u32 = 22_050;
+    const SPAN: Duration = Duration::from_millis(650);
+    let audio = plat.open_audio(RATE).ok();
+    let frame = Duration::from_millis(16);
+    let mut rng: u32 = 0x1234_5678;
+    let start = Instant::now();
+
+    while start.elapsed() < SPAN {
+        let t = (start.elapsed().as_secs_f32() / SPAN.as_secs_f32()).min(1.0);
+        // Strong for the first half, then settle toward a dim near-still hiss.
+        let level = if t < 0.5 {
+            1.0 - 0.5 * t
+        } else {
+            (0.9 - t).max(0.12)
+        };
+        cab.present_static(level);
+
+        if let Some(a) = &audio {
+            let n = (RATE / 60) as usize;
+            let amp = ((1.0 - t) * 8000.0) as i32;
+            let mut buf = Vec::with_capacity(n * 2);
+            for _ in 0..n {
+                rng ^= rng << 13;
+                rng ^= rng >> 17;
+                rng ^= rng << 5;
+                let s = (((rng >> 8) & 0xFFFF) as i32 - 0x8000) * amp / 0x8000;
+                let v = s.clamp(-32000, 32000) as i16;
+                buf.push(v);
+                buf.push(v);
+            }
+            a.queue(&buf);
+        }
+        std::thread::sleep(frame);
+    }
+    if let Some(a) = &audio {
+        a.clear(); // buzz cut, not fade-out tail
+    }
 }

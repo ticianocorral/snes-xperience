@@ -45,10 +45,16 @@ aviso — só o incremento de _minor_ marca um conjunto de mudanças.
   `screen_area` / `fit_aspect_in` dão o vão 4:3 com queixo maior; a malha é
   cacheada por tamanho. A imagem do jogo fica sendo a coisa mais clara do quadro.
 - **Janela única** (Fase 3): `Ui` + `Video` viraram um tipo só, `Cabinet`, que
-  tem o caminho do jogo (`present_frame`) e o 2D da estante (`begin_2d` / `fill`
-  / `text` / … / `present_2d`, coordenadas no vão da tela). `xperience` cria um
+  tem o caminho do jogo (`present_frame`) e o 2D da estante. `xperience` cria um
   `Cabinet` e passa `&mut` dele pra `shelf::run` e `runner::run_game` — a troca
   estante↔jogo não recria janela. Testes de `screen_area` / `fit_aspect_in`.
+- **Estante pelo tubo** (Fase 3): o 2D da estante virou `Cabinet::frame_2d(bg,
+  |Screen| …)` — o closure desenha num buffer do tamanho do vão, que é deformado
+  pela mesma malha CRT do jogo. `capture_2d` salva isso headless (`selector
+  --shot`).
+- **Sinal off** (Fase 3): ao sair do jogo pro seletor, `xperience::signal_off`
+  toca ~0,65 s de `Cabinet::present_static` (chuvisco pelo tubo, teto abaixo do
+  branco — sem flash) com um zumbido de RF decaindo que corta no fim.
 
 ## [0.1.0] — 2026-09-10
 

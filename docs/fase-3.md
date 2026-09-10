@@ -9,46 +9,56 @@ Progresso:
       escuro; a imagem é a coisa mais clara do quadro (§3.2)
 - [x] **Janela única** — `xperience` cria um `Cabinet` e desenha estante *ou*
       jogo no vão da tela, sem recriar janela na troca
-- [ ] Sequência de sinal off (chuvisco curto → ruído baixo) e transição entre as
-      telas por ela — a estante passa a compor pelo tubo aqui
+- [x] **Estante pelo tubo** — o 2D vai pra um buffer do tamanho do vão e é
+      deformado pela mesma malha CRT do jogo
+- [x] **Sinal off** — ao sair do jogo, meio segundo de chuvisco pelo tubo com
+      zumbido de RF decaindo, assentando num hiss fraco, e corta (§3.3)
+- [ ] "A estante entra por cima" — hoje é corte seco depois do chuvisco
 - [ ] Cartucho encaixado no console, com o rótulo (`texture` do ScreenScraper)
 - [ ] Botões do console (desligar / ejetar / reset) com trava de ejeção
 - [ ] Teste de duas horas (§8) antes de investir em arte/modelagem
 
 ## `Cabinet` (`xperience-platform::cabinet`)
 
-Uma janela só pro app todo. `Ui` e `Video` viraram um tipo só, `Cabinet`, que
-tem os dois caminhos de desenho e a mesma moldura sempre por cima:
+Uma janela só pro app todo. `Ui` e `Video` viraram um tipo só, `Cabinet`. Todo
+quadro limpa com a cor do recuo, desenha o conteúdo deformado pelo tubo e por
+cima a malha de anel do gabinete (`build_bezel_mesh`).
 
-- **Jogo:** `present_frame` faz o que o `Video` fazia — sobe o framebuffer pra
-  uma textura e desenha a malha do tubo CRT no vão da tela.
-- **Estante:** `begin_2d` / `fill` / `text` / `text_wrapped` / `image_fit` /
-  `clip` / `present_2d` — o 2D do antigo `Ui`, com as coordenadas em
-  *screen-local* (0,0 = canto do vão): cada chamada é deslocada pra origem do
-  vão e recortada nele.
-- **Moldura:** todo quadro limpa com a cor do recuo, desenha o conteúdo e por
-  cima a malha de anel do gabinete (`build_bezel_mesh`), quatro quads da borda
-  da janela (cinza-plástico) até a borda da tela (quase preto) — a tela num poço
-  sombreado.
+- **Jogo:** `present_frame` — sobe o framebuffer pra uma textura e desenha a
+  malha do tubo CRT no maior 4:3 do vão.
+- **Estante:** `frame_2d(bg, |s| …)` — o *closure* desenha 2D plano
+  (`Screen::fill` / `text` / `text_wrapped` / `image_fit` / `clip`) num buffer do
+  tamanho do vão (coordenadas 0..vão); o buffer é então deformado pela mesma
+  malha CRT. `capture_2d` faz o mesmo pra um alvo offscreen e salva BMP (headless).
+- **Sinal off:** `present_static(level)` — enche uma textura pequena (320×240)
+  de ruído cinza (xorshift, teto bem abaixo do branco — **sem flash**) e compõe
+  pelo tubo. `level` 1.0 = nevasca, 0.12 = hiss quase parado.
 
 O vão é a janela recuada por frações fixas — `BEZEL_SIDE`/`BEZEL_TOP` 7 %,
-`BEZEL_CHIN` 11 % (o "queixo") — e, pro jogo, o maior 4:3 centralizado nele
-(`screen_area` + `fit_aspect_in`, ambos com teste). Malhas cacheadas por tamanho.
+`BEZEL_CHIN` 11 % (o "queixo"). Cores: `CABINET` = `(40, 37, 33)`,
+`RECESS` = `(4, 4, 5)`.
 
-`xperience` cria **um** `Cabinet` antes do laço e passa `&mut` dele tanto pra
-`shelf::run` quanto pra `runner::run_game`; a troca de tela não toca na janela.
-`emu-run` e `selector` fazem o próprio `Cabinet` do mesmo jeito.
+## Transição (`xperience::signal_off`)
 
-Cores em `cabinet.rs`: `CABINET` = `(40, 37, 33)`, `RECESS` = `(4, 4, 5)`.
+Ao `run_game` devolver `GameExit::ToShelf` (Esc no jogo), `xperience` roda
+`signal_off` antes de voltar à estante: ~0,65 s de `present_static` com `level`
+caindo de 1.0 → ~0,12, e em paralelo um buffer de ruído estéreo com amplitude
+decrescente numa stream de áudio curta (22 kHz). No fim, `AudioOut::clear` — o
+zumbido corta, não arrasta (§3.3). Fechar a janela do jogo (`GameExit::Quit`)
+não passa por isso.
 
-Verificado: `emu-run --shot` (jogo pelo gabinete, inalterado); `selector
---frames` headless (estante no gabinete, sem panic); testes de `screen_area` /
-`fit_aspect_in` / `wrapped_height`. O visual da estante recuada ainda precisa de
-uma conferida ao vivo (headless 2D no macOS não compõe).
+## Verificado
+
+- `emu-run --shot` — jogo pelo gabinete, idêntico
+- `selector --frames --shot` — estante **pelo tubo** (BMP headless: a grade
+  inteira encurva, com gabinete e vinheta)
+- testes de `screen_area` / `fit_aspect_in` / `wrapped_height`
+
+O chuvisco e o zumbido são o mesmo caminho de composição já conferido; falta ver
+ao vivo (headless não compõe janela no macOS).
 
 ## A seguir
 
-A estante é desenhada **plana** no recuo (cópia direta). O próximo passo — a
-sequência de sinal off — é o ponto natural pra fazer o 2D compor pelo tubo
-(render-to-texture do vão), já que o chuvisco e a transição entre estante e jogo
-vão querer a mesma superfície curva.
+"A estante entra por cima" — em vez do corte seco, alguns quadros de crossfade
+da estante sobre o chuvisco residual. Depois: cartucho + rótulo, botões do
+console + trava de ejeção, e o teste de duas horas.

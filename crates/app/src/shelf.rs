@@ -9,12 +9,12 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Result};
 use xperience_domain::{
     download_art, ArtPaths, Catalog, CatalogEntry, Client, Credentials, GameInfo, Order, RomId,
     ScrapeError,
 };
-use xperience_platform::{Cabinet, MenuNav, Platform};
+use xperience_platform::{Cabinet, MenuNav, Platform, Screen};
 
 const TILE_W: u32 = 150;
 const TILE_H: u32 = 200;
@@ -56,6 +56,8 @@ pub struct ShelfOpts {
     pub order: Order,
     /// Headless smoke test: stop after N frames and return [`Pick::Quit`].
     pub max_frames: Option<u64>,
+    /// Headless: on the last frame, save the shelf (through the tube) here.
+    pub shot: Option<PathBuf>,
     /// On-demand scrape of the focused game. `None` disables it.
     pub scrape: Option<ScrapeSetup>,
 }
@@ -65,6 +67,7 @@ impl Default for ShelfOpts {
         Self {
             order: Order::Shelf,
             max_frames: None,
+            shot: None,
             scrape: None,
         }
     }
@@ -305,119 +308,123 @@ pub fn run(
             top_row = sel_row + 1 - vis_rows;
         }
 
-        // --- draw --------------------------------------------------------
-        cab.begin_2d(BG);
-
-        // Search line.
-        let label = if search.is_empty() {
-            format!("{} games — type to search", view.len())
-        } else {
-            format!("search: {search}_   ({} match)", view.len())
-        };
-        cab.text(MARGIN, MARGIN - 12, 2, DIM, &label);
-
-        let grid_x0 = MARGIN;
-        let grid_y0 = MARGIN + 28;
-        for (i, entry) in view.iter().enumerate() {
-            let row = i / cols;
-            if row < top_row || row >= top_row + vis_rows {
-                continue;
-            }
-            let col = i % cols;
-            let x = grid_x0 + col as i32 * (TILE_W + GAP) as i32;
-            let y = grid_y0 + (row - top_row) as i32 * (TILE_H + GAP) as i32;
-
-            cab.fill(x, y, TILE_W, TILE_H, TILE_BG);
-            let id = cover_id(&entry.rom.sha1);
-            if cab.has_image(id) {
-                cab.image_fit(id, x + 4, y + 4, TILE_W - 8, TILE_H - 8);
+        // --- draw (into a screen-sized buffer, then warped through the tube) --
+        let render = |d: &mut Screen| {
+            let label = if search.is_empty() {
+                format!("{} games — type to search", view.len())
             } else {
-                cab.text_wrapped(
-                    x + 8,
-                    y + 10,
-                    TILE_W - 16,
-                    1,
-                    DIM,
-                    &entry.title().to_uppercase(),
-                );
-            }
-            if i == sel {
-                cab.outline(x - 3, y - 3, TILE_W + 6, TILE_H + 6, 3, HILITE);
-            }
-        }
+                format!("search: {search}_   ({} match)", view.len())
+            };
+            d.text(MARGIN, MARGIN - 12, 2, DIM, &label);
 
-        // --- details panel ---------------------------------------------
-        let px = (scr_w - PANEL_W) as i32;
-        cab.fill(px, 0, PANEL_W, scr_h, (24, 24, 28, 255));
-        if let Some(e) = view.get(sel) {
-            let ix = px + 22;
-            let inner_w = PANEL_W - 44;
-            let mut iy = MARGIN;
-
-            // Header: the wheel logo if we have it, else the title in text.
-            let wid = wheel_id(&e.rom.sha1);
-            if cab.has_image(wid) {
-                cab.image_fit(wid, ix, iy, inner_w, 72);
-                iy += 72 + 12;
-            } else {
-                iy = cab.text_wrapped(ix, iy, inner_w, 2, TEXT, &e.title()) + 8;
-            }
-
-            let m = e.meta.as_ref();
-            let plays = e.rom.play_count.to_string();
-            let rows: [(&str, Option<&str>); 7] = [
-                ("year", m.and_then(|m| m.year.as_deref())),
-                ("developer", m.and_then(|m| m.developer.as_deref())),
-                ("publisher", m.and_then(|m| m.publisher.as_deref())),
-                ("genre", m.and_then(|m| m.genre.as_deref())),
-                ("players", m.and_then(|m| m.players.as_deref())),
-                ("region", m.and_then(|m| m.region.as_deref())),
-                ("plays", (e.rom.play_count > 0).then_some(plays.as_str())),
-            ];
-            for (k, v) in rows {
-                if let Some(v) = v {
-                    cab.text(ix, iy, 1, DIM, k);
-                    cab.text(ix + 90, iy, 1, TEXT, v);
-                    iy += 16;
+            let grid_x0 = MARGIN;
+            let grid_y0 = MARGIN + 28;
+            for (i, entry) in view.iter().enumerate() {
+                let row = i / cols;
+                if row < top_row || row >= top_row + vis_rows {
+                    continue;
                 }
-            }
-            iy += 10;
-            if let Some(s) = m.and_then(|m| m.synopsis.as_deref()) {
-                // Scrollable region between the ficha and the footer. After a
-                // short rest it creeps upward until the end is visible.
-                let vp_y = iy;
-                let vp_h = (scr_h as i32 - 40 - vp_y).max(0);
-                if vp_h > 12 {
-                    let overflow = (cab.wrapped_height(inner_w, 1, s) - vp_h).max(0);
-                    if dwell > SYNOPSIS_HOLD_FRAMES {
-                        synopsis_scroll = (synopsis_scroll + 1).min(overflow);
-                    }
-                    cab.clip(Some((px, vp_y, PANEL_W, vp_h as u32)));
-                    cab.text_wrapped(ix, vp_y - synopsis_scroll, inner_w, 1, DIM, s);
-                    cab.clip(None);
-                }
-            } else if e.meta.is_none() {
-                let note = if quota_hit {
-                    "scrape quota reached"
-                } else if scrape_enabled && requested.contains(&e.rom.sha1) {
-                    "scraping\u{2026}"
-                } else if scrape_enabled {
-                    "not scraped yet"
+                let col = i % cols;
+                let x = grid_x0 + col as i32 * (TILE_W + GAP) as i32;
+                let y = grid_y0 + (row - top_row) as i32 * (TILE_H + GAP) as i32;
+
+                d.fill(x, y, TILE_W, TILE_H, TILE_BG);
+                let id = cover_id(&entry.rom.sha1);
+                if d.has_image(id) {
+                    d.image_fit(id, x + 4, y + 4, TILE_W - 8, TILE_H - 8);
                 } else {
-                    "not scraped (no credentials)"
-                };
-                cab.text(ix, iy, 1, DIM, note);
+                    d.text_wrapped(
+                        x + 8,
+                        y + 10,
+                        TILE_W - 16,
+                        1,
+                        DIM,
+                        &entry.title().to_uppercase(),
+                    );
+                }
+                if i == sel {
+                    d.outline(x - 3, y - 3, TILE_W + 6, TILE_H + 6, 3, HILITE);
+                }
             }
-        }
-        cab.text(
-            px + 22,
-            scr_h as i32 - 30,
-            1,
-            DIM,
-            "A / Enter: play   B / Esc: quit",
-        );
 
-        cab.present_2d();
+            // --- details panel ---------------------------------------------
+            let px = (scr_w - PANEL_W) as i32;
+            d.fill(px, 0, PANEL_W, scr_h, (24, 24, 28, 255));
+            if let Some(e) = view.get(sel) {
+                let ix = px + 22;
+                let inner_w = PANEL_W - 44;
+                let mut iy = MARGIN;
+
+                // Header: the wheel logo if we have it, else the title in text.
+                let wid = wheel_id(&e.rom.sha1);
+                if d.has_image(wid) {
+                    d.image_fit(wid, ix, iy, inner_w, 72);
+                    iy += 72 + 12;
+                } else {
+                    iy = d.text_wrapped(ix, iy, inner_w, 2, TEXT, &e.title()) + 8;
+                }
+
+                let m = e.meta.as_ref();
+                let plays = e.rom.play_count.to_string();
+                let rows: [(&str, Option<&str>); 7] = [
+                    ("year", m.and_then(|m| m.year.as_deref())),
+                    ("developer", m.and_then(|m| m.developer.as_deref())),
+                    ("publisher", m.and_then(|m| m.publisher.as_deref())),
+                    ("genre", m.and_then(|m| m.genre.as_deref())),
+                    ("players", m.and_then(|m| m.players.as_deref())),
+                    ("region", m.and_then(|m| m.region.as_deref())),
+                    ("plays", (e.rom.play_count > 0).then_some(plays.as_str())),
+                ];
+                for (k, v) in rows {
+                    if let Some(v) = v {
+                        d.text(ix, iy, 1, DIM, k);
+                        d.text(ix + 90, iy, 1, TEXT, v);
+                        iy += 16;
+                    }
+                }
+                iy += 10;
+                if let Some(s) = m.and_then(|m| m.synopsis.as_deref()) {
+                    // Scrollable region between the ficha and the footer. After a
+                    // short rest it creeps upward until the end is visible.
+                    let vp_y = iy;
+                    let vp_h = (scr_h as i32 - 40 - vp_y).max(0);
+                    if vp_h > 12 {
+                        let overflow = (d.wrapped_height(inner_w, 1, s) - vp_h).max(0);
+                        if dwell > SYNOPSIS_HOLD_FRAMES {
+                            synopsis_scroll = (synopsis_scroll + 1).min(overflow);
+                        }
+                        d.clip(Some((px, vp_y, PANEL_W, vp_h as u32)));
+                        d.text_wrapped(ix, vp_y - synopsis_scroll, inner_w, 1, DIM, s);
+                        d.clip(None);
+                    }
+                } else if e.meta.is_none() {
+                    let note = if quota_hit {
+                        "scrape quota reached"
+                    } else if scrape_enabled && requested.contains(&e.rom.sha1) {
+                        "scraping\u{2026}"
+                    } else if scrape_enabled {
+                        "not scraped yet"
+                    } else {
+                        "not scraped (no credentials)"
+                    };
+                    d.text(ix, iy, 1, DIM, note);
+                }
+            }
+            d.text(
+                px + 22,
+                scr_h as i32 - 30,
+                1,
+                DIM,
+                "A / Enter: play   B / Esc: quit",
+            );
+        };
+
+        if let (Some(path), true) = (&opts.shot, opts.max_frames == Some(frame_no)) {
+            cab.capture_2d(BG, render, path)
+                .map_err(|e| anyhow!(e.to_string()))?;
+            return Ok(Pick::Quit);
+        }
+        cab.frame_2d(BG, render);
 
         let elapsed = started.elapsed();
         if elapsed < frame {
