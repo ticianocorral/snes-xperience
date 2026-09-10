@@ -39,6 +39,11 @@ aviso — só o incremento de _minor_ marca um conjunto de mudanças.
   título em texto) e sinopse longa numa região recortada (`Ui::clip`) que rola
   sozinha após ~1,3 s parada. `Ui::wrapped_height` (com teste) dimensiona o
   scroll; o decodificador de arte agora também trata os `wheel` (≤512 px, alfa).
+- **Gabinete atrás do tubo** (Fase 3): o `Video` recua a tela do jogo num
+  gabinete escuro — limpa com a cor do recuo, desenha uma malha de anel
+  (`build_bezel_mesh`) da borda da janela até a tela e então o tubo CRT dentro.
+  `screen_area` / `fit_aspect_in` dão o vão 4:3 com queixo maior; a malha é
+  cacheada por tamanho. A imagem do jogo fica sendo a coisa mais clara do quadro.
 
 ## [0.1.0] — 2026-09-10
 

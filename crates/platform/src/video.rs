@@ -1,7 +1,9 @@
 //! Window and the single presentation path: the frame is linear-sampled and
 //! drawn through a barrel-distorted mesh so it bulges like a CRT tube (curved
 //! edges, corners cut off, edge vignette). No scanlines. The NTSC colour bleed
-//! is applied upstream (see `xperience-ntsc`).
+//! is applied upstream (see `xperience-ntsc`). Around the tube sits a static
+//! dark cabinet (Fase 3): the screen is recessed into it so the picture reads
+//! as *inside* a TV, always the brightest thing in the window.
 
 use sdl3::pixels::{Color, FColor, PixelFormat as SdlFormat};
 use sdl3::rect::Rect;
@@ -15,6 +17,18 @@ use crate::PlatformError;
 const CRT_WARP: f32 = 0.06;
 const CRT_VIGNETTE: f32 = 0.22;
 const CRT_GRID: usize = 32;
+
+/// Cabinet around the tube. The screen is inset from the window by these
+/// fractions (a bit more at the bottom for the "chin"); everything outside is
+/// the cabinet face, chamfered down to a near-black recess at the screen edge.
+const BEZEL_SIDE: f32 = 0.070;
+const BEZEL_TOP: f32 = 0.070;
+const BEZEL_CHIN: f32 = 0.110;
+/// Cabinet face — dark warm-grey plastic. Reads as a surface, still far darker
+/// than a lit game screen (plan §3.2).
+const CABINET: (u8, u8, u8) = (40, 37, 33);
+/// The lip right against the glass, in shadow.
+const RECESS: (u8, u8, u8) = (4, 4, 5);
 
 /// Pixel layout of a core framebuffer. Mirrors `xperience_emulation::PixelFormat`
 /// so the platform layer stays independent of the emulation crate.
@@ -56,6 +70,8 @@ pub struct Video {
     src: Option<SrcTexture>,
     /// Cached CRT mesh; rebuilt only when the game rect resizes.
     mesh: Option<CrtMesh>,
+    /// Cached cabinet mesh; rebuilt only when the window or screen rect changes.
+    bezel: Option<BezelMesh>,
     fullscreen: bool,
 }
 
@@ -73,6 +89,14 @@ struct CrtMesh {
     h: u32,
 }
 
+/// The chamfered ring from the window edge to the recessed screen.
+struct BezelMesh {
+    verts: Vec<Vertex>,
+    indices: Vec<i32>,
+    /// Cache key: (window w, window h, screen w, screen h).
+    key: (u32, u32, u32, u32),
+}
+
 impl Video {
     pub(crate) fn new(
         video: &VideoSubsystem,
@@ -87,13 +111,14 @@ impl Video {
             .build()
             .map_err(|e| PlatformError::Sdl(e.to_string()))?;
         let mut canvas = window.into_canvas();
-        canvas.set_draw_color(Color::RGB(0, 0, 0));
+        canvas.set_draw_color(Color::RGB(RECESS.0, RECESS.1, RECESS.2));
         canvas.clear();
         canvas.present();
         Ok(Self {
             canvas,
             src: None,
             mesh: None,
+            bezel: None,
             fullscreen: false,
         })
     }
@@ -119,8 +144,10 @@ impl Video {
             .canvas
             .output_size()
             .unwrap_or((frame.width, frame.height));
-        let dst = fit_aspect(out_w, out_h, resolve_aspect(aspect_ratio));
+        let screen = screen_area(out_w, out_h);
+        let dst = fit_aspect_in(screen, resolve_aspect(aspect_ratio));
         self.ensure_mesh(dst);
+        self.ensure_bezel(out_w, out_h, dst);
 
         let mut target = self
             .canvas
@@ -129,10 +156,12 @@ impl Video {
 
         let src = self.src.take().unwrap();
         let mesh = self.mesh.take().unwrap();
+        let bezel = self.bezel.take().unwrap();
         let mut saved: Result<(), PlatformError> = Ok(());
         let outcome = self.canvas.with_texture_canvas(&mut target, |c| {
-            c.set_draw_color(Color::RGB(0, 0, 0));
+            c.set_draw_color(Color::RGB(RECESS.0, RECESS.1, RECESS.2));
             c.clear();
+            let _ = c.render_geometry(&bezel.verts, None, &bezel.indices[..]);
             let _ = c.render_geometry(&mesh.verts, Some(&src.tex), &mesh.indices[..]);
             saved = c
                 .read_pixels(None::<Rect>)
@@ -141,6 +170,7 @@ impl Video {
         });
         self.src = Some(src);
         self.mesh = Some(mesh);
+        self.bezel = Some(bezel);
         outcome.map_err(|e| PlatformError::Sdl(e.to_string()))?;
         saved
     }
@@ -181,6 +211,14 @@ impl Video {
         self.mesh = Some(build_crt_mesh(dst));
     }
 
+    fn ensure_bezel(&mut self, out_w: u32, out_h: u32, screen: Rect) {
+        let key = (out_w, out_h, screen.width(), screen.height());
+        if matches!(&self.bezel, Some(b) if b.key == key) {
+            return;
+        }
+        self.bezel = Some(build_bezel_mesh(out_w, out_h, screen, key));
+    }
+
     /// Draw one frame to the window. `aspect_ratio <= 0` means "use 4:3".
     pub fn present(&mut self, frame: &FrameRef, aspect_ratio: f32) {
         self.ensure_src(frame.width, frame.height, frame.format);
@@ -190,19 +228,27 @@ impl Video {
             .canvas
             .output_size()
             .unwrap_or((frame.width, frame.height));
-        let dst = fit_aspect(out_w, out_h, resolve_aspect(aspect_ratio));
+        let screen = screen_area(out_w, out_h);
+        let dst = fit_aspect_in(screen, resolve_aspect(aspect_ratio));
         self.ensure_mesh(dst);
+        self.ensure_bezel(out_w, out_h, dst);
 
-        self.canvas.set_draw_color(Color::RGB(0, 0, 0));
+        self.canvas
+            .set_draw_color(Color::RGB(RECESS.0, RECESS.1, RECESS.2));
         self.canvas.clear();
 
         let src = self.src.take().unwrap();
         let mesh = self.mesh.take().unwrap();
+        let bezel = self.bezel.take().unwrap();
+        let _ = self
+            .canvas
+            .render_geometry(&bezel.verts, None, &bezel.indices[..]);
         let _ = self
             .canvas
             .render_geometry(&mesh.verts, Some(&src.tex), &mesh.indices[..]);
         self.src = Some(src);
         self.mesh = Some(mesh);
+        self.bezel = Some(bezel);
 
         self.canvas.present();
     }
@@ -216,22 +262,78 @@ fn resolve_aspect(a: f32) -> f32 {
     }
 }
 
-fn centered(out_w: u32, out_h: u32, w: u32, h: u32) -> Rect {
-    let x = (out_w as i32 - w as i32) / 2;
-    let y = (out_h as i32 - h as i32) / 2;
+fn centered_in(area: Rect, w: u32, h: u32) -> Rect {
+    let x = area.x() + (area.width() as i32 - w as i32) / 2;
+    let y = area.y() + (area.height() as i32 - h as i32) / 2;
     Rect::new(x, y, w, h)
 }
 
-/// Largest `aspect`-shaped rect that fits in the output, centered. Fills the
-/// height unless that would overflow the width, then fills the width.
-fn fit_aspect(out_w: u32, out_h: u32, aspect: f32) -> Rect {
-    let mut h = out_h;
+/// Largest `aspect`-shaped rect that fits inside `area`, centered in it. Fills
+/// the height unless that would overflow the width, then fills the width.
+fn fit_aspect_in(area: Rect, aspect: f32) -> Rect {
+    let mut h = area.height();
     let mut w = (h as f32 * aspect).round() as u32;
-    if w > out_w {
-        w = out_w;
+    if w > area.width() {
+        w = area.width();
         h = (w as f32 / aspect).round() as u32;
     }
-    centered(out_w, out_h, w, h)
+    centered_in(area, w, h)
+}
+
+/// The cabinet opening: the window inset by the bezel fractions (a wider chin).
+fn screen_area(out_w: u32, out_h: u32) -> Rect {
+    let sx = (out_w as f32 * BEZEL_SIDE).round() as i32;
+    let ty = (out_h as f32 * BEZEL_TOP).round() as i32;
+    let by = (out_h as f32 * BEZEL_CHIN).round() as i32;
+    let w = (out_w as i32 - 2 * sx).max(16) as u32;
+    let h = (out_h as i32 - ty - by).max(16) as u32;
+    Rect::new(sx, ty, w, h)
+}
+
+/// A four-quad ring from the window edge (cabinet colour) to the recessed
+/// screen edge (near-black), so the screen sits in a shadowed well.
+fn build_bezel_mesh(out_w: u32, out_h: u32, screen: Rect, key: (u32, u32, u32, u32)) -> BezelMesh {
+    let norm = |c: (u8, u8, u8)| {
+        FColor::RGBA(
+            c.0 as f32 / 255.0,
+            c.1 as f32 / 255.0,
+            c.2 as f32 / 255.0,
+            1.0,
+        )
+    };
+    let (cab, rec) = (norm(CABINET), norm(RECESS));
+    let z = sdl3::render::FPoint::new(0.0, 0.0);
+    let vtx = |x: i32, y: i32, c: FColor| Vertex {
+        position: sdl3::render::FPoint::new(x as f32, y as f32),
+        color: c,
+        tex_coord: z,
+    };
+
+    let (or, ob) = (out_w as i32, out_h as i32);
+    let (il, it, ir, ib) = (screen.left(), screen.top(), screen.right(), screen.bottom());
+
+    let verts = vec![
+        vtx(0, 0, cab),
+        vtx(or, 0, cab),
+        vtx(or, ob, cab),
+        vtx(0, ob, cab), // 0..3 outer
+        vtx(il, it, rec),
+        vtx(ir, it, rec),
+        vtx(ir, ib, rec),
+        vtx(il, ib, rec), // 4..7 inner
+    ];
+    #[rustfmt::skip]
+    let indices = vec![
+        0, 1, 5, 0, 5, 4, // top
+        1, 2, 6, 1, 6, 5, // right
+        2, 3, 7, 2, 7, 6, // bottom
+        3, 0, 4, 3, 4, 7, // left
+    ];
+    BezelMesh {
+        verts,
+        indices,
+        key,
+    }
 }
 
 /// Build a textured grid over `dst` whose vertex positions are barrel-distorted
