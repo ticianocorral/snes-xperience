@@ -61,6 +61,10 @@ cargo run --bin xperience -- --core /caminho/snes9x_libretro.dylib
 Catálogo e saves ficam em `~/.local/share/snes-xperience/`. Para rodar uma ROM
 solta sem catálogo, use `emu-run` (ver Fase 0).
 
+Com `SS_DEVID` / `SS_DEVPASSWORD` (ScreenScraper) no ambiente, a estante busca a
+ficha e a capa do jogo em foco na hora; `--no-scrape` desliga. Para preencher o
+catálogo inteiro de uma vez, `library scrape`.
+
 ## Fase 0
 
 Duas provas, descritas em [`docs/fase-0.md`](docs/fase-0.md):

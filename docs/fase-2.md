@@ -11,7 +11,7 @@ Progresso:
 - [x] **Preenchimento progressivo** (placeholder → capa conforme decodifica)
 - [x] **Busca por digitação**
 - [x] **Binário `xperience` único** (estante → jogo → estante, sem shell)
-- [ ] **Busca de metadados sob demanda** — hoje é só o `library scrape` em lote
+- [x] **Busca de metadados sob demanda** (o jogo em foco é scrapeado na hora)
 - [ ] Ficha completa (número de jogadores já vem; falta polir layout/scroll da
       sinopse)
 
@@ -74,7 +74,7 @@ camada 2D mínima (`xperience-platform::Ui`): retângulos, texto 8×8 (`font8x8`
 sem fonte de sistema) e imagens com letterbox. Sem OSD/menu — feio que funciona.
 
 ```bash
-selector [--catalog PATH] [--order shelf|name]
+selector [--catalog PATH] [--order shelf|name] [--no-scrape]
 ```
 
 - **Navegação:** setas / d-pad movem a seleção na grade; PgUp/PgDn e ombros do
@@ -85,17 +85,26 @@ selector [--catalog PATH] [--order shelf|name]
 - **Preenchimento progressivo:** as capas em disco são decodificadas
   (`image`, redimensionadas para ~320 px) numa thread e viram textura conforme
   chegam; enquanto isso o tile mostra o título.
+- **Scrape sob demanda:** com `SS_DEVID` / `SS_DEVPASSWORD` no ambiente, quando a
+  seleção pousa num jogo sem ficha por ~8 quadros, uma thread consulta o
+  ScreenScraper, baixa capa/texture/wheel para `<dir do catálogo>/art` e grava a
+  ficha; a estante recarrega e a capa entra na fila de decodificação. Um pedido
+  por jogo (nunca repete), ~700 ms entre chamadas, para de vez ao esgotar a cota.
+  O painel mostra `scraping…` / `scrape quota reached`. `--no-scrape` desliga.
 - **Saída:** imprime o caminho da ROM escolhida no stdout e sai 0; cancelou,
   sai 1. `mark_played` é chamado na escolha.
 
 O laço da estante mora em `xperience_app::shelf`; o binário `selector` é só uma
-casca fina em volta dele (imprime o caminho / código de saída).
+casca fina em volta dele (imprime o caminho / código de saída). O download de
+arte (`download_art`) foi para `xperience_domain::art`, compartilhado com o
+`library scrape` em lote.
 
 ## Binário `xperience` — tudo junto
 
 ```bash
 xperience --core <lib> [--catalog DB] [--config config.toml]
           [--save-dir DIR] [--system-dir DIR] [--order shelf|name] [--runahead N]
+          [--no-scrape]
 ```
 
 Um processo só: abre a estante, roda o jogo escolhido, volta pra estante, repete.
@@ -118,5 +127,5 @@ Padrões ficam em `~/.local/share/snes-xperience/` (`catalog.db`, `saves/`).
 
 ## A seguir
 
-Scrape sob demanda (ao navegar/escolher, não só o lote) e polimento do painel
-(scroll da sinopse).
+Polimento do painel de detalhes: scroll da sinopse longa, e talvez usar a
+`wheel` (logo) no lugar do título em texto.

@@ -5,18 +5,20 @@
 //! Usage:
 //!   xperience --core <path/to/snes9x_libretro.{dylib,so,dll}>
 //!             [--catalog DB] [--config config.toml] [--save-dir DIR]
-//!             [--system-dir DIR] [--order shelf|name] [--runahead N]
+//!             [--system-dir DIR] [--order shelf|name] [--runahead N] [--no-scrape]
 //!
 //! The core path also reads from $XPERIENCE_CORE. Build the catalogue first with
-//! `library scan --roms <dir>` (see docs/fase-2.md).
+//! `library scan --roms <dir>` (see docs/fase-2.md). With SS_DEVID /
+//! SS_DEVPASSWORD set, the shelf scrapes the game you rest on; --no-scrape opts
+//! out.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Context, Result};
 use xperience_app::config::Config;
 use xperience_app::runner::{run_game, GameExit, GameSpec};
-use xperience_app::shelf::{self, Pick, ShelfOpts};
-use xperience_domain::{Catalog, Order};
+use xperience_app::shelf::{self, Pick, ScrapeSetup, ShelfOpts};
+use xperience_domain::{Catalog, Credentials, Order};
 use xperience_platform::Platform;
 
 struct Args {
@@ -27,6 +29,7 @@ struct Args {
     system_dir: PathBuf,
     order: Order,
     runahead: Option<u32>,
+    no_scrape: bool,
 }
 
 fn data_dir() -> PathBuf {
@@ -44,6 +47,7 @@ fn parse_args() -> Result<Args> {
     let mut system_dir = None;
     let mut order = Order::Shelf;
     let mut runahead = None;
+    let mut no_scrape = false;
 
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
@@ -54,6 +58,7 @@ fn parse_args() -> Result<Args> {
             "--config" => config = Some(val()?.into()),
             "--save-dir" => save_dir = Some(val()?.into()),
             "--system-dir" => system_dir = Some(val()?.into()),
+            "--no-scrape" => no_scrape = true,
             "--order" => {
                 order = match val()?.as_str() {
                     "name" => Order::Name,
@@ -88,15 +93,19 @@ fn parse_args() -> Result<Args> {
         system_dir,
         order,
         runahead,
+        no_scrape,
     })
 }
 
 const HELP: &str = "xperience --core <lib> [--catalog DB] [--config config.toml]\n\
        [--save-dir DIR] [--system-dir DIR] [--order shelf|name] [--runahead N]\n\
+       [--no-scrape]\n\
 \n\
 Selector → game → selector, one process. Esc in a game returns to the shelf;\n\
 Esc / window-close on the shelf, or closing a game window, ends the app.\n\
 Build the catalogue first:  library scan --roms <dir>\n\
+With SS_DEVID / SS_DEVPASSWORD set, the shelf scrapes the focused game;\n\
+--no-scrape turns that off.\n\
 Defaults live under ~/.local/share/snes-xperience/ (catalog.db, saves/).";
 
 fn main() -> Result<()> {
@@ -119,10 +128,22 @@ fn main() -> Result<()> {
         std::process::exit(2);
     }
 
+    let scrape = (!args.no_scrape)
+        .then(Credentials::from_env)
+        .flatten()
+        .map(|creds| ScrapeSetup {
+            creds,
+            art_dir: args.catalog.parent().unwrap_or(Path::new(".")).join("art"),
+        });
+    if scrape.is_some() {
+        log::info!("on-demand scrape: on");
+    }
+
     let mut plat = Platform::new().map_err(|e| anyhow!(e.to_string()))?;
     let shelf_opts = ShelfOpts {
         order: args.order,
         max_frames: None,
+        scrape,
     };
 
     loop {

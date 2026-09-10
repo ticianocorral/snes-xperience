@@ -1,14 +1,19 @@
 //! The selector shelf, factored out of the `selector` binary so `xperience` can
 //! show it between games: a scrollable grid of covers with a details panel,
 //! gamepad-first navigation and type-to-search. Covers stream in on a background
-//! thread ("preenchimento progressivo", plan §3.1).
+//! thread ("preenchimento progressivo", plan §3.1), and — when ScreenScraper
+//! credentials are present — the game you rest on is scraped on the spot.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Result};
-use xperience_domain::{Catalog, CatalogEntry, Order};
+use xperience_domain::{
+    download_art, ArtPaths, Catalog, CatalogEntry, Client, Credentials, GameInfo, Order, RomId,
+    ScrapeError,
+};
 use xperience_platform::{MenuNav, Platform};
 
 const TILE_W: u32 = 150;
@@ -23,6 +28,12 @@ const HILITE: (u8, u8, u8, u8) = (240, 200, 80, 255);
 const TEXT: (u8, u8, u8) = (232, 232, 232);
 const DIM: (u8, u8, u8) = (150, 150, 158);
 
+/// Frames the selection must sit still on an unscraped game before we fetch it
+/// (~130 ms at 60 fps) — so fast scrolling doesn't queue the whole shelf.
+const SCRAPE_DWELL_FRAMES: u32 = 8;
+/// Politeness gap between ScreenScraper calls on the worker thread.
+const SCRAPE_GAP: Duration = Duration::from_millis(700);
+
 /// What the player did on the shelf.
 pub enum Pick {
     /// Launch this ROM (already marked played in the catalogue).
@@ -31,11 +42,20 @@ pub enum Pick {
     Quit,
 }
 
+/// ScreenScraper access for on-demand metadata.
+pub struct ScrapeSetup {
+    pub creds: Credentials,
+    /// Where downloaded art lands (`<dir>/<sha1>-<kind>.png`).
+    pub art_dir: PathBuf,
+}
+
 /// Knobs for [`run`].
 pub struct ShelfOpts {
     pub order: Order,
     /// Headless smoke test: stop after N frames and return [`Pick::Quit`].
     pub max_frames: Option<u64>,
+    /// On-demand scrape of the focused game. `None` disables it.
+    pub scrape: Option<ScrapeSetup>,
 }
 
 impl Default for ShelfOpts {
@@ -43,6 +63,7 @@ impl Default for ShelfOpts {
         Self {
             order: Order::Shelf,
             max_frames: None,
+            scrape: None,
         }
     }
 }
@@ -54,6 +75,25 @@ struct DecodedCover {
     rgba: Vec<u8>,
 }
 
+/// A ROM the shelf asked the worker to scrape.
+struct ScrapeJob {
+    sha1: String,
+    path: PathBuf,
+}
+
+/// What the worker sends back for one job.
+enum ScrapeMsg {
+    Done {
+        sha1: String,
+        info: Box<GameInfo>,
+        art: ArtPaths,
+    },
+    /// Not in ScreenScraper, file changed, or a transient error — don't retry.
+    Missing,
+    /// Daily quota hit; the worker has stopped.
+    Quota,
+}
+
 fn cover_id(sha1: &str) -> u64 {
     u64::from_str_radix(sha1.get(..16).unwrap_or("0"), 16).unwrap_or(0)
 }
@@ -61,33 +101,40 @@ fn cover_id(sha1: &str) -> u64 {
 /// Show the shelf on `plat` until the player picks a game or cancels. The `plat`
 /// outlives the call; the shelf window is created and dropped inside.
 pub fn run(plat: &mut Platform, catalog: &Catalog, opts: &ShelfOpts) -> Result<Pick> {
-    let all = catalog.list(opts.order)?;
+    let mut all = catalog.list(opts.order)?;
     if all.is_empty() {
         bail!("catalogue is empty — run:  library scan --roms <dir>");
     }
 
-    // Background cover decoder.
-    let (tx, rx) = mpsc::channel::<DecodedCover>();
-    {
-        let jobs: Vec<(u64, PathBuf)> = all
-            .iter()
-            .filter_map(|e| {
-                let p = e.meta.as_ref()?.cover_path.clone()?;
-                Path::new(&p)
-                    .is_file()
-                    .then(|| (cover_id(&e.rom.sha1), PathBuf::from(p)))
-            })
-            .collect();
-        std::thread::spawn(move || {
-            for (id, path) in jobs {
-                match decode_cover(&path) {
-                    Ok((w, h, rgba)) => {
-                        let _ = tx.send(DecodedCover { id, w, h, rgba });
-                    }
-                    Err(e) => log::warn!("cover {}: {e}", path.display()),
-                }
+    // Background cover decoder — a fed queue so freshly-scraped covers can join.
+    let (cover_tx, cover_rx) = mpsc::channel::<(u64, PathBuf)>();
+    let (decoded_tx, decoded_rx) = mpsc::channel::<DecodedCover>();
+    for e in &all {
+        if let Some(p) = e.meta.as_ref().and_then(|m| m.cover_path.clone()) {
+            if Path::new(&p).is_file() {
+                let _ = cover_tx.send((cover_id(&e.rom.sha1), PathBuf::from(p)));
             }
-        });
+        }
+    }
+    std::thread::spawn(move || {
+        while let Ok((id, path)) = cover_rx.recv() {
+            match decode_cover(&path) {
+                Ok((w, h, rgba)) => {
+                    let _ = decoded_tx.send(DecodedCover { id, w, h, rgba });
+                }
+                Err(e) => log::warn!("cover {}: {e}", path.display()),
+            }
+        }
+    });
+
+    // Background scraper (only if we have credentials).
+    let (job_tx, job_rx) = mpsc::channel::<ScrapeJob>();
+    let (scraped_tx, scraped_rx) = mpsc::channel::<ScrapeMsg>();
+    let scrape_enabled = opts.scrape.is_some();
+    if let Some(setup) = &opts.scrape {
+        let creds = setup.creds.clone();
+        let art_dir = setup.art_dir.clone();
+        std::thread::spawn(move || scrape_worker(creds, art_dir, job_rx, scraped_tx));
     }
 
     let mut ui = plat
@@ -100,6 +147,16 @@ pub fn run(plat: &mut Platform, catalog: &Catalog, opts: &ShelfOpts) -> Result<P
     let frame = Duration::from_millis(16);
     let mut frame_no = 0u64;
 
+    // Scrape bookkeeping: never ask twice, notice when the selection settles.
+    let mut requested: HashSet<String> = all
+        .iter()
+        .filter(|e| e.meta.is_some())
+        .map(|e| e.rom.sha1.clone())
+        .collect();
+    let mut quota_hit = false;
+    let mut dwell: u32 = 0;
+    let mut dwell_sha1: Option<String> = None;
+
     loop {
         let started = Instant::now();
         frame_no += 1;
@@ -108,8 +165,32 @@ pub fn run(plat: &mut Platform, catalog: &Catalog, opts: &ShelfOpts) -> Result<P
         }
 
         // Drain decoded covers.
-        while let Ok(c) = rx.try_recv() {
+        while let Ok(c) = decoded_rx.try_recv() {
             ui.set_image(c.id, c.w, c.h, &c.rgba);
+        }
+
+        // Drain scrape results; a hit rewrites the catalogue and the view.
+        let mut refresh = false;
+        while let Ok(msg) = scraped_rx.try_recv() {
+            match msg {
+                ScrapeMsg::Done { sha1, info, art } => {
+                    if let Err(e) = catalog.set_meta(&sha1, &info, &art) {
+                        log::warn!("catalogue set_meta {sha1}: {e}");
+                    }
+                    if let Some(cover) = &art.cover {
+                        let _ = cover_tx.send((cover_id(&sha1), PathBuf::from(cover)));
+                    }
+                    refresh = true;
+                }
+                ScrapeMsg::Missing => {}
+                ScrapeMsg::Quota => {
+                    quota_hit = true;
+                    log::warn!("ScreenScraper quota exhausted — on-demand scrape paused");
+                }
+            }
+        }
+        if refresh {
+            all = catalog.list(opts.order)?;
         }
 
         // Current (filtered) view.
@@ -172,6 +253,27 @@ pub fn run(plat: &mut Platform, catalog: &Catalog, opts: &ShelfOpts) -> Result<P
                     }
                 }
                 _ => {}
+            }
+        }
+
+        // On-demand scrape: once the selection has rested on an unscraped game.
+        if scrape_enabled && !quota_hit {
+            let cur = view.get(sel).map(|e| e.rom.sha1.clone());
+            if cur == dwell_sha1 {
+                dwell += 1;
+            } else {
+                dwell = 0;
+                dwell_sha1 = cur;
+            }
+            if dwell == SCRAPE_DWELL_FRAMES {
+                if let Some(e) = view.get(sel) {
+                    if e.meta.is_none() && requested.insert(e.rom.sha1.clone()) {
+                        let _ = job_tx.send(ScrapeJob {
+                            sha1: e.rom.sha1.clone(),
+                            path: PathBuf::from(&e.rom.path),
+                        });
+                    }
+                }
             }
         }
 
@@ -254,7 +356,16 @@ pub fn run(plat: &mut Platform, catalog: &Catalog, opts: &ShelfOpts) -> Result<P
             if let Some(s) = m.and_then(|m| m.synopsis.as_deref()) {
                 ui.text_wrapped(ix, iy, PANEL_W - 44, 1, DIM, s);
             } else if e.meta.is_none() {
-                ui.text(ix, iy, 1, DIM, "not scraped yet");
+                let note = if quota_hit {
+                    "scrape quota reached"
+                } else if scrape_enabled && requested.contains(&e.rom.sha1) {
+                    "scraping\u{2026}"
+                } else if scrape_enabled {
+                    "not scraped yet"
+                } else {
+                    "not scraped (no credentials)"
+                };
+                ui.text(ix, iy, 1, DIM, note);
             }
         }
         ui.text(
@@ -271,6 +382,56 @@ pub fn run(plat: &mut Platform, catalog: &Catalog, opts: &ShelfOpts) -> Result<P
         if elapsed < frame {
             std::thread::sleep(frame - elapsed);
         }
+    }
+}
+
+/// Pull jobs off `jobs` until the channel closes, scraping each and reporting
+/// back on `out`. Stops for good on a quota response.
+fn scrape_worker(
+    creds: Credentials,
+    art_dir: PathBuf,
+    jobs: mpsc::Receiver<ScrapeJob>,
+    out: mpsc::Sender<ScrapeMsg>,
+) {
+    let client = Client::new(creds);
+    while let Ok(job) = jobs.recv() {
+        let filename = job
+            .path
+            .file_name()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let id = match RomId::from_path(&job.path) {
+            Ok(id) if id.sha1 == job.sha1 => id,
+            Ok(_) => {
+                log::info!("scrape {filename}: file changed on disk");
+                let _ = out.send(ScrapeMsg::Missing);
+                continue;
+            }
+            Err(e) => {
+                log::warn!("scrape {filename}: {e}");
+                let _ = out.send(ScrapeMsg::Missing);
+                continue;
+            }
+        };
+        match client.lookup(&id, &filename) {
+            Ok(info) => {
+                let art = download_art(&client, &art_dir, &job.sha1, &info);
+                let _ = out.send(ScrapeMsg::Done {
+                    sha1: job.sha1,
+                    info: Box::new(info),
+                    art,
+                });
+            }
+            Err(ScrapeError::QuotaExhausted) => {
+                let _ = out.send(ScrapeMsg::Quota);
+                return;
+            }
+            Err(e) => {
+                log::info!("scrape {filename}: {e}");
+                let _ = out.send(ScrapeMsg::Missing);
+            }
+        }
+        std::thread::sleep(SCRAPE_GAP);
     }
 }
 

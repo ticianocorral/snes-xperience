@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use anyhow::{anyhow, bail, Context, Result};
 use xperience_domain::{
-    catalog::ArtPaths, library, Catalog, Client, Credentials, Order, RomId, ScrapeError,
+    download_art, library, Catalog, Client, Credentials, Order, RomId, ScrapeError,
 };
 
 fn main() -> Result<()> {
@@ -166,28 +166,6 @@ fn scrape(args: &[String]) -> Result<()> {
     let (total, scraped) = cat.counts()?;
     println!("done: {ok} scraped this run. catalogue: {total} rom(s), {scraped} scraped.");
     Ok(())
-}
-
-fn download_art(
-    client: &Client,
-    art_dir: &Path,
-    sha1: &str,
-    info: &xperience_domain::GameInfo,
-) -> ArtPaths {
-    let mut out = ArtPaths::default();
-    for (url, kind, slot) in [
-        (&info.cover_url, "cover", &mut out.cover),
-        (&info.texture_url, "texture", &mut out.texture),
-        (&info.wheel_url, "wheel", &mut out.wheel),
-    ] {
-        let Some(url) = url else { continue };
-        let dest = art_dir.join(format!("{sha1}-{kind}.png"));
-        match client.download(url, &dest) {
-            Ok(()) => *slot = Some(dest.to_string_lossy().into_owned()),
-            Err(e) => log::warn!("art {kind}: {e}"),
-        }
-    }
-    out
 }
 
 fn list(args: &[String]) -> Result<()> {

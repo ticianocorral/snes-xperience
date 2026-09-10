@@ -30,6 +30,11 @@ aviso — só o incremento de _minor_ marca um conjunto de mudanças.
   `xperience_app::shelf::run`; `emu-run` e `selector` agora são cascas finas em
   volta desses módulos. `UiEvent::CloseRequested` novo separa "voltar" (Esc) de
   "encerrar" (fechar janela / Cmd-Q). `scripts/play.sh` removido (obsoleto).
+- **Scrape sob demanda** na estante: com `SS_DEVID` / `SS_DEVPASSWORD` no
+  ambiente, o jogo em foco sem ficha é scrapeado numa thread (um pedido por
+  jogo, ~700 ms entre chamadas, para ao esgotar a cota); a ficha e a capa
+  entram na hora. `--no-scrape` desliga. O download de arte virou
+  `xperience_domain::art::download_art`, compartilhado com o `library scrape`.
 
 ## [0.1.0] — 2026-09-10
 

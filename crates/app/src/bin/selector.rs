@@ -2,12 +2,15 @@
 //! gamepad-first navigation and type-to-search. On confirm it prints the chosen
 //! ROM path to stdout and exits 0; on cancel it exits 1. The shelf itself lives
 //! in `xperience_app::shelf`, shared with the unified `xperience` binary.
+//!
+//! With SS_DEVID / SS_DEVPASSWORD in the environment, the game you rest on is
+//! scraped on the spot (disable with --no-scrape).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Context, Result};
-use xperience_app::shelf::{self, Pick, ShelfOpts};
-use xperience_domain::{Catalog, Order};
+use xperience_app::shelf::{self, Pick, ScrapeSetup, ShelfOpts};
+use xperience_domain::{Catalog, Credentials, Order};
 use xperience_platform::Platform;
 
 fn default_catalog() -> PathBuf {
@@ -30,12 +33,25 @@ fn main() -> Result<()> {
     };
     // Headless smoke test: run N frames then exit 0 without picking anything.
     let max_frames: Option<u64> = arg(&args, "--frames").and_then(|s| s.parse().ok());
+    let no_scrape = args.iter().any(|a| a == "--no-scrape");
 
     let catalog = Catalog::open(&catalog_path)
         .with_context(|| format!("opening catalogue {}", catalog_path.display()))?;
 
+    let scrape = (!no_scrape)
+        .then(Credentials::from_env)
+        .flatten()
+        .map(|creds| ScrapeSetup {
+            creds,
+            art_dir: art_dir_for(&catalog_path),
+        });
+
     let mut plat = Platform::new().map_err(|e| anyhow!(e.to_string()))?;
-    let opts = ShelfOpts { order, max_frames };
+    let opts = ShelfOpts {
+        order,
+        max_frames,
+        scrape,
+    };
     match shelf::run(&mut plat, &catalog, &opts)? {
         Pick::Play(path) => {
             println!("{}", path.display());
@@ -45,6 +61,11 @@ fn main() -> Result<()> {
         Pick::Quit if max_frames.is_some() => Ok(()),
         Pick::Quit => std::process::exit(1),
     }
+}
+
+/// `<catalog dir>/art`, matching the `library` CLI's default.
+fn art_dir_for(catalog_path: &Path) -> PathBuf {
+    catalog_path.parent().unwrap_or(Path::new(".")).join("art")
 }
 
 fn arg<'a>(args: &'a [String], key: &str) -> Option<&'a str> {
