@@ -77,7 +77,12 @@ pub const MAX_PORTS: usize = 2;
 /// layer up; the platform only reports the intent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UiEvent {
+    /// "Leave this screen" — Esc. In the bare `emu-run` it ends the process; in
+    /// `xperience` it drops back to the selector.
     Quit,
+    /// The OS asked the window to close (red button, Cmd-Q, `SIGTERM`). Always
+    /// means "tear the whole app down", never "go back".
+    CloseRequested,
     ToggleFullscreen,
     Reset,
     TogglePause,
@@ -107,7 +112,7 @@ impl UiEvent {
             UiEvent::PrevSlot => "slot_prev",
             UiEvent::FrameStep => "frame_step",
             UiEvent::FastForward => "fast_forward",
-            UiEvent::Quit => return None,
+            UiEvent::Quit | UiEvent::CloseRequested => return None,
         })
     }
 

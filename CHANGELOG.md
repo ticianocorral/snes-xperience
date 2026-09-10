@@ -24,7 +24,12 @@ aviso — só o incremento de _minor_ marca um conjunto de mudanças.
   navegação por gamepad/teclado, busca por digitação e preenchimento
   progressivo das capas numa thread. Imprime o caminho da ROM escolhida.
   Camada 2D nova em `xperience-platform` (`Ui`: rects, texto `font8x8`,
-  imagens) e `Platform::poll_menu`. `scripts/play.sh` encadeia seletor → jogo.
+  imagens) e `Platform::poll_menu`.
+- Binário **`xperience`**: estante → jogo → estante num processo só, sem shell.
+  O laço do emulador virou `xperience_app::runner::run_game` e o da estante
+  `xperience_app::shelf::run`; `emu-run` e `selector` agora são cascas finas em
+  volta desses módulos. `UiEvent::CloseRequested` novo separa "voltar" (Esc) de
+  "encerrar" (fechar janela / Cmd-Q). `scripts/play.sh` removido (obsoleto).
 
 ## [0.1.0] — 2026-09-10
 

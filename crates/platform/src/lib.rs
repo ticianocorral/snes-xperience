@@ -209,14 +209,15 @@ impl Platform {
     }
 
     /// Drain the event queue, update `input` via `keymap`, and return the UI
-    /// intents that fired this frame. Esc always quits.
+    /// intents that fired this frame. Esc emits [`UiEvent::Quit`] ("leave this
+    /// screen"); an OS close request emits [`UiEvent::CloseRequested`].
     pub fn poll(&mut self, input: &mut Input, keymap: &KeyMap) -> Vec<UiEvent> {
         use sdl3::keyboard::Keycode;
         let mut out = Vec::new();
         let mut devices_changed = false;
         for event in self.event_pump.poll_iter() {
             match event {
-                Event::Quit { .. } => out.push(UiEvent::Quit),
+                Event::Quit { .. } => out.push(UiEvent::CloseRequested),
                 Event::GamepadAdded { .. } | Event::GamepadRemoved { .. } => devices_changed = true,
                 Event::KeyDown {
                     keycode: Some(k),

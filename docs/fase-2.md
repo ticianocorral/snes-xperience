@@ -10,9 +10,8 @@ Progresso:
 - [x] **Navegação por gamepad**
 - [x] **Preenchimento progressivo** (placeholder → capa conforme decodifica)
 - [x] **Busca por digitação**
+- [x] **Binário `xperience` único** (estante → jogo → estante, sem shell)
 - [ ] **Busca de metadados sob demanda** — hoje é só o `library scrape` em lote
-- [ ] Um binário `xperience` único (seletor → jogo → seletor) — hoje via
-      `scripts/play.sh`
 - [ ] Ficha completa (número de jogadores já vem; falta polir layout/scroll da
       sinopse)
 
@@ -89,10 +88,35 @@ selector [--catalog PATH] [--order shelf|name]
 - **Saída:** imprime o caminho da ROM escolhida no stdout e sai 0; cancelou,
   sai 1. `mark_played` é chamado na escolha.
 
-`scripts/play.sh <core>` encadeia `selector` → `emu-run` num laço até cancelar,
-até existir um binário `xperience` que faça isso sem shell.
+O laço da estante mora em `xperience_app::shelf`; o binário `selector` é só uma
+casca fina em volta dele (imprime o caminho / código de saída).
+
+## Binário `xperience` — tudo junto
+
+```bash
+xperience --core <lib> [--catalog DB] [--config config.toml]
+          [--save-dir DIR] [--system-dir DIR] [--order shelf|name] [--runahead N]
+```
+
+Um processo só: abre a estante, roda o jogo escolhido, volta pra estante, repete.
+`Esc` dentro do jogo volta pra estante; `Esc` / fechar janela na estante, ou
+fechar a janela do jogo (Cmd-Q / botão vermelho), encerra o app. Sem `scripts/`.
+
+Por dentro, reaproveita os dois laços fatiados em módulos de biblioteca:
+
+| Módulo | O quê | Também usado por |
+|---|---|---|
+| `xperience_app::shelf::run` | a estante; devolve `Pick::Play(path)` ou `Pick::Quit` | `selector` |
+| `xperience_app::runner::run_game` | o laço do emulador; devolve `GameExit::ToShelf` ou `GameExit::Quit` | `emu-run` |
+
+O `Platform` (SDL) é criado uma vez e emprestado (`&mut`) pra cada tela — a
+janela da estante e a do jogo são criadas e destruídas a cada troca. A distinção
+"voltar" (Esc) × "encerrar" (fechar janela / Cmd-Q) veio de um `UiEvent` novo,
+`CloseRequested`, separado do `Quit`.
+
+Padrões ficam em `~/.local/share/snes-xperience/` (`catalog.db`, `saves/`).
 
 ## A seguir
 
-Scrape sob demanda (ao navegar/escolher, não só o lote), o binário `xperience`
-único reaproveitando o laço do `emu-run` (refactor), e polimento do painel.
+Scrape sob demanda (ao navegar/escolher, não só o lote) e polimento do painel
+(scroll da sinopse).

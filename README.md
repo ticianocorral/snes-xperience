@@ -7,9 +7,10 @@ desenho completo, e `docs/fase-0.md` … `docs/fase-2.md` para o que já foi fei
 Estado atual: **Fase 2 — o seletor (em andamento).** As Fases 0 e 1 estão
 prontas: `emu-run` roda uma ROM com vídeo, som, gamepad, save state, SRAM e
 run-ahead, visual fixo NTSC RF + tubo CRT. Da Fase 2 já existem o catálogo
-(`library`: varredura, hash, cache SQLite, ScreenScraper) e a estante na tela
-(`selector`: capas, navegação por gamepad, busca, preenchimento progressivo).
-`scripts/play.sh` encadeia os dois. Ainda não há moldura nem painel.
+(`library`: varredura, hash, cache SQLite, ScreenScraper), a estante na tela
+(`selector`: capas, navegação por gamepad, busca, preenchimento progressivo) e o
+binário `xperience`, que junta estante → jogo → estante num processo só. Ainda
+não há moldura, e o painel de detalhes é cru.
 
 ## Arquitetura
 
@@ -17,7 +18,7 @@ Quatro camadas, dependências só para baixo (plano §2):
 
 | Camada        | Crate                | Responsabilidade                                        |
 |---------------|----------------------|--------------------------------------------------------|
-| Apresentação  | `xperience-app`      | binários (`emu-run`, `library`, `scrape-test`)         |
+| Apresentação  | `xperience-app`      | binários (`xperience`, `emu-run`, `selector`, `library`, `scrape-test`) + módulos `runner` / `shelf` que eles compartilham |
 | Domínio       | `xperience-domain`   | identificação de ROM, catálogo SQLite, ScreenScraper   |
 | Emulação      | `xperience-emulation`| core libretro carregado em runtime, laço de execução   |
 | Plataforma    | `xperience-platform` | SDL3: janela, tubo CRT (`render_geometry`), camada 2D do seletor, áudio, gamepad |
@@ -45,6 +46,20 @@ Se não houver SDL3 no sistema, compile-o junto (precisa de CMake + toolchain C)
 ```bash
 cargo build --features xperience-platform/vendored-sdl
 ```
+
+## Jogar
+
+```bash
+# uma vez: montar o catálogo a partir de uma pasta de ROMs
+cargo run --bin library -- scan --roms /caminho/para/roms
+
+# estante → jogo → estante, um processo só
+cargo run --bin xperience -- --core /caminho/snes9x_libretro.dylib
+```
+
+`Esc` no jogo volta pra estante; `Esc` (ou fechar a janela) na estante encerra.
+Catálogo e saves ficam em `~/.local/share/snes-xperience/`. Para rodar uma ROM
+solta sem catálogo, use `emu-run` (ver Fase 0).
 
 ## Fase 0
 
