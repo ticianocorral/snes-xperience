@@ -148,11 +148,12 @@ fn main() -> Result<()> {
     if cfg.fullscreen {
         cab.toggle_fullscreen();
     }
-    let shelf_opts = ShelfOpts {
+    let mut shelf_opts = ShelfOpts {
         order: args.order,
         max_frames: None,
         shot: None,
         scrape,
+        fade_in: None,
     };
 
     loop {
@@ -160,6 +161,7 @@ fn main() -> Result<()> {
             Pick::Quit => break,
             Pick::Play(p) => p,
         };
+        shelf_opts.fade_in = None; // consumed
         let spec = GameSpec {
             core: args.core.clone(),
             rom,
@@ -169,7 +171,10 @@ fn main() -> Result<()> {
             shot: None,
         };
         match run_game(&mut plat, &mut cab, &spec, &cfg)? {
-            GameExit::ToShelf => signal_off(&plat, &mut cab),
+            GameExit::ToShelf => {
+                // The shelf eases in over the static this left behind.
+                shelf_opts.fade_in = Some(signal_off(&plat, &mut cab));
+            }
             GameExit::Quit => break,
         }
     }
@@ -180,22 +185,26 @@ fn main() -> Result<()> {
 
 /// The power-off ritual between game and shelf (plan §3.3): a short burst of
 /// RF snow through the tube with a decaying buzz, settling to a dim hiss —
-/// never a full-screen flash, and the noise cuts rather than lingers.
-fn signal_off(plat: &Platform, cab: &mut Cabinet) {
+/// never a full-screen flash, and the noise cuts rather than lingers. Returns
+/// the static level it ended on, so the shelf can ease in over the same snow
+/// instead of cutting in cold ("a estante entra por cima").
+fn signal_off(plat: &Platform, cab: &mut Cabinet) -> f32 {
     const RATE: u32 = 22_050;
     const SPAN: Duration = Duration::from_millis(650);
+    const SETTLED: f32 = 0.12;
     let audio = plat.open_audio(RATE).ok();
     let frame = Duration::from_millis(16);
     let mut rng: u32 = 0x1234_5678;
     let start = Instant::now();
+    let mut level = 1.0f32;
 
     while start.elapsed() < SPAN {
         let t = (start.elapsed().as_secs_f32() / SPAN.as_secs_f32()).min(1.0);
         // Strong for the first half, then settle toward a dim near-still hiss.
-        let level = if t < 0.5 {
+        level = if t < 0.5 {
             1.0 - 0.5 * t
         } else {
-            (0.9 - t).max(0.12)
+            (0.9 - t).max(SETTLED)
         };
         cab.present_static(level);
 
@@ -219,4 +228,5 @@ fn signal_off(plat: &Platform, cab: &mut Cabinet) {
     if let Some(a) = &audio {
         a.clear(); // buzz cut, not fade-out tail
     }
+    level
 }

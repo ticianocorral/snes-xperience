@@ -57,6 +57,7 @@ fn main() -> Result<()> {
         max_frames,
         shot,
         scrape,
+        fade_in: None,
     };
     match shelf::run(&mut plat, &mut cab, &catalog, &opts)? {
         Pick::Play(path) => {

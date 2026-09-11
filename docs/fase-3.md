@@ -13,10 +13,12 @@ Progresso:
       deformado pela mesma malha CRT do jogo
 - [x] **Sinal off** — ao sair do jogo, meio segundo de chuvisco pelo tubo com
       zumbido de RF decaindo, assentando num hiss fraco, e corta (§3.3)
-- [ ] "A estante entra por cima" — hoje é corte seco depois do chuvisco
+- [x] **"A estante entra por cima"** — os primeiros quadros da estante
+      aparecem misturados com o chuvisco residual, não um corte seco
+- [ ] **Teste de duas horas** (§8) — recomendado *antes* de investir em
+      cartucho/console, ver "A seguir"
 - [ ] Cartucho encaixado no console, com o rótulo (`texture` do ScreenScraper)
 - [ ] Botões do console (desligar / ejetar / reset) com trava de ejeção
-- [ ] Teste de duas horas (§8) antes de investir em arte/modelagem
 
 ## `Cabinet` (`xperience-platform::cabinet`)
 
@@ -44,21 +46,36 @@ Ao `run_game` devolver `GameExit::ToShelf` (Esc no jogo), `xperience` roda
 `signal_off` antes de voltar à estante: ~0,65 s de `present_static` com `level`
 caindo de 1.0 → ~0,12, e em paralelo um buffer de ruído estéreo com amplitude
 decrescente numa stream de áudio curta (22 kHz). No fim, `AudioOut::clear` — o
-zumbido corta, não arrasta (§3.3). Fechar a janela do jogo (`GameExit::Quit`)
-não passa por isso.
+zumbido corta, não arrasta (§3.3). `signal_off` devolve o `level` em que parou.
+Fechar a janela do jogo (`GameExit::Quit`) não passa por isso.
+
+**Entrada por cima:** esse `level` vira `ShelfOpts::fade_in` da próxima chamada
+de `shelf::run`. Os primeiros 18 quadros usam
+`Cabinet::frame_2d_fade_in(bg, draw, static_level, shelf_alpha)` — desenha a
+estante no buffer de sempre, mas compõe **dois** `render_geometry` no lugar de
+um: o chuvisco pela malha CRT (alfa 1.0) e por cima a estante pela mesma malha
+com alfa 0..1 crescendo por quadro (precisa de `BlendMode::Blend` na textura da
+tela). Depois do quadro 18, volta pro `frame_2d` normal.
 
 ## Verificado
 
 - `emu-run --shot` — jogo pelo gabinete, idêntico
-- `selector --frames --shot` — estante **pelo tubo** (BMP headless: a grade
-  inteira encurva, com gabinete e vinheta)
+- `selector --frames --shot` — estante **pelo tubo**, antes e depois de ligar
+  `BlendMode::Blend` na textura da tela (BMP idêntico — sem regressão no
+  caminho normal)
 - testes de `screen_area` / `fit_aspect_in` / `wrapped_height`
 
-O chuvisco e o zumbido são o mesmo caminho de composição já conferido; falta ver
-ao vivo (headless não compõe janela no macOS).
+O chuvisco, o zumbido e a mistura de entrada usam o mesmo caminho de composição
+já conferido (mesma malha, mesmo `render_geometry`), mas não têm captura
+headless própria — falta ver ao vivo.
 
 ## A seguir
 
-"A estante entra por cima" — em vez do corte seco, alguns quadros de crossfade
-da estante sobre o chuvisco residual. Depois: cartucho + rótulo, botões do
-console + trava de ejeção, e o teste de duas horas.
+Recomendação do plano (§8, tabela de risco): fazer o **teste de duas horas**
+agora, com o jogo real, *antes* de investir em cartucho/console — evita
+modelar em cima de uma moldura que cansa em sessão longa. Isso pede jogo ao
+vivo, não dá pra automatizar aqui.
+
+Depois disso: cartucho encaixado com o rótulo (`texture` do ScreenScraper) e
+botões do console com trava de ejeção — como não há pipeline de arte (Blender)
+ainda, a forma mais provável é continuar procedural, como o gabinete.

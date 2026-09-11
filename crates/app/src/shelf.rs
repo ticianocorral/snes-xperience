@@ -60,6 +60,9 @@ pub struct ShelfOpts {
     pub shot: Option<PathBuf>,
     /// On-demand scrape of the focused game. `None` disables it.
     pub scrape: Option<ScrapeSetup>,
+    /// Ease in from residual signal-off static instead of cutting in cold —
+    /// the static level to fade from (plan §3.3). `None` draws from frame one.
+    pub fade_in: Option<f32>,
 }
 
 impl Default for ShelfOpts {
@@ -69,6 +72,7 @@ impl Default for ShelfOpts {
             max_frames: None,
             shot: None,
             scrape: None,
+            fade_in: None,
         }
     }
 }
@@ -175,6 +179,9 @@ pub fn run(
     let mut dwell: u32 = 0;
     let mut dwell_sha1: Option<String> = None;
     let mut synopsis_scroll: i32 = 0;
+    // Frames left in the "entering over the static" ease-in (§3.3), if any.
+    const FADE_IN_FRAMES: u32 = 18;
+    let mut fade_frame: u32 = 0;
 
     loop {
         let started = Instant::now();
@@ -424,7 +431,14 @@ pub fn run(
                 .map_err(|e| anyhow!(e.to_string()))?;
             return Ok(Pick::Quit);
         }
-        cab.frame_2d(BG, render);
+        match opts.fade_in {
+            Some(level) if fade_frame < FADE_IN_FRAMES => {
+                fade_frame += 1;
+                let alpha = fade_frame as f32 / FADE_IN_FRAMES as f32;
+                cab.frame_2d_fade_in(BG, render, level, alpha);
+            }
+            _ => cab.frame_2d(BG, render),
+        }
 
         let elapsed = started.elapsed();
         if elapsed < frame {

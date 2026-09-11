@@ -295,7 +295,7 @@ impl Cabinet {
         if matches!(&self.mesh, Some(m) if m.w == w && m.h == h) {
             return;
         }
-        self.mesh = Some(build_crt_mesh(dst));
+        self.mesh = Some(build_crt_mesh(dst, 1.0));
     }
 
     fn ensure_bezel(&mut self, out_w: u32, out_h: u32, screen: Rect) {
@@ -351,7 +351,7 @@ impl Cabinet {
         self.paint_2d(bg, draw);
 
         let (ww, wh) = self.canvas.output_size().unwrap_or((1280, 720));
-        let mesh = build_crt_mesh(self.screen);
+        let mesh = build_crt_mesh(self.screen, 1.0);
         let mut target = self
             .canvas
             .create_texture_target(SdlFormat::RGBA32, ww, wh)
@@ -381,7 +381,73 @@ impl Cabinet {
         let (ww, wh) = self.canvas.output_size().unwrap_or((1280, 720));
         self.screen = screen_area(ww, wh);
         self.ensure_bezel(ww, wh, self.screen);
+        self.update_noise_tex(level);
 
+        let mesh = build_crt_mesh(self.screen, 1.0);
+        self.canvas
+            .set_draw_color(Color::RGB(RECESS.0, RECESS.1, RECESS.2));
+        self.canvas.clear();
+        let nt = self.noise_tex.take().unwrap();
+        let _ = self
+            .canvas
+            .render_geometry(&mesh.verts, Some(&nt.tex), &mesh.indices[..]);
+        self.noise_tex = Some(nt);
+        let bezel = self.bezel.take().unwrap();
+        let _ = self
+            .canvas
+            .render_geometry(&bezel.verts, None, &bezel.indices[..]);
+        self.bezel = Some(bezel);
+        self.canvas.present();
+    }
+
+    /// Like [`Cabinet::frame_2d`], but blended up from residual signal-off snow
+    /// instead of cutting in cold: `static_level` is the snow still showing
+    /// behind it, `shelf_alpha` (0..1) how much of the drawn frame shows on top
+    /// (plan §3.3, "a estante entra por cima"). Call with `shelf_alpha` ramping
+    /// 0.0 -> 1.0 over the first handful of frames after a game closes.
+    pub fn frame_2d_fade_in<F: FnOnce(&mut Screen)>(
+        &mut self,
+        bg: (u8, u8, u8),
+        draw: F,
+        static_level: f32,
+        shelf_alpha: f32,
+    ) {
+        self.paint_2d(bg, draw);
+        self.update_noise_tex(static_level);
+
+        let mesh_static = build_crt_mesh(self.screen, 1.0);
+        let mesh_shelf = build_crt_mesh(self.screen, shelf_alpha.clamp(0.0, 1.0));
+
+        self.canvas
+            .set_draw_color(Color::RGB(RECESS.0, RECESS.1, RECESS.2));
+        self.canvas.clear();
+
+        let nt = self.noise_tex.take().unwrap();
+        let _ = self.canvas.render_geometry(
+            &mesh_static.verts,
+            Some(&nt.tex),
+            &mesh_static.indices[..],
+        );
+        self.noise_tex = Some(nt);
+
+        let st = self.screen_tex.take().unwrap();
+        let _ =
+            self.canvas
+                .render_geometry(&mesh_shelf.verts, Some(&st.tex), &mesh_shelf.indices[..]);
+        self.screen_tex = Some(st);
+
+        let bezel = self.bezel.take().unwrap();
+        let _ = self
+            .canvas
+            .render_geometry(&bezel.verts, None, &bezel.indices[..]);
+        self.bezel = Some(bezel);
+
+        self.canvas.present();
+    }
+
+    /// Fill the noise texture for the current window size at `level` (1.0 =
+    /// full blizzard, 0.0 = a dim near-still hiss); leaves it in `noise_tex`.
+    fn update_noise_tex(&mut self, level: f32) {
         const NW: u32 = 320;
         const NH: u32 = 240;
         self.ensure_noise_tex(NW, NH);
@@ -402,22 +468,8 @@ impl Cabinet {
                 *px = [v, v, v, 255];
             }
         }
-        let mesh = build_crt_mesh(self.screen);
-        let mut nt = self.noise_tex.take().unwrap();
+        let nt = self.noise_tex.as_mut().unwrap();
         let _ = nt.tex.update(None, &self.noise, (NW * 4) as usize);
-        self.canvas
-            .set_draw_color(Color::RGB(RECESS.0, RECESS.1, RECESS.2));
-        self.canvas.clear();
-        let _ = self
-            .canvas
-            .render_geometry(&mesh.verts, Some(&nt.tex), &mesh.indices[..]);
-        self.noise_tex = Some(nt);
-        let bezel = self.bezel.take().unwrap();
-        let _ = self
-            .canvas
-            .render_geometry(&bezel.verts, None, &bezel.indices[..]);
-        self.bezel = Some(bezel);
-        self.canvas.present();
     }
 
     /// Render `draw` into the screen buffer. Shared by `frame_2d` / `capture_2d`.
@@ -455,7 +507,7 @@ impl Cabinet {
 
     /// Warp the screen buffer through the tube into the live window, then frame.
     fn composite_screen(&mut self) {
-        let mesh = build_crt_mesh(self.screen);
+        let mesh = build_crt_mesh(self.screen, 1.0);
         self.canvas
             .set_draw_color(Color::RGB(RECESS.0, RECESS.1, RECESS.2));
         self.canvas.clear();
@@ -480,6 +532,8 @@ impl Cabinet {
             .create_texture_target(SdlFormat::RGBA32, w, h)
             .expect("create screen target");
         tex.set_scale_mode(SdlScaleMode::Linear);
+        // So `frame_2d_fade_in`'s vertex alpha can blend it over the snow.
+        tex.set_blend_mode(BlendMode::Blend);
         self.screen_tex = Some(SizedTex { tex, w, h });
     }
 
@@ -705,8 +759,8 @@ fn build_bezel_mesh(out_w: u32, out_h: u32, screen: Rect, key: (u32, u32, u32, u
 /// Build a textured grid over `dst` whose vertex positions are barrel-distorted
 /// (edges bow out, corners pull in) with an edge vignette baked into the vertex
 /// colours. Texture coordinates stay a plain grid, so the picture — not just the
-/// outline — curves.
-fn build_crt_mesh(dst: Rect) -> CrtMesh {
+/// outline — curves. `alpha` (1.0 normally) lets a caller fade the whole tube in.
+fn build_crt_mesh(dst: Rect, alpha: f32) -> CrtMesh {
     let n = CRT_GRID;
     let (ox, oy) = (dst.x() as f32, dst.y() as f32);
     let (dw, dh) = (dst.width() as f32, dst.height() as f32);
@@ -731,7 +785,7 @@ fn build_crt_mesh(dst: Rect) -> CrtMesh {
 
             verts.push(Vertex {
                 position: sdl3::render::FPoint::new(px, py),
-                color: FColor::RGBA(shade, shade, shade, 1.0),
+                color: FColor::RGBA(shade, shade, shade, alpha),
                 tex_coord: sdl3::render::FPoint::new(u, v),
             });
         }

@@ -55,6 +55,10 @@ aviso — só o incremento de _minor_ marca um conjunto de mudanças.
 - **Sinal off** (Fase 3): ao sair do jogo pro seletor, `xperience::signal_off`
   toca ~0,65 s de `Cabinet::present_static` (chuvisco pelo tubo, teto abaixo do
   branco — sem flash) com um zumbido de RF decaindo que corta no fim.
+- **"A estante entra por cima"** (Fase 3): `signal_off` devolve o nível de
+  chuvisco em que parou; os 18 primeiros quadros da estante seguinte usam
+  `Cabinet::frame_2d_fade_in`, que compõe o chuvisco e a estante juntos (alfa
+  da estante subindo por quadro) em vez de cortar direto pra tela limpa.
 
 ## [0.1.0] — 2026-09-10
 
