@@ -96,6 +96,11 @@ pub enum UiEvent {
     Screenshot,
     NextSlot,
     PrevSlot,
+    /// Move the panel's cheat cursor (plan §4.4).
+    CheatNext,
+    CheatPrev,
+    /// Flip the cheat under the cursor — the interruptor itself.
+    CheatToggle,
     /// Advance a single frame (only acted on while paused).
     FrameStep,
     /// Held state, not an edge — `FastForward` is filtered out of the event
@@ -116,13 +121,16 @@ impl UiEvent {
             UiEvent::Screenshot => "screenshot",
             UiEvent::NextSlot => "slot_next",
             UiEvent::PrevSlot => "slot_prev",
+            UiEvent::CheatNext => "cheat_next",
+            UiEvent::CheatPrev => "cheat_prev",
+            UiEvent::CheatToggle => "cheat_toggle",
             UiEvent::FrameStep => "frame_step",
             UiEvent::FastForward => "fast_forward",
             UiEvent::Quit | UiEvent::CloseRequested => return None,
         })
     }
 
-    pub const BINDABLE: [UiEvent; 11] = [
+    pub const BINDABLE: [UiEvent; 14] = [
         UiEvent::Eject,
         UiEvent::ToggleFullscreen,
         UiEvent::Reset,
@@ -132,6 +140,9 @@ impl UiEvent {
         UiEvent::Screenshot,
         UiEvent::NextSlot,
         UiEvent::PrevSlot,
+        UiEvent::CheatNext,
+        UiEvent::CheatPrev,
+        UiEvent::CheatToggle,
         UiEvent::FrameStep,
         UiEvent::FastForward,
     ];
@@ -173,6 +184,9 @@ impl KeyMap {
             ("F12", UiEvent::Screenshot),
             ("]", UiEvent::NextSlot),
             ("[", UiEvent::PrevSlot),
+            (".", UiEvent::CheatNext),
+            (",", UiEvent::CheatPrev),
+            ("/", UiEvent::CheatToggle),
             ("\\", UiEvent::FrameStep),
             ("Tab", UiEvent::FastForward),
         ];

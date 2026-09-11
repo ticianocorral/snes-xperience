@@ -91,6 +91,15 @@ aviso — só o incremento de _minor_ marca um conjunto de mudanças.
   do tubo — mobília do gabinete, não da partida, então aparece em todo lugar
   (estante, jogo, console desligado), diferente do cartucho/painel que só
   existem durante o jogo.
+- **Cheats com interruptor** (Fase 4, §4.4): `crates/domain/src/cheats.rs`
+  embute códigos curados da pasta `cht` do `libretro-database` (CC BY-SA
+  4.0 — ver `THIRD-PARTY-NOTICES.md`) para os 19 jogos do catálogo do
+  usuário, casados pelo título do cabeçalho SNES, não pelo arquivo/hash.
+  `xperience-emulation::Core` ganhou `cheat_reset`/`cheat_set` (FFI fina
+  sobre o libretro). Três teclas novas (`.`/`,`/`/`, rebindáveis) navegam a
+  lista e viram o interruptor no painel; o estado liga/desliga persiste em
+  `<hash>.cheats` no save-dir. Descrições escritas para o app, sem acento
+  (a fonte do painel só cobre ASCII).
 
 ## [0.1.0] — 2026-09-10
 

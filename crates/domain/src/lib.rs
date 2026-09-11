@@ -2,12 +2,14 @@
 
 pub mod art;
 pub mod catalog;
+pub mod cheats;
 pub mod library;
 pub mod rom;
 pub mod screenscraper;
 
 pub use art::download_art;
 pub use catalog::{ArtPaths, Catalog, CatalogEntry, CatalogError, MetaRow, Order, RomRow};
+pub use cheats::{for_title as cheats_for_title, CheatDef};
 pub use library::{scan, ScannedRom, ROM_EXTS};
 pub use rom::{Mapper, RomError, RomId};
 pub use screenscraper::{Client, Credentials, GameInfo, ScrapeError};

@@ -15,8 +15,9 @@ tubo do jogo, o ritual completo de desligar (Esc) → ejetar (`E`) com a TV em
 sinal off entre as telas, o cartucho no slot com o rótulo, e passou no teste de
 duas horas do plano (§9), e leva o selo "SNES Xperience" no queixo do
 gabinete. Da Fase 4 já existe o painel lateral (logo do jogo ou nome,
-legenda dos comandos do console, tempo de sessão) ao lado do tubo durante a
-partida. Faltam cheats com interruptor, anotações e a tela de pausa.
+legenda dos comandos do console, cheats com interruptor para os jogos do
+catálogo, tempo de sessão) ao lado do tubo durante a partida. Faltam
+anotações com captura de tela e a tela de pausa.
 
 ## Arquitetura
 
@@ -66,10 +67,12 @@ cargo run --bin xperience -- --core /caminho/snes9x_libretro.dylib
 No jogo: `Esc` desliga (salva, TV em sinal off, cartucho continua no slot —
 console desligado é um estado, não um beco) e `E` ejeta a partir daí, voltando
 pra estante; tentar ejetar ligado só resiste com um "clunk". `Backspace`
-reseta o jogo sem sair da tela. `Esc` (ou fechar a janela) na estante encerra;
-fechar a janela do jogo também encerra, sem cerimônia. Catálogo e saves ficam
-em `~/.local/share/snes-xperience/`. Para rodar uma ROM solta sem catálogo,
-use `emu-run` (ver Fase 0).
+reseta o jogo sem sair da tela. `,`/`.` movem o cursor na lista de cheats do
+painel (quando o jogo tem algum curado) e `/` liga/desliga o selecionado.
+`Esc` (ou fechar a janela) na estante encerra; fechar a janela do jogo também
+encerra, sem cerimônia. Catálogo e saves ficam em
+`~/.local/share/snes-xperience/`. Para rodar uma ROM solta sem catálogo, use
+`emu-run` (ver Fase 0).
 
 Com `SS_DEVID` / `SS_DEVPASSWORD` (ScreenScraper) no ambiente, a estante busca a
 ficha e a capa do jogo em foco na hora; `--no-scrape` desliga. Para preencher o

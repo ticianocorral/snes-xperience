@@ -8,7 +8,7 @@ Progresso:
 - [x] **Painel lateral (esqueleto)** — coluna de widgets reais ao lado do tubo
       durante o jogo, com logo (ou nome) no topo e o tempo de sessão embaixo
 - [x] **Comandos** (item 3 do §3.2) — legenda dos botões do console
-- [ ] Cheats com interruptor (`cht` do libretro-database, §4.4)
+- [x] **Cheats com interruptor** (`cht` do libretro-database, §4.4)
 - [ ] Anotações com captura de tela (§3.4)
 - [ ] Tela de pausa (layout de página dupla para anotações/senhas longas)
 - [ ] Senhas e dicas — tabela manual, cinco jogos pra começar (§4.5/§4.6)
@@ -86,6 +86,42 @@ cada um dos sete pontos que a desenham (`present_frame`, `capture_bmp`,
 `composite_screen`) — mesmo texto cor `BRAND_TEXT`, um tom mais claro que o
 plástico do gabinete, como relevo gravado, não uma etiqueta acesa.
 
+## Cheats com interruptor (§4.4)
+
+Sem servidor de cheats nenhum: `crates/domain/src/cheats.rs` embute uma
+tabela estática, `internal_name` (o título de 21 bytes do cabeçalho SNES,
+não o nome do arquivo nem o hash — sobrevive a um re-dump ou renomeação)
+apontando pra até três `CheatDef { desc, code }`. Os 19 jogos que já estão
+no catálogo do usuário foram curados a partir da pasta `cht` do
+`libretro-database` — ver `THIRD-PARTY-NOTICES.md` pela licença correta
+(CC BY-SA 4.0; o plano tinha MIT de memória, já corrigido lá e aqui) e a
+nota de atribuição. Só o código de cada cheat (endereço/valor, fato bruto)
+veio de lá; toda descrição foi escrita pra este app — e sem acento: a fonte
+bitmap do painel (`font8x8::legacy`) só cobre ASCII, então "não"/"é" viravam
+"?" na tela até eu notar no primeiro screenshot e trocar por "nao"/"e".
+
+`Core` (emulação) ganhou `cheat_reset`/`cheat_set`, fininhos sobre
+`retro_cheat_reset`/`retro_cheat_set` do libretro — o código passa direto
+pro core sem reformatar, então tanto o hex bruto (`7E034704`) quanto o Game
+Genie/Pro Action Replay (`1B29-4DD9`) e os combinados com `+` (vários
+endereços por cheat, comuns em jogos de luta) funcionam do jeito que a base
+já os guarda.
+
+`run_game` calcula a lista pro cabeçalho da ROM em mãos, carrega o estado
+salvo (`<hash>.cheats` no save-dir, um `0`/`1` por linha — mesmo padrão de
+`.srm`/`.state0..9`) e aplica tudo no core antes do primeiro frame. Três
+teclas novas navegam e viram a chave (`UiEvent::CheatNext/Prev/Toggle`,
+padrão `.`/`,`/`/`, rebindáveis como as outras): mover o cursor só redesenha
+o painel; apertar o interruptor chama `core.cheat_set` de novo pro índice
+tocado (o libretro não exige um `cheat_reset` global a cada mudança) e
+grava o novo estado em disco. Só funciona com o console ligado, mesmo
+padrão dos outros extras.
+
+No painel, a lista fica entre comandos e o relógio de sessão: cabeçalho
+"cheats" apagado, cada linha `[x]`/`[ ]` + descrição, a selecionada com
+cursor `>` e brilho total, as outras apagadas — só ASCII, então o
+interruptor é textual, não um ícone.
+
 ## Verificado
 
 - `emu-run --shot --cartridge-label` (sem `--logo`): painel com o título
@@ -100,9 +136,15 @@ plástico do gabinete, como relevo gravado, não uma etiqueta acesa.
   gabinete)
 - `selector --frames --shot`: estante segue funcionando — o painel do jogo
   continua sem espaço reservado lá, como esperado
-- fmt / clippy / 15 suítes — verdes
+- Aladdin (real, do catálogo do usuário) com um `.cheats` pré-gravado
+  ligando "Invencibilidade total": o core aceita o cheat, roda 60 quadros
+  sem travar, o painel mostra `[x]` no item certo — sem como confirmar o
+  efeito num único frame de boot headless, mas a aplicação em si (FFI +
+  persistência + UI) está provada de ponta a ponta
+- fmt / clippy / 15 suítes, +4 testes novos (`cheats::tests`, round-trip do
+  estado salvo em `runner::tests`) — verdes
 
 ## A seguir
 
-Cheats com interruptor (a parte mais autocontida: banco `cht` embutido, sem
-rede). Anotações e tela de pausa são as peças maiores, deixadas pro fim.
+Anotações com captura de tela e a tela de pausa — as duas peças maiores,
+deixadas pro fim; a tela de pausa é onde a escrita das anotações acontece.

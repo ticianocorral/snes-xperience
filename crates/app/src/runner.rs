@@ -180,6 +180,44 @@ fn eject_clunk(plat: &Platform) {
     std::thread::sleep(Duration::from_millis(100));
 }
 
+/// Where a ROM's cheat toggle state lives, keyed by hash like save states.
+fn cheat_state_path(hash: &Option<String>, dir: &Path) -> Option<PathBuf> {
+    hash.as_ref().map(|h| dir.join(format!("{h}.cheats")))
+}
+
+/// One `0`/`1` per line, in the curated list's order. Missing/short/garbled
+/// files just mean "start with everything off" — nothing to migrate.
+fn load_cheat_state(path: &Option<PathBuf>, len: usize) -> Vec<bool> {
+    let mut state = vec![false; len];
+    if let Some(text) = path.as_ref().and_then(|p| fs::read_to_string(p).ok()) {
+        for (slot, line) in state.iter_mut().zip(text.lines()) {
+            *slot = line.trim() == "1";
+        }
+    }
+    state
+}
+
+fn save_cheat_state(path: &Option<PathBuf>, state: &[bool]) {
+    if let Some(p) = path {
+        let text: String = state
+            .iter()
+            .map(|&on| if on { "1\n" } else { "0\n" })
+            .collect();
+        if let Err(e) = fs::write(p, text) {
+            log::warn!("cheat state flush failed: {e}");
+        }
+    }
+}
+
+/// `(description, on)` pairs for the panel — cheap enough to rebuild on every
+/// toggle/navigate, there are only ever a handful.
+fn cheat_rows(defs: &[xperience_domain::CheatDef], state: &[bool]) -> Vec<(String, bool)> {
+    defs.iter()
+        .zip(state)
+        .map(|(d, &on)| (d.desc.to_string(), on))
+        .collect()
+}
+
 /// Decode scraped art (cartridge label, panel logo, …) small enough for its
 /// slot, keeping alpha for transparent logos.
 fn decode_art(path: &Path, max: u32) -> Result<(u32, u32, Vec<u8>)> {
@@ -216,7 +254,7 @@ pub fn run_game(
 
     let rom_bytes =
         fs::read(&spec.rom).with_context(|| format!("reading ROM {}", spec.rom.display()))?;
-    let rom_hash = match xperience_domain::RomId::from_bytes(&rom_bytes) {
+    let (rom_hash, internal_name) = match xperience_domain::RomId::from_bytes(&rom_bytes) {
         Ok(id) => {
             log::info!(
                 "rom: {} bytes (+{} header), crc32={} sha1={} name={:?} {:?}",
@@ -227,11 +265,11 @@ pub fn run_game(
                 id.internal_name,
                 id.mapper
             );
-            Some(id.sha1)
+            (Some(id.sha1), id.internal_name)
         }
         Err(e) => {
             log::warn!("rom id failed (no SRAM/state persistence): {e}");
-            None
+            (None, None)
         }
     };
 
@@ -306,6 +344,22 @@ pub fn run_game(
     } else {
         cab.set_panel(None, &title, &commands);
     }
+
+    // --- cheats: a curated slice of libretro-database codes (plan §4.4) ---
+    // Matched by the cartridge header title, not the file — see
+    // `xperience_domain::cheats`. Empty for anything we haven't picked yet.
+    let cheat_defs = xperience_domain::cheats_for_title(internal_name.as_deref().unwrap_or(""));
+    let cheat_path = cheat_state_path(&rom_hash, &spec.save_dir);
+    let mut cheat_state = load_cheat_state(&cheat_path, cheat_defs.len());
+    let mut cheat_sel: usize = 0;
+    if !cheat_defs.is_empty() {
+        core.cheat_reset();
+        for (i, (def, &on)) in cheat_defs.iter().zip(&cheat_state).enumerate() {
+            core.cheat_set(i as u32, on, def.code);
+        }
+    }
+    cab.set_cheats(&cheat_rows(cheat_defs, &cheat_state), cheat_sel);
+
     let session_start = Instant::now();
 
     // Headless self-check: skip straight to the idle "console off" screen.
@@ -419,13 +473,37 @@ pub fn run_game(
                     // capture happens after present, below; stash the request.
                     shot_request = Some(p);
                 }
-                // The rest only make sense with the console on; ignored off.
+                UiEvent::CheatNext if powered && !cheat_defs.is_empty() => {
+                    cheat_sel = (cheat_sel + 1) % cheat_defs.len();
+                    cab.set_cheats(&cheat_rows(cheat_defs, &cheat_state), cheat_sel);
+                }
+                UiEvent::CheatPrev if powered && !cheat_defs.is_empty() => {
+                    cheat_sel = (cheat_sel + cheat_defs.len() - 1) % cheat_defs.len();
+                    cab.set_cheats(&cheat_rows(cheat_defs, &cheat_state), cheat_sel);
+                }
+                UiEvent::CheatToggle if powered && !cheat_defs.is_empty() => {
+                    let on = !cheat_state[cheat_sel];
+                    cheat_state[cheat_sel] = on;
+                    core.cheat_set(cheat_sel as u32, on, cheat_defs[cheat_sel].code);
+                    cab.set_cheats(&cheat_rows(cheat_defs, &cheat_state), cheat_sel);
+                    save_cheat_state(&cheat_path, &cheat_state);
+                    log::info!(
+                        "cheat {:?}: {}",
+                        cheat_defs[cheat_sel].desc,
+                        if on { "on" } else { "off" }
+                    );
+                }
+                // The rest only make sense with the console on; ignored off
+                // (or, for the cheat trio, with nothing curated to toggle).
                 UiEvent::TogglePause
                 | UiEvent::NextSlot
                 | UiEvent::PrevSlot
                 | UiEvent::SaveState
                 | UiEvent::LoadState
-                | UiEvent::Screenshot => {}
+                | UiEvent::Screenshot
+                | UiEvent::CheatNext
+                | UiEvent::CheatPrev
+                | UiEvent::CheatToggle => {}
             }
         }
 
@@ -558,4 +636,27 @@ pub fn run_game(
 
     log::info!("game loop done: {exit:?}");
     Ok(exit)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{load_cheat_state, save_cheat_state};
+
+    #[test]
+    fn cheat_state_round_trips_through_disk() {
+        let dir = std::env::temp_dir().join(format!("xperience-cheat-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = Some(dir.join("test.cheats"));
+
+        save_cheat_state(&path, &[true, false, true]);
+        assert_eq!(load_cheat_state(&path, 3), vec![true, false, true]);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn missing_file_defaults_everything_off() {
+        let path = Some(std::env::temp_dir().join("xperience-cheat-test-missing.cheats"));
+        assert_eq!(load_cheat_state(&path, 2), vec![false, false]);
+    }
 }

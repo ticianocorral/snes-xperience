@@ -212,6 +212,8 @@ impl Core {
             retro_unserialize: sym!("retro_unserialize", sys::FnUnserialize),
             retro_get_memory_data: sym!("retro_get_memory_data", sys::FnGetMemoryData),
             retro_get_memory_size: sym!("retro_get_memory_size", sys::FnGetMemorySize),
+            retro_cheat_reset: sym!("retro_cheat_reset", sys::FnCheatReset),
+            retro_cheat_set: sym!("retro_cheat_set", sys::FnCheatSet),
         };
 
         let found = unsafe { (api.retro_api_version)() };
@@ -489,6 +491,22 @@ impl Core {
 
     pub fn load_sram(&mut self, bytes: &[u8]) -> usize {
         self.write_memory(RETRO_MEMORY_SAVE_RAM, bytes)
+    }
+
+    /// Drop every cheat the core is currently tracking. Call once before the
+    /// first `cheat_set` of a session; not needed between later toggles —
+    /// `cheat_set` replaces a slot in place.
+    pub fn cheat_reset(&mut self) {
+        self.enter(|api| unsafe { (api.retro_cheat_reset)() });
+    }
+
+    /// Set (or replace) the cheat at `index`. `code` is the raw/Game-Genie/Pro
+    /// Action Replay string the core expects — passed through unmodified.
+    pub fn cheat_set(&mut self, index: u32, enabled: bool, code: &str) {
+        let Ok(c) = CString::new(code) else {
+            return;
+        };
+        self.enter(|api| unsafe { (api.retro_cheat_set)(index, enabled, c.as_ptr()) });
     }
 
     /// Run `body` with the thread-local callback pointer set to our state.

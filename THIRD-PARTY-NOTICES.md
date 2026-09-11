@@ -37,8 +37,23 @@ objetos para religação.
 
 ## libretro-database — pasta `cht` (Fase 4)
 
-Os cheats virão da pasta `cht` do `libretro-database` (licença MIT), embutidos
-no app. A serem adicionados quando a Fase 4 começar.
+`crates/domain/src/cheats.rs` embute uma lista curada de códigos vindos da
+pasta `cht` do [`libretro-database`](https://github.com/libretro/libretro-database),
+de `github.com/libretro/libretro-database/tree/master/cht/Nintendo%20-%20Super%20Nintendo%20Entertainment%20System`.
+(O plano, §4.4, citava MIT de memória — o `LICENSE` do repositório é na
+verdade **CC BY-SA 4.0**; corrigido aqui.)
+
+O que foi usado é só o código de cada cheat — um par endereço/valor (ex.:
+`7E034704`), fato bruto sem expressão autoral, do jeito que uma lista de
+números de telefone não vira obra protegida por estar arrumada numa tabela.
+Nenhuma descrição da base foi copiada: toda descrição em `cheats.rs` foi
+escrita para este app. Ainda assim, por transparência e crédito — não porque
+achamos que o CC BY-SA prende os códigos em si —, a atribuição:
+
+> Códigos de cheat adaptados de `libretro-database`
+> (github.com/libretro/libretro-database), licenciado sob
+> [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/).
+> Copyright dos respectivos colaboradores do projeto libretro.
 
 ## Marcas
 

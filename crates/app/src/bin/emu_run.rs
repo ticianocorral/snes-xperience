@@ -166,6 +166,7 @@ default keys: arrows=dpad  Z=B X=A A=Y S=X Q=L W=R  Enter=Start RShift=Select\n\
       F2=save  F4=load  ] / [ =slot  Tab=fast-forward  \\=frame-step (paused)\n\
       F12=screenshot  F=fullscreen  Backspace=reset  P=pause\n\
       Esc=power off (desligar)  E=eject (only once off)\n\
+      , / . =cheat cursor  /=toggle cheat (panel, curated games only)\n\
       Closing the window always quits, on or off — no ceremony.";
 
 fn main() -> Result<()> {

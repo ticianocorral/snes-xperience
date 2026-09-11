@@ -228,8 +228,9 @@ instalador.
 
 ### 4.4 Cheats
 
-Pasta `cht` do `libretro-database`, licença MIT, embutida no app, sem
-rede. Como o core é libretro, os códigos aplicam direto.
+Pasta `cht` do `libretro-database` (CC BY-SA 4.0 — o `LICENSE` do repo, não
+MIT como eu tinha em mente ao escrever isto), embutida no app, sem rede.
+Como o core é libretro, os códigos aplicam direto.
 
 O diferencial é o interruptor, não a lista de strings. Reescreva as
 descrições: a lista de endereços é fato bruto, o texto descritivo tem

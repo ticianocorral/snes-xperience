@@ -154,6 +154,8 @@ pub type FnSerialize = unsafe extern "C" fn(*mut c_void, usize) -> bool;
 pub type FnUnserialize = unsafe extern "C" fn(*const c_void, usize) -> bool;
 pub type FnGetMemoryData = unsafe extern "C" fn(c_uint) -> *mut c_void;
 pub type FnGetMemorySize = unsafe extern "C" fn(c_uint) -> usize;
+pub type FnCheatReset = unsafe extern "C" fn();
+pub type FnCheatSet = unsafe extern "C" fn(index: c_uint, enabled: bool, code: *const c_char);
 
 /// Symbols resolved from the shared object. Names match `libretro.h` exactly.
 pub struct CoreApi {
@@ -179,4 +181,6 @@ pub struct CoreApi {
     pub retro_unserialize: FnUnserialize,
     pub retro_get_memory_data: FnGetMemoryData,
     pub retro_get_memory_size: FnGetMemorySize,
+    pub retro_cheat_reset: FnCheatReset,
+    pub retro_cheat_set: FnCheatSet,
 }

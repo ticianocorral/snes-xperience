@@ -140,11 +140,15 @@ struct CartridgeSlot {
 
 /// What to draw at the top of the side panel: the `wheel` logo if we have it,
 /// else the ROM's title. `commands` is the button legend (plan §3.2, item 3):
-/// `(label, key)` pairs, in display order.
+/// `(label, key)` pairs, in display order. `cheats` is the interruptor list
+/// (item 4, plan §4.4): `(description, on)` pairs, with `cheat_sel` marking
+/// which one the cursor is on.
 struct PanelInfo {
     has_logo: bool,
     title: String,
     commands: Vec<(String, String)>,
+    cheats: Vec<(String, bool)>,
+    cheat_sel: usize,
 }
 
 struct SrcTexture {
@@ -271,7 +275,20 @@ impl Cabinet {
             has_logo,
             title: title.to_string(),
             commands: commands.to_vec(),
+            cheats: Vec::new(),
+            cheat_sel: 0,
         });
+    }
+
+    /// Update the side panel's cheat list (plan §4.4): `cheats` is
+    /// `(description, on)` pairs in the curated order, `selected` the index
+    /// the cursor is currently on. Call once at game start and again on every
+    /// navigate/toggle — the list is always tiny. A no-op before `set_panel`.
+    pub fn set_cheats(&mut self, cheats: &[(String, bool)], selected: usize) {
+        if let Some(panel) = &mut self.panel {
+            panel.cheats = cheats.to_vec();
+            panel.cheat_sel = selected;
+        }
     }
 
     /// Update the session clock shown at the bottom of the panel. Call once a
@@ -1256,8 +1273,40 @@ fn draw_panel(
         }
     }
 
-    // 6. Session clock, pinned to the bottom (plan §3.2, item 6). Cheats and
-    // notes (items 4-5) land here in later increments.
+    // 4. Cheats — the interruptor list (plan §4.4), not the string of raw
+    // addresses: selected row gets a cursor and full brightness, the rest
+    // dim; on/off shown as `[x]`/`[ ]` since the font is ASCII-only.
+    if !panel.cheats.is_empty() {
+        cy += 16;
+        draw_text_absolute(
+            canvas,
+            font,
+            x,
+            cy,
+            TextStyle::new(1, PANEL_DIM),
+            "cheats",
+            usize::MAX,
+        );
+        cy += GLYPH as i32 + 6;
+        for (i, (desc, on)) in panel.cheats.iter().enumerate() {
+            let selected = i == panel.cheat_sel;
+            let cursor = if selected { "> " } else { "  " };
+            let mark = if *on { "[x] " } else { "[ ] " };
+            let color = if selected { PANEL_TEXT } else { PANEL_DIM };
+            cy = draw_text_wrapped_absolute(
+                canvas,
+                font,
+                x,
+                cy,
+                inner_w,
+                TextStyle::new(1, color),
+                &format!("{cursor}{mark}{desc}"),
+            );
+        }
+    }
+
+    // 6. Session clock, pinned to the bottom (plan §3.2, item 6). Notes
+    // (item 5) land here in a later increment.
     let secs = session.as_secs();
     let stamp = if secs >= 3600 {
         format!("{}:{:02}:{:02}", secs / 3600, (secs / 60) % 60, secs % 60)
