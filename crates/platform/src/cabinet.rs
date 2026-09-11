@@ -7,6 +7,7 @@
 //! (`xperience-ntsc`).
 
 use std::collections::HashMap;
+use std::time::Duration;
 
 use sdl3::pixels::{Color, FColor, PixelFormat as SdlFormat};
 use sdl3::rect::Rect;
@@ -41,6 +42,19 @@ const CART_RIM: (u8, u8, u8) = (96, 86, 72);
 /// Reserved image-cache key for the current cartridge's label art. Distinct
 /// from any `Screen::set_image` id a caller might use.
 const CARTRIDGE_IMG: u64 = u64::MAX;
+/// Reserved image-cache key for the side panel's logo art.
+const PANEL_LOGO_IMG: u64 = u64::MAX - 1;
+
+/// The side panel: a column of plain widgets beside the tube during play —
+/// not warped, drawn straight on the window (plan §2's presentation order,
+/// §3.2). A fixed fraction of the window, clamped so it neither disappears on
+/// a small window nor swallows a huge one.
+const PANEL_FRAC: f32 = 0.25;
+const PANEL_MIN: u32 = 260;
+const PANEL_MAX: u32 = 520;
+const PANEL_BG: (u8, u8, u8) = (16, 15, 14);
+const PANEL_TEXT: (u8, u8, u8) = (225, 220, 210);
+const PANEL_DIM: (u8, u8, u8) = (140, 134, 124);
 
 /// 8x8 glyph cell, before scaling.
 const GLYPH: u32 = 8;
@@ -102,6 +116,12 @@ pub struct Cabinet {
     /// The cartridge "inserted" in the slot (game path only). `None` = no game
     /// running right now, so nothing is drawn.
     cartridge: Option<CartridgeSlot>,
+    /// The side panel content (game path only, plan §3.2). `None` = nothing
+    /// drawn — the tube fills the whole window, as on the shelf.
+    panel: Option<PanelInfo>,
+    /// Elapsed time to show at the bottom of the panel; the caller updates
+    /// this once a frame (`set_session_time`).
+    session: Duration,
     fullscreen: bool,
 }
 
@@ -110,6 +130,13 @@ pub struct Cabinet {
 struct CartridgeSlot {
     has_image: bool,
     name: String,
+}
+
+/// What to draw at the top of the side panel: the `wheel` logo if we have it,
+/// else the ROM's title.
+struct PanelInfo {
+    has_logo: bool,
+    title: String,
 }
 
 struct SrcTexture {
@@ -181,6 +208,8 @@ impl Cabinet {
             images: HashMap::new(),
             screen: screen_area(w, h),
             cartridge: None,
+            panel: None,
+            session: Duration::ZERO,
             fullscreen: false,
         })
     }
@@ -213,6 +242,28 @@ impl Cabinet {
         self.cartridge = None;
     }
 
+    /// Show the side panel during play: `logo` (width, height, RGBA) is the
+    /// scraped `wheel` art if there is one, else the panel falls back to
+    /// `title` in text (plan §3.2, item 1). Call once per game.
+    pub fn set_panel(&mut self, logo: Option<(u32, u32, &[u8])>, title: &str) {
+        let has_logo = if let Some((w, h, rgba)) = logo {
+            self.set_image(PANEL_LOGO_IMG, w, h, rgba);
+            true
+        } else {
+            false
+        };
+        self.panel = Some(PanelInfo {
+            has_logo,
+            title: title.to_string(),
+        });
+    }
+
+    /// Update the session clock shown at the bottom of the panel. Call once a
+    /// frame; it just stores the value for the next present/capture.
+    pub fn set_session_time(&mut self, elapsed: Duration) {
+        self.session = elapsed;
+    }
+
     /// Size of the recessed screen area — what the selector lays itself out in.
     pub fn screen_size(&self) -> (u32, u32) {
         let (w, h) = self.canvas.output_size().unwrap_or((1280, 720));
@@ -231,11 +282,13 @@ impl Cabinet {
             .canvas
             .output_size()
             .unwrap_or((frame.width, frame.height));
-        let screen = screen_area(out_w, out_h);
+        let panel = panel_rect(out_w, out_h);
+        let cab_w = out_w.saturating_sub(panel.width());
+        let screen = screen_area(cab_w, out_h);
         self.screen = screen;
         let dst = fit_aspect_in(screen, resolve_aspect(aspect_ratio));
         self.ensure_mesh(dst);
-        self.ensure_bezel(out_w, out_h, dst);
+        self.ensure_bezel(cab_w, out_h, dst);
 
         self.canvas
             .set_draw_color(Color::RGB(RECESS.0, RECESS.1, RECESS.2));
@@ -256,10 +309,18 @@ impl Cabinet {
 
         if let (Some(cart), Some(rect)) = (
             &self.cartridge,
-            cartridge_slot_rect(self.screen, out_w, out_h),
+            cartridge_slot_rect(self.screen, cab_w, out_h),
         ) {
             draw_cartridge_slot(&mut self.canvas, &mut self.font, &self.images, cart, rect);
         }
+        draw_panel(
+            &mut self.canvas,
+            &mut self.font,
+            &self.images,
+            self.panel.as_ref(),
+            panel,
+            self.session,
+        );
         self.canvas.present();
     }
 
@@ -279,11 +340,13 @@ impl Cabinet {
             .canvas
             .output_size()
             .unwrap_or((frame.width, frame.height));
-        let screen = screen_area(out_w, out_h);
+        let panel = panel_rect(out_w, out_h);
+        let cab_w = out_w.saturating_sub(panel.width());
+        let screen = screen_area(cab_w, out_h);
         self.screen = screen;
         let dst = fit_aspect_in(screen, resolve_aspect(aspect_ratio));
         self.ensure_mesh(dst);
-        self.ensure_bezel(out_w, out_h, dst);
+        self.ensure_bezel(cab_w, out_h, dst);
 
         let mut target = self
             .canvas
@@ -296,7 +359,9 @@ impl Cabinet {
         let cart_draw = self
             .cartridge
             .as_ref()
-            .zip(cartridge_slot_rect(self.screen, out_w, out_h));
+            .zip(cartridge_slot_rect(self.screen, cab_w, out_h));
+        let panel_info = self.panel.as_ref();
+        let session = self.session;
         let font = &mut self.font;
         let images = &self.images;
         let mut saved: Result<(), PlatformError> = Ok(());
@@ -308,6 +373,7 @@ impl Cabinet {
             if let Some((cart, rect)) = cart_draw {
                 draw_cartridge_slot(c, font, images, cart, rect);
             }
+            draw_panel(c, font, images, panel_info, panel, session);
             saved = c
                 .read_pixels(None::<Rect>)
                 .and_then(|s| s.save_bmp(path))
@@ -438,8 +504,10 @@ impl Cabinet {
     /// near-still hiss. Never a full-screen flash.
     pub fn present_static(&mut self, level: f32) {
         let (ww, wh) = self.canvas.output_size().unwrap_or((1280, 720));
-        self.screen = screen_area(ww, wh);
-        self.ensure_bezel(ww, wh, self.screen);
+        let panel = panel_rect(ww, wh);
+        let cab_w = ww.saturating_sub(panel.width());
+        self.screen = screen_area(cab_w, wh);
+        self.ensure_bezel(cab_w, wh, self.screen);
         self.update_noise_tex(level);
 
         let mesh = build_crt_mesh(self.screen, 1.0);
@@ -457,10 +525,18 @@ impl Cabinet {
             .render_geometry(&bezel.verts, None, &bezel.indices[..]);
         self.bezel = Some(bezel);
         if let (Some(cart), Some(rect)) =
-            (&self.cartridge, cartridge_slot_rect(self.screen, ww, wh))
+            (&self.cartridge, cartridge_slot_rect(self.screen, cab_w, wh))
         {
             draw_cartridge_slot(&mut self.canvas, &mut self.font, &self.images, cart, rect);
         }
+        draw_panel(
+            &mut self.canvas,
+            &mut self.font,
+            &self.images,
+            self.panel.as_ref(),
+            panel,
+            self.session,
+        );
         self.canvas.present();
     }
 
@@ -473,8 +549,10 @@ impl Cabinet {
         path: &std::path::Path,
     ) -> Result<(), PlatformError> {
         let (ww, wh) = self.canvas.output_size().unwrap_or((1280, 720));
-        self.screen = screen_area(ww, wh);
-        self.ensure_bezel(ww, wh, self.screen);
+        let panel = panel_rect(ww, wh);
+        let cab_w = ww.saturating_sub(panel.width());
+        self.screen = screen_area(cab_w, wh);
+        self.ensure_bezel(cab_w, wh, self.screen);
         self.update_noise_tex(level);
 
         let mesh = build_crt_mesh(self.screen, 1.0);
@@ -487,7 +565,9 @@ impl Cabinet {
         let cart_draw = self
             .cartridge
             .as_ref()
-            .zip(cartridge_slot_rect(self.screen, ww, wh));
+            .zip(cartridge_slot_rect(self.screen, cab_w, wh));
+        let panel_info = self.panel.as_ref();
+        let session = self.session;
         let font = &mut self.font;
         let images = &self.images;
         let mut saved: Result<(), PlatformError> = Ok(());
@@ -499,6 +579,7 @@ impl Cabinet {
             if let Some((cart, rect)) = cart_draw {
                 draw_cartridge_slot(c, font, images, cart, rect);
             }
+            draw_panel(c, font, images, panel_info, panel, session);
             saved = c
                 .read_pixels(None::<Rect>)
                 .and_then(|s| s.save_bmp(path))
@@ -920,7 +1001,7 @@ fn draw_cartridge_slot(
             font,
             rect.x() + 5,
             rect.y() + rect.height() as i32 / 2 - 4,
-            (220, 210, 190),
+            TextStyle::new(1, (220, 210, 190)),
             &cart.name,
             max_chars,
         );
@@ -954,18 +1035,35 @@ fn draw_image_absolute(
     );
 }
 
-/// A single line of 8px text at absolute window coordinates, truncated to
-/// `max_chars` — for cabinet furniture that isn't inside a `Screen`.
+/// Scale + colour for one of the absolute-coordinate text helpers below —
+/// bundled so those functions stay under clippy's argument-count limit.
+#[derive(Clone, Copy)]
+struct TextStyle {
+    scale: u32,
+    color: (u8, u8, u8),
+}
+
+impl TextStyle {
+    fn new(scale: u32, color: (u8, u8, u8)) -> Self {
+        Self { scale, color }
+    }
+}
+
+/// A single line of text at absolute window coordinates, truncated to
+/// `max_chars` (`usize::MAX` for no truncation) — for cabinet furniture that
+/// isn't inside a `Screen`.
 fn draw_text_absolute(
     canvas: &mut WindowCanvas,
     font: &mut Texture,
     x: i32,
     y: i32,
-    c: (u8, u8, u8),
+    style: TextStyle,
     s: &str,
     max_chars: usize,
 ) {
-    font.set_color_mod(c.0, c.1, c.2);
+    let (r, g, b) = style.color;
+    font.set_color_mod(r, g, b);
+    let cell = (GLYPH * style.scale) as i32;
     let mut pen = x;
     for ch in s.chars().take(max_chars) {
         let idx = if (ch as u32) < 128 {
@@ -975,11 +1073,128 @@ fn draw_text_absolute(
         };
         if ch != ' ' {
             let src = Rect::new(idx as i32 * GLYPH as i32, 0, GLYPH, GLYPH);
-            let dst = Rect::new(pen, y, GLYPH, GLYPH);
+            let dst = Rect::new(pen, y, GLYPH * style.scale, GLYPH * style.scale);
             let _ = canvas.copy(font, src, dst);
         }
-        pen += GLYPH as i32;
+        pen += cell;
     }
+}
+
+/// Word-wrapped text at absolute window coordinates, mirroring
+/// `Screen::text_wrapped`'s layout. Returns the y past the last line.
+fn draw_text_wrapped_absolute(
+    canvas: &mut WindowCanvas,
+    font: &mut Texture,
+    x: i32,
+    y: i32,
+    max_w: u32,
+    style: TextStyle,
+    s: &str,
+) -> i32 {
+    let cell = (GLYPH * style.scale) as i32;
+    let cols = (max_w / (GLYPH * style.scale)).max(1) as usize;
+    let mut line = String::new();
+    let mut cy = y;
+    for word in s.split_whitespace() {
+        if !line.is_empty() && line.len() + 1 + word.len() > cols {
+            draw_text_absolute(canvas, font, x, cy, style, &line, usize::MAX);
+            cy += cell + 2;
+            line.clear();
+        }
+        if !line.is_empty() {
+            line.push(' ');
+        }
+        line.push_str(word);
+        while line.len() > cols {
+            let (head, tail) = line.split_at(cols);
+            draw_text_absolute(canvas, font, x, cy, style, head, usize::MAX);
+            cy += cell + 2;
+            line = tail.to_string();
+        }
+    }
+    if !line.is_empty() {
+        draw_text_absolute(canvas, font, x, cy, style, &line, usize::MAX);
+        cy += cell + 2;
+    }
+    cy
+}
+
+/// Where the side panel sits: a column on the right, `PANEL_FRAC` of the
+/// window, clamped so it neither collapses nor swallows a small window.
+fn panel_rect(out_w: u32, out_h: u32) -> Rect {
+    let w = ((out_w as f32) * PANEL_FRAC)
+        .round()
+        .clamp(PANEL_MIN as f32, PANEL_MAX as f32) as u32;
+    let w = w.min(out_w.saturating_sub(64));
+    Rect::new((out_w - w) as i32, 0, w, out_h)
+}
+
+/// Draw the side panel: background, logo (or title) at top, session timer at
+/// the bottom. Plain widgets, not warped by the tube (plan §2, §3.2). `None`
+/// (no game running) draws nothing.
+fn draw_panel(
+    canvas: &mut WindowCanvas,
+    font: &mut Texture,
+    images: &HashMap<u64, ImgTex>,
+    panel: Option<&PanelInfo>,
+    rect: Rect,
+    session: Duration,
+) {
+    let Some(panel) = panel else { return };
+    if rect.width() == 0 {
+        return;
+    }
+    canvas.set_draw_color(Color::RGB(PANEL_BG.0, PANEL_BG.1, PANEL_BG.2));
+    let _ = canvas.fill_rect(rect);
+
+    let pad = 20i32;
+    let inner_w = rect.width().saturating_sub(pad as u32 * 2);
+    let x = rect.x() + pad;
+    let y = rect.y() + pad;
+
+    // 1. Logo, or the title if there isn't one (plan §3.2, item 1).
+    if panel.has_logo {
+        draw_image_absolute(canvas, images, PANEL_LOGO_IMG, x, y, inner_w, 110);
+    } else {
+        draw_text_wrapped_absolute(
+            canvas,
+            font,
+            x,
+            y,
+            inner_w,
+            TextStyle::new(2, PANEL_TEXT),
+            &panel.title,
+        );
+    }
+
+    // 6. Session clock, pinned to the bottom (plan §3.2, item 6). Commands,
+    // cheats and notes (items 3-5) land here in later increments.
+    let secs = session.as_secs();
+    let stamp = if secs >= 3600 {
+        format!("{}:{:02}:{:02}", secs / 3600, (secs / 60) % 60, secs % 60)
+    } else {
+        format!("{:02}:{:02}", secs / 60, secs % 60)
+    };
+    let ty = rect.bottom() - pad - GLYPH as i32;
+    draw_text_absolute(
+        canvas,
+        font,
+        x,
+        ty,
+        TextStyle::new(1, PANEL_DIM),
+        "session",
+        usize::MAX,
+    );
+    let label_w = (GLYPH as i32) * "session ".len() as i32;
+    draw_text_absolute(
+        canvas,
+        font,
+        x + label_w,
+        ty,
+        TextStyle::new(1, PANEL_TEXT),
+        &stamp,
+        usize::MAX,
+    );
 }
 
 /// Build a textured grid over `dst` whose vertex positions are barrel-distorted

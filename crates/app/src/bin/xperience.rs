@@ -159,10 +159,15 @@ fn main() -> Result<()> {
     };
 
     loop {
-        let (rom, cartridge_label) = match shelf::run(&mut plat, &mut cab, &catalog, &shelf_opts)? {
-            Pick::Quit => break,
-            Pick::Play { rom, texture } => (rom, texture),
-        };
+        let (rom, cartridge_label, logo) =
+            match shelf::run(&mut plat, &mut cab, &catalog, &shelf_opts)? {
+                Pick::Quit => break,
+                Pick::Play {
+                    rom,
+                    texture,
+                    wheel,
+                } => (rom, texture, wheel),
+            };
         shelf_opts.fade_in = None; // consumed
         let spec = GameSpec {
             core: args.core.clone(),
@@ -172,6 +177,7 @@ fn main() -> Result<()> {
             runahead: args.runahead,
             shot: None,
             cartridge_label,
+            logo,
             shot_off: false,
         };
         match run_game(&mut plat, &mut cab, &spec, &cfg)? {

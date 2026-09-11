@@ -44,6 +44,9 @@ pub enum Pick {
         /// The cartridge label (`texture` media), if scraped — for the
         /// cartridge-in-slot on the cabinet during play (plan §3.2/§4.3).
         texture: Option<PathBuf>,
+        /// The logo (`wheel` media), if scraped — for the side panel during
+        /// play (plan §3.2).
+        wheel: Option<PathBuf>,
     },
     /// Cancelled — quit the app.
     Quit,
@@ -288,9 +291,15 @@ pub fn run(
                             .as_ref()
                             .and_then(|m| m.texture_path.clone())
                             .map(PathBuf::from);
+                        let wheel = e
+                            .meta
+                            .as_ref()
+                            .and_then(|m| m.wheel_path.clone())
+                            .map(PathBuf::from);
                         return Ok(Pick::Play {
                             rom: PathBuf::from(&e.rom.path),
                             texture,
+                            wheel,
                         });
                     }
                 }

@@ -73,6 +73,14 @@ aviso — só o incremento de _minor_ marca um conjunto de mudanças.
   resiste com um "clunk" de áudio e mais nada. `Backspace` continua resetando,
   só ligado. Fechar a janela sempre funciona, sem cerimônia.
   `emu-run --shot-off` prevê a tela ociosa headless.
+- **Painel lateral** (Fase 4, esqueleto): coluna de widgets reais ao lado do
+  tubo durante o jogo (não deformada pelo tubo — plano §2), com logo (`wheel`
+  do ScreenScraper) ou o nome da ROM no topo e o tempo de sessão no rodapé. O
+  gabinete encolhe pra abrir espaço (`panel_rect`, 25 % da janela, 260–520 px);
+  o cartucho continua ancorado no canto do gabinete, não do painel. A estante
+  continua sem painel, janela inteira. `Pick::Play` ganhou `wheel`;
+  `GameSpec::logo` chega em `Cabinet::set_panel` via `runner::run_game`.
+  `emu-run --logo img.png` testa sem catálogo.
 
 ## [0.1.0] — 2026-09-10
 

@@ -29,6 +29,8 @@ struct Args {
     shot_frame: u32,
     /// Cartridge label art for the slot on the cabinet (dev/testing).
     cartridge_label: Option<PathBuf>,
+    /// Logo art for the side panel (dev/testing).
+    logo: Option<PathBuf>,
     /// Headless: preview the idle "console off" screen instead of gameplay.
     shot_off: bool,
 }
@@ -43,6 +45,7 @@ fn parse_args() -> Result<Args> {
     let mut shot = None;
     let mut shot_frame = 180u32;
     let mut cartridge_label = None;
+    let mut logo = None;
     let mut shot_off = false;
 
     let mut it = std::env::args().skip(1);
@@ -112,6 +115,13 @@ fn parse_args() -> Result<Args> {
                         .into(),
                 )
             }
+            "--logo" => {
+                logo = Some(
+                    it.next()
+                        .ok_or_else(|| anyhow!("--logo needs a path (image)"))?
+                        .into(),
+                )
+            }
             "--shot-off" => shot_off = true,
             "-h" | "--help" => {
                 println!("{}", HELP);
@@ -135,6 +145,7 @@ fn parse_args() -> Result<Args> {
         shot,
         shot_frame,
         cartridge_label,
+        logo,
         shot_off,
     })
 }
@@ -143,6 +154,7 @@ const HELP: &str = "emu-run --core <lib> --rom <game.sfc> [--system-dir D] [--sa
        [--config config.toml] [--runahead N]\n\
        [--shot out.bmp [--shot-frame N]]   headless: run N frames, dump one, exit\n\
        [--cartridge-label img.png]         show a label in the cabinet's slot\n\
+       [--logo img.png]                    show a logo atop the side panel\n\
        [--shot-off]                        with --shot, preview the idle off screen\n\
 \n\
 Presentation is fixed: RF NTSC + CRT-tube warp (knobs are consts in the source).\n\
@@ -180,6 +192,7 @@ fn main() -> Result<()> {
         runahead: args.runahead,
         shot: args.shot.map(|p| (p, args.shot_frame)),
         cartridge_label: args.cartridge_label,
+        logo: args.logo,
         shot_off: args.shot_off,
     };
     // Standalone: "back" and "close" both just end the process.

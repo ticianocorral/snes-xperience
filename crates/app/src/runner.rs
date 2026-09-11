@@ -50,6 +50,9 @@ pub struct GameSpec {
     /// Cartridge label art (ScreenScraper `texture`) for the slot on the
     /// cabinet. `None` shows the ROM's name instead (plan §3.2/§4.3).
     pub cartridge_label: Option<PathBuf>,
+    /// Logo art (ScreenScraper `wheel`) for the top of the side panel.
+    /// `None` shows the ROM's name instead (plan §3.2, item 1).
+    pub logo: Option<PathBuf>,
     /// Headless self-check: skip straight to the idle "console off" screen
     /// (signal-off snow + cartridge still in the slot) and save `shot` there,
     /// instead of running the game to `shot`'s frame count.
@@ -165,10 +168,10 @@ fn eject_clunk(plat: &Platform) {
     std::thread::sleep(Duration::from_millis(100));
 }
 
-/// Decode the cartridge label art (ScreenScraper `texture`) small enough for
-/// its slot on the cabinet.
-fn decode_cartridge_label(path: &Path) -> Result<(u32, u32, Vec<u8>)> {
-    let img = image::open(path)?.thumbnail(300, 300).to_rgba8();
+/// Decode scraped art (cartridge label, panel logo, …) small enough for its
+/// slot, keeping alpha for transparent logos.
+fn decode_art(path: &Path, max: u32) -> Result<(u32, u32, Vec<u8>)> {
+    let img = image::open(path)?.thumbnail(max, max).to_rgba8();
     let (w, h) = img.dimensions();
     Ok((w, h, img.into_raw()))
 }
@@ -255,22 +258,36 @@ pub fn run_game(
     );
 
     // --- cartridge in the slot (plan §3.2/§4.3) --------------------------
-    let cart_name = spec
+    let title = spec
         .rom
         .file_stem()
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_else(|| "???".to_string());
     if let Some(label_path) = &spec.cartridge_label {
-        match decode_cartridge_label(label_path) {
-            Ok((w, h, rgba)) => cab.set_cartridge(Some((w, h, &rgba)), &cart_name),
+        match decode_art(label_path, 300) {
+            Ok((w, h, rgba)) => cab.set_cartridge(Some((w, h, &rgba)), &title),
             Err(e) => {
                 log::warn!("cartridge label {}: {e}", label_path.display());
-                cab.set_cartridge(None, &cart_name);
+                cab.set_cartridge(None, &title);
             }
         }
     } else {
-        cab.set_cartridge(None, &cart_name);
+        cab.set_cartridge(None, &title);
     }
+
+    // --- side panel: logo on top, session timer at the bottom (plan §3.2) --
+    if let Some(logo_path) = &spec.logo {
+        match decode_art(logo_path, 640) {
+            Ok((w, h, rgba)) => cab.set_panel(Some((w, h, &rgba)), &title),
+            Err(e) => {
+                log::warn!("logo {}: {e}", logo_path.display());
+                cab.set_panel(None, &title);
+            }
+        }
+    } else {
+        cab.set_panel(None, &title);
+    }
+    let session_start = Instant::now();
 
     // Headless self-check: skip straight to the idle "console off" screen.
     if spec.shot_off {
@@ -322,6 +339,7 @@ pub fn run_game(
                         // Eject moves on from here. A second Esc while
                         // already off does nothing on purpose.
                         flush_sram(&sram_path, &mut last_sram, core.sram());
+                        cab.set_session_time(session_start.elapsed());
                         static_level = power_off_burst(plat, cab);
                         powered = false;
                         log::info!("power off — eject to leave");
@@ -393,6 +411,7 @@ pub fn run_game(
         }
 
         if !powered {
+            cab.set_session_time(session_start.elapsed());
             cab.present_static(OFF_STATIC_LEVEL);
             next += frame_time;
             let now = Instant::now();
@@ -469,6 +488,7 @@ pub fn run_game(
                     }
                 };
                 let aspect = core.av_info().aspect_ratio;
+                cab.set_session_time(session_start.elapsed());
                 cab.present_frame(&fref, aspect);
 
                 if let Some(path) = shot_request.take() {

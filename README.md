@@ -2,19 +2,20 @@
 
 Emulador de SNES com moldura estática — projeto pessoal, sem fins comerciais.
 Ver [`docs/plano-emulador-moldura.md`](docs/plano-emulador-moldura.md) para o
-desenho completo, e `docs/fase-0.md` … `docs/fase-3.md` para o que já foi feito.
+desenho completo, e `docs/fase-0.md` … `docs/fase-4.md` para o que já foi feito.
 
-Estado atual: **Fases 0–3 prontas.** `emu-run` roda uma ROM com vídeo, som,
-gamepad, save state, SRAM e run-ahead, visual fixo NTSC RF + tubo CRT. A Fase 2
-entregou o catálogo (`library`), a estante na tela (`selector`: capas,
-navegação por gamepad, busca, scrape sob demanda, ficha com logo e sinopse
-rolante) e o binário `xperience`, que junta estante → jogo → estante num
-processo só. A Fase 3 deu a esse binário a moldura de verdade: gabinete escuro
-atrás do tubo, janela única (estante e jogo no mesmo gabinete), a estante
-deformada pelo mesmo tubo do jogo, o ritual completo de desligar (Esc) →
-ejetar (`E`) com a TV em sinal off entre as telas, o cartucho no slot com o
-rótulo, e passou no teste de duas horas do plano (§9). Falta o painel lateral
-(Fase 4: logo, cheats, tela de pausa, anotações).
+Estado atual: **Fases 0–3 prontas, Fase 4 em andamento.** `emu-run` roda uma
+ROM com vídeo, som, gamepad, save state, SRAM e run-ahead, visual fixo NTSC RF
++ tubo CRT. A Fase 2 entregou o catálogo (`library`), a estante na tela
+(`selector`: capas, navegação por gamepad, busca, scrape sob demanda, ficha com
+logo e sinopse rolante) e o binário `xperience`, que junta estante → jogo →
+estante num processo só. A Fase 3 deu a esse binário a moldura de verdade:
+gabinete escuro atrás do tubo, janela única, a estante deformada pelo mesmo
+tubo do jogo, o ritual completo de desligar (Esc) → ejetar (`E`) com a TV em
+sinal off entre as telas, o cartucho no slot com o rótulo, e passou no teste de
+duas horas do plano (§9). Da Fase 4 já existe o painel lateral (logo do jogo
+ou nome, tempo de sessão) ao lado do tubo durante a partida. Faltam comandos,
+cheats com interruptor, anotações e a tela de pausa.
 
 ## Arquitetura
 
