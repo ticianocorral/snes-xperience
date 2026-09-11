@@ -67,6 +67,10 @@ fn main() -> Result<()> {
         // The `--frames` smoke test ends here too; that's a clean exit, not a cancel.
         Pick::Quit if max_frames.is_some() => Ok(()),
         Pick::Quit => std::process::exit(1),
+        Pick::Settings => {
+            eprintln!("settings screen isn't wired up in `selector` — use `xperience`");
+            std::process::exit(1);
+        }
     }
 }
 

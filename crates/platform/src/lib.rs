@@ -13,6 +13,20 @@ use sdl3::event::Event;
 use sdl3::gamepad::{Button as PadBtn, Gamepad};
 use thiserror::Error;
 
+/// What `poll_menu` should do with keydowns this call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MenuMode {
+    /// Grid/list browsing: arrows and paging are nav, `F`/`O` are hotkeys,
+    /// anything else printable is `typed` (the shelf's search box).
+    Nav,
+    /// Editing one text field: every printable key types (including `f`/`o`
+    /// — no hotkeys), Return commits (`Confirm`), Escape cancels (`Back`).
+    TextEntry,
+    /// Rebinding a control: the next key pressed comes back raw in
+    /// `captured_key`; Escape cancels instead of being captured.
+    CaptureKey,
+}
+
 /// A directional / confirm / back intent from the selector's controls.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MenuNav {
@@ -33,11 +47,19 @@ pub enum MenuNav {
 pub struct MenuInput {
     pub quit: bool,
     pub nav: Vec<MenuNav>,
-    /// Characters typed this frame (search box).
+    /// Characters typed this frame (search box, or a settings text field).
     pub typed: String,
     pub backspace: bool,
     pub clear_search: bool,
     pub toggle_fullscreen: bool,
+    /// `O` on the shelf — opens the settings screen.
+    pub open_settings: bool,
+    /// Set only when `poll_menu` was called with `capture_key: true` and a
+    /// key went down this frame: its raw SDL name, for rebinding a control.
+    pub captured_key: Option<String>,
+    /// Set only in capture mode: Escape cancels the capture instead of being
+    /// captured as the new binding.
+    pub capture_cancelled: bool,
 }
 
 #[derive(Debug, Error)]
@@ -133,10 +155,10 @@ impl Platform {
         Cabinet::new(&self.video_subsystem, title, width, height)
     }
 
-    /// Drain events for a menu screen: directional nav (keyboard arrows repeat;
-    /// gamepad d-pad/buttons on rising edge), confirm/back, and typed search
-    /// characters.
-    pub fn poll_menu(&mut self) -> MenuInput {
+    /// Drain events for a menu screen. See [`MenuMode`] for what each mode
+    /// does with a keydown; gamepad d-pad/buttons (rising edge only) always
+    /// feed `nav` regardless of mode.
+    pub fn poll_menu(&mut self, mode: MenuMode) -> MenuInput {
         use sdl3::keyboard::Keycode;
         let mut out = MenuInput::default();
         let mut devices_changed = false;
@@ -146,32 +168,50 @@ impl Platform {
                 Event::GamepadAdded { .. } | Event::GamepadRemoved { .. } => devices_changed = true,
                 Event::KeyDown {
                     keycode: Some(k),
+                    keymod,
                     repeat,
                     ..
-                } => match k {
-                    Keycode::Up => out.nav.push(MenuNav::Up),
-                    Keycode::Down => out.nav.push(MenuNav::Down),
-                    Keycode::Left => out.nav.push(MenuNav::Left),
-                    Keycode::Right => out.nav.push(MenuNav::Right),
-                    Keycode::Return | Keycode::KpEnter => out.nav.push(MenuNav::Confirm),
-                    Keycode::Escape => out.nav.push(MenuNav::Back),
-                    Keycode::PageUp => out.nav.push(MenuNav::PageUp),
-                    Keycode::PageDown => out.nav.push(MenuNav::PageDown),
-                    Keycode::Home => out.nav.push(MenuNav::Home),
-                    Keycode::End => out.nav.push(MenuNav::End),
-                    Keycode::Backspace => out.backspace = true,
-                    Keycode::F if !repeat => out.toggle_fullscreen = true,
-                    _ => {
-                        let name = k.name();
-                        if name == "Space" {
-                            out.typed.push(' ');
-                        } else if name.len() == 1 {
-                            let c = name.chars().next().unwrap();
-                            if c.is_ascii_alphanumeric() {
-                                out.typed.push(c.to_ascii_lowercase());
-                            }
+                } => match mode {
+                    MenuMode::CaptureKey => {
+                        if repeat {
+                            continue;
+                        }
+                        if k == Keycode::Escape {
+                            out.capture_cancelled = true;
+                        } else if out.captured_key.is_none() {
+                            out.captured_key = Some(k.name());
                         }
                     }
+                    MenuMode::Nav => match k {
+                        Keycode::Up => out.nav.push(MenuNav::Up),
+                        Keycode::Down => out.nav.push(MenuNav::Down),
+                        Keycode::Left => out.nav.push(MenuNav::Left),
+                        Keycode::Right => out.nav.push(MenuNav::Right),
+                        Keycode::Return | Keycode::KpEnter => out.nav.push(MenuNav::Confirm),
+                        Keycode::Escape => out.nav.push(MenuNav::Back),
+                        Keycode::PageUp => out.nav.push(MenuNav::PageUp),
+                        Keycode::PageDown => out.nav.push(MenuNav::PageDown),
+                        Keycode::Home => out.nav.push(MenuNav::Home),
+                        Keycode::End => out.nav.push(MenuNav::End),
+                        Keycode::Backspace => out.backspace = true,
+                        Keycode::F if !repeat => out.toggle_fullscreen = true,
+                        Keycode::O if !repeat => out.open_settings = true,
+                        _ => {
+                            if let Some(c) = char_for_key(k, keymod) {
+                                out.typed.push(c);
+                            }
+                        }
+                    },
+                    MenuMode::TextEntry => match k {
+                        Keycode::Return | Keycode::KpEnter => out.nav.push(MenuNav::Confirm),
+                        Keycode::Escape => out.nav.push(MenuNav::Back),
+                        Keycode::Backspace => out.backspace = true,
+                        _ => {
+                            if let Some(c) = char_for_key(k, keymod) {
+                                out.typed.push(c);
+                            }
+                        }
+                    },
                 },
                 _ => {}
             }
@@ -257,6 +297,62 @@ impl Platform {
                 }
             }
         }
+    }
+}
+
+/// A key's printable character, respecting Shift — for search boxes and
+/// settings text fields (credentials need more than the old lowercase-only
+/// search alphabet). `Keycode` names the *unshifted* glyph (SDL's own
+/// convention), so shifting is done here, not trusted from the OS.
+fn char_for_key(k: sdl3::keyboard::Keycode, keymod: sdl3::keyboard::Mod) -> Option<char> {
+    use sdl3::keyboard::Mod;
+    let shift = keymod.intersects(Mod::LSHIFTMOD | Mod::RSHIFTMOD);
+    let name = k.name();
+    if name == "Space" {
+        return Some(' ');
+    }
+    let mut chars = name.chars();
+    let c = chars.next()?;
+    if chars.next().is_some() {
+        return None; // multi-char name ("Backspace", "F1", ...): not printable
+    }
+    Some(shift_char(c, shift))
+}
+
+fn shift_char(c: char, shift: bool) -> char {
+    if c.is_ascii_alphabetic() {
+        return if shift {
+            c.to_ascii_uppercase()
+        } else {
+            c.to_ascii_lowercase()
+        };
+    }
+    if !shift {
+        return c;
+    }
+    match c {
+        '1' => '!',
+        '2' => '@',
+        '3' => '#',
+        '4' => '$',
+        '5' => '%',
+        '6' => '^',
+        '7' => '&',
+        '8' => '*',
+        '9' => '(',
+        '0' => ')',
+        '-' => '_',
+        '=' => '+',
+        '[' => '{',
+        ']' => '}',
+        '\\' => '|',
+        ';' => ':',
+        '\'' => '"',
+        ',' => '<',
+        '.' => '>',
+        '/' => '?',
+        '`' => '~',
+        other => other,
     }
 }
 

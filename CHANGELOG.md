@@ -9,6 +9,19 @@ aviso — só o incremento de _minor_ marca um conjunto de mudanças.
 
 ## [Não lançado]
 
+### Adicionado
+
+- **Menu de configurações**: `O` na estante abre controles (rebind das 27
+  ações, tecla capturada na hora), ScreenScraper (ativar + Dev ID/Dev
+  Password) e run-ahead/tela cheia — três listas achatadas, salva em
+  `config.toml` a cada mudança. `config.toml` ganhou `[screenscraper]`;
+  `Config::resolve_screenscraper` prioriza isso sobre `$SS_DEVID`/
+  `$SS_DEVPASSWORD` (que continuam funcionando como fallback).
+  `Platform::poll_menu` virou `poll_menu(MenuMode)` (`Nav`/`TextEntry`/
+  `CaptureKey`) — a plataforma não tinha como capturar uma tecla crua pra
+  rebind nem digitar texto além de minúsculas+espaço; `char_for_key` agora
+  lê Shift pra maiúscula/símbolo.
+
 ## [0.2.0] — 2026-09-11
 
 Fases 2, 3 e boa parte da 4 do [plano](docs/plano-emulador-moldura.md): o

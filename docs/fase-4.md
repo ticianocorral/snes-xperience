@@ -176,6 +176,38 @@ headless dos outros estados). Reaproveita `decode_art` (o mesmo decodificador
 do cartucho/logo/miniatura do painel) num tamanho maior, e as funções de
 texto absolutas de sempre — nada de biblioteca de UI nova.
 
+## Menu de configurações
+
+Fora da numeração do plano — pedido direto do usuário antes de seguir a
+Fase 4, porque sem ele ligar o ScreenScraper e popular o catálogo com
+capas/fichas dependia de exportar `SS_DEVID`/`SS_DEVPASSWORD` na mão toda
+vez. `O` na estante abre `xperience_app::settings::run`, três listas
+achatadas (sem menu dentro de menu): **Controles** (as 27 ações
+rebindáveis, `describe()` do `KeyMap`), **ScreenScraper** (ativado, Dev
+ID, Dev Password), e a raiz com Run-ahead/Tela cheia/atalhos pros dois
+submenus. Cada mudança salva em `config.toml` na hora — não existe "aplicar
+depois", então sair no meio não perde nada nem deixa nada pela metade.
+
+Isso puxou uma peça que faltava na plataforma: `Platform::poll_menu` não
+tinha como capturar uma tecla crua (pra rebind) nem digitar texto de
+verdade (só letras minúsculas + espaço, pro campo de busca da estante).
+Virou `poll_menu(mode: MenuMode)` com três modos — `Nav` (o de sempre, com
+`F`/`O` como atalhos), `TextEntry` (edição de campo: tudo vira caractere,
+sem atalho nenhum — senão digitar "f" ligava/desligava tela cheia no meio
+da senha) e `CaptureKey` (rebind: a próxima tecla vem crua em
+`captured_key`, Esc cancela em vez de virar o novo bind). `char_for_key`
+lê Shift do próprio evento e devolve maiúscula/símbolo — os nomes de tecla
+do SDL são a glifo *sem* Shift, então sem isso não dava pra digitar senha
+com letra maiúscula ou `@`/`.`/`-`.
+
+`config.toml` ganhou `[screenscraper]` (`enabled`, `dev_id`,
+`dev_password`) e `Config` ganhou `to_toml`/`save`/`resolve_screenscraper`
+— esse último prioriza o que está salvo no arquivo, caindo pra
+`$SS_DEVID`/`$SS_DEVPASSWORD` só se a seção estiver desligada ou vazia
+(o fluxo antigo continua funcionando, sem quebrar nada de quem já usava
+variável de ambiente). Um arquivo `config.toml` de antes desta mudança
+continua carregando normal (a seção é opcional na leitura).
+
 ## Verificado
 
 - `emu-run --shot --cartridge-label` (sem `--logo`): painel com o título
@@ -212,6 +244,17 @@ texto absolutas de sempre — nada de biblioteca de UI nova.
   "1 captura salva." à esquerda, a tela do Capcom/Disney grande e legível à
   direita — sem tubo, sem NTSC, só a imagem
 - fmt / clippy / 15 suítes — verdes, na entrega da tela de pausa
+- `xperience --debug-settings main|controls|screenscraper --shot out.bmp`:
+  as três telas renderizam pelo tubo, cabeçalho + linhas + cursor `>` +
+  rodapé de dicas certos; `controles` lista as 27 ações e corta na 21ª
+  (a rolagem existe, não dava pra fotografar rolado sem estender o preview);
+  `screenscraper` mostra "(vazio)" nos dois campos e o texto explicativo
+  quebrado em duas linhas
+- Lançamento real (`xperience` de verdade, 3 s, sem `--debug-settings`):
+  sobe, carrega o `config.toml` existente de antes desta mudança sem erro
+  de parse (a seção `[screenscraper]` é opcional), fecha limpo
+- fmt / clippy / 22 testes (+6 novos: `char_for_key`/modo de `poll_menu`
+  via `config::tests::screenscraper_*`/`to_toml_round_trips`) — verdes
 
 ## A seguir
 

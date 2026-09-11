@@ -2,6 +2,8 @@
 //! In a game, Esc powers off (state, saves, TV to snow, cartridge stays
 //! seated) and E ejects once off, opening the shelf; Esc/close on the shelf,
 //! or closing a game window, ends the app — no ceremony there (plan §3.3).
+//! `O` on the shelf opens settings (controls, ScreenScraper, run-ahead,
+//! fullscreen) — see `xperience_app::settings`.
 //!
 //! Usage:
 //!   xperience --core <path/to/snes9x_libretro.{dylib,so,dll}>
@@ -9,17 +11,18 @@
 //!             [--system-dir DIR] [--order shelf|name] [--runahead N] [--no-scrape]
 //!
 //! The core path also reads from $XPERIENCE_CORE. Build the catalogue first with
-//! `library scan --roms <dir>` (see docs/fase-2.md). With SS_DEVID /
-//! SS_DEVPASSWORD set, the shelf scrapes the game you rest on; --no-scrape opts
-//! out.
+//! `library scan --roms <dir>` (see docs/fase-2.md). ScreenScraper credentials
+//! come from the settings screen (saved to config.toml) or, as a fallback,
+//! $SS_DEVID/$SS_DEVPASSWORD; --no-scrape opts out either way.
 
 use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Context, Result};
 use xperience_app::config::Config;
 use xperience_app::runner::{run_game, GameExit, GameSpec};
+use xperience_app::settings;
 use xperience_app::shelf::{self, Pick, ScrapeSetup, ShelfOpts};
-use xperience_domain::{Catalog, Credentials, Order};
+use xperience_domain::{Catalog, Order};
 use xperience_platform::Platform;
 
 struct Args {
@@ -32,6 +35,10 @@ struct Args {
     order: Order,
     runahead: Option<u32>,
     no_scrape: bool,
+    /// Headless: render one settings screen ("main"|"controls"|"screenscraper")
+    /// to `--shot` and exit, instead of starting the shelf (dev/testing).
+    debug_settings: Option<String>,
+    shot: Option<PathBuf>,
 }
 
 fn data_dir() -> PathBuf {
@@ -51,6 +58,8 @@ fn parse_args() -> Result<Args> {
     let mut order = Order::Shelf;
     let mut runahead = None;
     let mut no_scrape = false;
+    let mut debug_settings = None;
+    let mut shot = None;
 
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
@@ -63,6 +72,8 @@ fn parse_args() -> Result<Args> {
             "--system-dir" => system_dir = Some(val()?.into()),
             "--notes-dir" => notes_dir = Some(val()?.into()),
             "--no-scrape" => no_scrape = true,
+            "--debug-settings" => debug_settings = Some(val()?),
+            "--shot" => shot = Some(val()?.into()),
             "--order" => {
                 order = match val()?.as_str() {
                     "name" => Order::Name,
@@ -100,27 +111,32 @@ fn parse_args() -> Result<Args> {
         order,
         runahead,
         no_scrape,
+        debug_settings,
+        shot,
     })
 }
 
 const HELP: &str = "xperience --core <lib> [--catalog DB] [--config config.toml]\n\
-       [--save-dir DIR] [--system-dir DIR] [--order shelf|name] [--runahead N]\n\
-       [--no-scrape]\n\
+       [--save-dir DIR] [--system-dir DIR] [--notes-dir DIR]\n\
+       [--order shelf|name] [--runahead N] [--no-scrape]\n\
+       [--debug-settings main|controls|screenscraper --shot out.bmp]\n\
 \n\
 Selector → game → selector, one process. In a game: Esc powers off (saves,\n\
 TV to snow, cartridge stays put), E ejects once off, opening the shelf.\n\
+O on the shelf opens settings (controls, ScreenScraper, run-ahead,\n\
+fullscreen) — saved straight to config.toml.\n\
 Esc / window-close on the shelf, or closing a game window, ends the app —\n\
 no ceremony there.\n\
 Build the catalogue first:  library scan --roms <dir>\n\
-With SS_DEVID / SS_DEVPASSWORD set, the shelf scrapes the focused game;\n\
---no-scrape turns that off.\n\
+ScreenScraper credentials come from the settings screen or, as a fallback,\n\
+SS_DEVID / SS_DEVPASSWORD; --no-scrape turns scraping off either way.\n\
 Defaults live under ~/.local/share/snes-xperience/ (catalog.db, saves/, notes/).";
 
 fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     let args = parse_args()?;
 
-    let cfg = Config::load(args.config.as_deref())?;
+    let mut cfg = Config::load(args.config.as_deref())?;
     if let Some(p) = &cfg.source {
         log::info!("config: {}", p.display());
     }
@@ -136,13 +152,16 @@ fn main() -> Result<()> {
         std::process::exit(2);
     }
 
-    let scrape = (!args.no_scrape)
-        .then(Credentials::from_env)
-        .flatten()
-        .map(|creds| ScrapeSetup {
+    let build_scrape = |cfg: &Config| -> Option<ScrapeSetup> {
+        if args.no_scrape {
+            return None;
+        }
+        cfg.resolve_screenscraper().map(|creds| ScrapeSetup {
             creds,
             art_dir: args.catalog.parent().unwrap_or(Path::new(".")).join("art"),
-        });
+        })
+    };
+    let scrape = build_scrape(&cfg);
     if scrape.is_some() {
         log::info!("on-demand scrape: on");
     }
@@ -155,6 +174,14 @@ fn main() -> Result<()> {
     if cfg.fullscreen {
         cab.toggle_fullscreen();
     }
+
+    // Headless self-check: render one settings screen and exit.
+    if let (Some(screen), Some(path)) = (&args.debug_settings, &args.shot) {
+        settings::capture_preview(&mut cab, &cfg, screen, path)?;
+        log::info!("wrote {} (settings preview: {screen})", path.display());
+        return Ok(());
+    }
+
     let mut shelf_opts = ShelfOpts {
         order: args.order,
         max_frames: None,
@@ -167,6 +194,15 @@ fn main() -> Result<()> {
         let (rom, cartridge_label, logo) =
             match shelf::run(&mut plat, &mut cab, &catalog, &shelf_opts)? {
                 Pick::Quit => break,
+                Pick::Settings => {
+                    let quit = settings::run(&mut plat, &mut cab, &mut cfg)?;
+                    if quit {
+                        break;
+                    }
+                    // Bindings/ScreenScraper/run-ahead may have changed.
+                    shelf_opts.scrape = build_scrape(&cfg);
+                    continue;
+                }
                 Pick::Play {
                     rom,
                     texture,

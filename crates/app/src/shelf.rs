@@ -14,7 +14,7 @@ use xperience_domain::{
     download_art, ArtPaths, Catalog, CatalogEntry, Client, Credentials, GameInfo, Order, RomId,
     ScrapeError,
 };
-use xperience_platform::{Cabinet, MenuNav, Platform, Screen};
+use xperience_platform::{Cabinet, MenuMode, MenuNav, Platform, Screen};
 
 const TILE_W: u32 = 150;
 const TILE_H: u32 = 200;
@@ -50,6 +50,8 @@ pub enum Pick {
     },
     /// Cancelled — quit the app.
     Quit,
+    /// `O` — open the settings screen, then come back to the shelf.
+    Settings,
 }
 
 /// ScreenScraper access for on-demand metadata.
@@ -249,12 +251,15 @@ pub fn run(
         let vis_rows = ((scr_h as i32 - MARGIN * 2 - 40) / (TILE_H + GAP) as i32).max(1) as usize;
 
         // Input.
-        let m = plat.poll_menu();
+        let m = plat.poll_menu(MenuMode::Nav);
         if m.quit {
             return Ok(Pick::Quit);
         }
         if m.toggle_fullscreen {
             cab.toggle_fullscreen();
+        }
+        if m.open_settings {
+            return Ok(Pick::Settings);
         }
         if m.backspace {
             search.pop();

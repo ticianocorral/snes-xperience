@@ -79,9 +79,14 @@ encerra, sem cerimônia.
 Catálogo e saves ficam em `~/.local/share/snes-xperience/`. Para rodar uma
 ROM solta sem catálogo, use `emu-run` (ver Fase 0).
 
-Com `SS_DEVID` / `SS_DEVPASSWORD` (ScreenScraper) no ambiente, a estante busca a
-ficha e a capa do jogo em foco na hora; `--no-scrape` desliga. Para preencher o
-catálogo inteiro de uma vez, `library scrape`.
+Na estante, `O` abre as **configurações**: controles (rebind, tecla nova
+aperta e pronto), ScreenScraper (ativar + Dev ID/Dev Password — conta
+gratuita em screenscraper.fr) e run-ahead/tela cheia. Salva em
+`config.toml` a cada mudança. Com o ScreenScraper ativado ali (ou
+`SS_DEVID`/`SS_DEVPASSWORD` no ambiente, que continua funcionando como
+alternativa), a estante busca a ficha e a capa do jogo em foco na hora;
+`--no-scrape` desliga. Para preencher o catálogo inteiro de uma vez,
+`library scrape`.
 
 ## Fase 0
 
