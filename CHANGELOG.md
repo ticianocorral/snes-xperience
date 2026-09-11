@@ -87,6 +87,10 @@ aviso — só o incremento de _minor_ marca um conjunto de mudanças.
   fixa). `Cabinet::set_panel` ganhou um terceiro parâmetro `commands`;
   extras do emulador (save state, slot, fast-forward) ficam de fora de
   propósito.
+- **Marca no gabinete**: selo "SNES Xperience" impresso no queixo, à esquerda
+  do tubo — mobília do gabinete, não da partida, então aparece em todo lugar
+  (estante, jogo, console desligado), diferente do cartucho/painel que só
+  existem durante o jogo.
 
 ## [0.1.0] — 2026-09-10
 

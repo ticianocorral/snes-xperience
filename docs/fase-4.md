@@ -74,6 +74,18 @@ em `UiEvent::token`). `draw_panel` desenha o rótulo "comandos" (apagado) e
 cada linha com o nome à esquerda, a tecla à direita, logo abaixo do
 logo/título — cresce ou encolhe com a altura do título (uma ou duas linhas).
 
+## Marca no gabinete
+
+Fora da lista do §3.2 (que é sobre a tela do *jogo*): um selo "SNES
+Xperience" discreto, impresso no queixo à esquerda do tubo — o pingente que
+uma TV de verdade tem no gabinete. Por ser parte do móvel, não da partida,
+aparece em todo lugar onde o queixo existe: estante, jogo, chuvisco de
+console desligado. `draw_brand`, chamada logo depois da malha do friso em
+cada um dos sete pontos que a desenham (`present_frame`, `capture_bmp`,
+`capture_2d`, `present_static`, `capture_static_bmp`, `frame_2d_fade_in`,
+`composite_screen`) — mesmo texto cor `BRAND_TEXT`, um tom mais claro que o
+plástico do gabinete, como relevo gravado, não uma etiqueta acesa.
+
 ## Verificado
 
 - `emu-run --shot --cartridge-label` (sem `--logo`): painel com o título
@@ -83,8 +95,11 @@ logo/título — cresce ou encolhe com a altura do título (uma ou duas linhas).
   abaixo dele
 - `emu-run --shot --shot-off --logo`: painel + comandos + cartucho continuam
   visíveis durante o chuvisco de console desligado
-- `selector --frames --shot`: estante **byte a byte idêntica** a antes — sem
-  painel reservado lá, como esperado
+- Selo "SNES Xperience" no queixo, à esquerda: visível no jogo, no chuvisco
+  de console desligado e na estante (não é sobre a tela do jogo, é sobre o
+  gabinete)
+- `selector --frames --shot`: estante segue funcionando — o painel do jogo
+  continua sem espaço reservado lá, como esperado
 - fmt / clippy / 15 suítes — verdes
 
 ## A seguir

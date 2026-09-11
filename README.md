@@ -13,10 +13,10 @@ estante num processo só. A Fase 3 deu a esse binário a moldura de verdade:
 gabinete escuro atrás do tubo, janela única, a estante deformada pelo mesmo
 tubo do jogo, o ritual completo de desligar (Esc) → ejetar (`E`) com a TV em
 sinal off entre as telas, o cartucho no slot com o rótulo, e passou no teste de
-duas horas do plano (§9). Da Fase 4 já existe o painel lateral (logo do jogo
-ou nome, legenda dos comandos do console, tempo de sessão) ao lado do tubo
-durante a partida. Faltam cheats com interruptor, anotações e a tela de
-pausa.
+duas horas do plano (§9), e leva o selo "SNES Xperience" no queixo do
+gabinete. Da Fase 4 já existe o painel lateral (logo do jogo ou nome,
+legenda dos comandos do console, tempo de sessão) ao lado do tubo durante a
+partida. Faltam cheats com interruptor, anotações e a tela de pausa.
 
 ## Arquitetura
 

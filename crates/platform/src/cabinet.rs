@@ -56,6 +56,12 @@ const PANEL_BG: (u8, u8, u8) = (16, 15, 14);
 const PANEL_TEXT: (u8, u8, u8) = (225, 220, 210);
 const PANEL_DIM: (u8, u8, u8) = (140, 134, 124);
 
+/// The set's own nameplate: a small wordmark printed into the chin, left of
+/// the cartridge — a touch lighter than the cabinet plastic, like an embossed
+/// badge rather than a lit label.
+const BRAND: &str = "SNES Xperience";
+const BRAND_TEXT: (u8, u8, u8) = (92, 86, 78);
+
 /// 8x8 glyph cell, before scaling.
 const GLYPH: u32 = 8;
 
@@ -317,6 +323,7 @@ impl Cabinet {
         self.mesh = Some(mesh);
         self.bezel = Some(bezel);
 
+        draw_brand(&mut self.canvas, &mut self.font, self.screen, out_h);
         if let (Some(cart), Some(rect)) = (
             &self.cartridge,
             cartridge_slot_rect(self.screen, cab_w, out_h),
@@ -380,6 +387,7 @@ impl Cabinet {
             c.clear();
             let _ = c.render_geometry(&mesh.verts, Some(&src.tex), &mesh.indices[..]);
             let _ = c.render_geometry(&bezel.verts, None, &bezel.indices[..]);
+            draw_brand(c, font, screen, out_h);
             if let Some((cart, rect)) = cart_draw {
                 draw_cartridge_slot(c, font, images, cart, rect);
             }
@@ -485,19 +493,22 @@ impl Cabinet {
         self.paint_2d(bg, draw);
 
         let (ww, wh) = self.canvas.output_size().unwrap_or((1280, 720));
-        let mesh = build_crt_mesh(self.screen, 1.0);
+        let screen = self.screen;
+        let mesh = build_crt_mesh(screen, 1.0);
         let mut target = self
             .canvas
             .create_texture_target(SdlFormat::RGBA32, ww, wh)
             .map_err(|e| PlatformError::Sdl(e.to_string()))?;
         let st = self.screen_tex.take().unwrap();
         let bezel = self.bezel.take().unwrap();
+        let font = &mut self.font;
         let mut saved: Result<(), PlatformError> = Ok(());
         let outcome = self.canvas.with_texture_canvas(&mut target, |c| {
             c.set_draw_color(Color::RGB(RECESS.0, RECESS.1, RECESS.2));
             c.clear();
             let _ = c.render_geometry(&mesh.verts, Some(&st.tex), &mesh.indices[..]);
             let _ = c.render_geometry(&bezel.verts, None, &bezel.indices[..]);
+            draw_brand(c, font, screen, wh);
             saved = c
                 .read_pixels(None::<Rect>)
                 .and_then(|s| s.save_bmp(path))
@@ -534,6 +545,7 @@ impl Cabinet {
             .canvas
             .render_geometry(&bezel.verts, None, &bezel.indices[..]);
         self.bezel = Some(bezel);
+        draw_brand(&mut self.canvas, &mut self.font, self.screen, wh);
         if let (Some(cart), Some(rect)) =
             (&self.cartridge, cartridge_slot_rect(self.screen, cab_w, wh))
         {
@@ -564,8 +576,9 @@ impl Cabinet {
         self.screen = screen_area(cab_w, wh);
         self.ensure_bezel(cab_w, wh, self.screen);
         self.update_noise_tex(level);
+        let screen = self.screen;
 
-        let mesh = build_crt_mesh(self.screen, 1.0);
+        let mesh = build_crt_mesh(screen, 1.0);
         let mut target = self
             .canvas
             .create_texture_target(SdlFormat::RGBA32, ww, wh)
@@ -586,6 +599,7 @@ impl Cabinet {
             c.clear();
             let _ = c.render_geometry(&mesh.verts, Some(&nt.tex), &mesh.indices[..]);
             let _ = c.render_geometry(&bezel.verts, None, &bezel.indices[..]);
+            draw_brand(c, font, screen, wh);
             if let Some((cart, rect)) = cart_draw {
                 draw_cartridge_slot(c, font, images, cart, rect);
             }
@@ -615,6 +629,7 @@ impl Cabinet {
     ) {
         self.paint_2d(bg, draw);
         self.update_noise_tex(static_level);
+        let (_, out_h) = self.canvas.output_size().unwrap_or((1280, 720));
 
         let mesh_static = build_crt_mesh(self.screen, 1.0);
         let mesh_shelf = build_crt_mesh(self.screen, shelf_alpha.clamp(0.0, 1.0));
@@ -642,6 +657,7 @@ impl Cabinet {
             .canvas
             .render_geometry(&bezel.verts, None, &bezel.indices[..]);
         self.bezel = Some(bezel);
+        draw_brand(&mut self.canvas, &mut self.font, self.screen, out_h);
 
         self.canvas.present();
     }
@@ -722,6 +738,8 @@ impl Cabinet {
             .canvas
             .render_geometry(&bezel.verts, None, &bezel.indices[..]);
         self.bezel = Some(bezel);
+        let (_, out_h) = self.canvas.output_size().unwrap_or((1280, 720));
+        draw_brand(&mut self.canvas, &mut self.font, self.screen, out_h);
     }
 
     fn ensure_screen_tex(&mut self, w: u32, h: u32) {
@@ -971,6 +989,28 @@ fn cartridge_slot_rect(screen: Rect, out_w: u32, out_h: u32) -> Option<Rect> {
     let x = out_w as i32 - margin - w as i32;
     let y = chin_top + (chin_h - h as i32) / 2;
     Some(Rect::new(x, y, w, h))
+}
+
+/// The set's nameplate, printed into the chin left of the tube — part of the
+/// cabinet itself, so unlike the cartridge/panel it's drawn in every context
+/// (shelf, game, idle-off) and never disappears. `None` if the chin is too
+/// short to hold it (mirrors `cartridge_slot_rect`'s own guard).
+fn draw_brand(canvas: &mut WindowCanvas, font: &mut Texture, screen: Rect, out_h: u32) {
+    let chin_top = screen.bottom();
+    let chin_h = out_h as i32 - chin_top;
+    if chin_h < 24 {
+        return;
+    }
+    let y = chin_top + (chin_h - GLYPH as i32) / 2;
+    draw_text_absolute(
+        canvas,
+        font,
+        screen.left(),
+        y,
+        TextStyle::new(1, BRAND_TEXT),
+        BRAND,
+        usize::MAX,
+    );
 }
 
 /// Draw the cartridge slot — a small shell with the label art or, failing
