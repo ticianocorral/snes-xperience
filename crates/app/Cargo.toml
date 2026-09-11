@@ -38,3 +38,6 @@ env_logger.workspace = true
 serde.workspace = true
 toml = "0.8"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+
+[target.'cfg(windows)'.build-dependencies]
+winres = "0.1"

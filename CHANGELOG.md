@@ -9,6 +9,8 @@ aviso — só o incremento de _minor_ marca um conjunto de mudanças.
 
 ## [Não lançado]
 
+## [0.3.0] — 2026-09-11
+
 ### Adicionado
 
 - **Menu de configurações**: `O` na estante abre controles (rebind das 27
@@ -21,6 +23,23 @@ aviso — só o incremento de _minor_ marca um conjunto de mudanças.
   `CaptureKey`) — a plataforma não tinha como capturar uma tecla crua pra
   rebind nem digitar texto além de minúsculas+espaço; `char_for_key` agora
   lê Shift pra maiúscula/símbolo.
+- **Pacotes de verdade**: `.github/workflows/release.yml` gera, a cada tag
+  `vX.Y.Z`, um DMG (macOS), um zip com os `.exe` autocontidos (Windows) e
+  um AppImage (Linux) — as três com SDL3 vendorizado, sem depender de nada
+  instalado na máquina de quem baixa. Scripts em `packaging/` (`build-dmg.sh`,
+  `build-appimage.sh`) montam o pacote a partir do binário já compilado;
+  `crates/app/build.rs` embute o ícone no `.exe` do Windows. O core do
+  snes9x e as ROMs continuam de fora (ver `THIRD-PARTY-NOTICES.md`).
+- **Diretório de dados multiplataforma**: `xperience_app::dirs` resolve
+  `~/.local/share/snes-xperience` / `~/.config/snes-xperience` quando
+  `$HOME` existe (todo o comportamento de antes, sem mudança) e cai pra
+  `%APPDATA%\snes-xperience` quando não existe — o caso de um `.exe`
+  aberto no Explorer sem terminal nenhum por perto, onde `$HOME` nunca
+  esteve definido.
+- **Núcleo padrão**: sem `--core`/`$XPERIENCE_CORE`, o `xperience` agora
+  procura `snes9x_libretro.{dylib,so,dll}` em `<diretório de dados>/core/`
+  antes de desistir — o caminho que sobra pra um pacote de verdade (DMG/exe/
+  AppImage), que abre sem argumento nenhum.
 
 ## [0.2.0] — 2026-09-11
 
@@ -176,6 +195,7 @@ emulador utilitário completo, sem moldura nem seletor.
   a Fase 3; os três modos de escala originais foram substituídos por essa
   visualização única a pedido.
 
-[Não lançado]: https://github.com/ticianocorral/snes-xperience/compare/v0.2.0...HEAD
+[Não lançado]: https://github.com/ticianocorral/snes-xperience/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/ticianocorral/snes-xperience/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/ticianocorral/snes-xperience/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/ticianocorral/snes-xperience/releases/tag/v0.1.0

@@ -195,8 +195,7 @@ fn ui_from_token(t: &str) -> Option<UiEvent> {
 }
 
 fn default_path() -> Option<PathBuf> {
-    let home = std::env::var_os("HOME")?;
-    Some(PathBuf::from(home).join(".config/snes-xperience/config.toml"))
+    Some(crate::dirs::config_dir().join("config.toml"))
 }
 
 #[cfg(test)]

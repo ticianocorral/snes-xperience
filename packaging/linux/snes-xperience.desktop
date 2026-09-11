@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=SNES Xperience
+Comment=Personal, non-commercial SNES emulator with a CRT-TV frame
+Exec=xperience
+Icon=snes-xperience
+Categories=Game;Emulator;
+Terminal=false

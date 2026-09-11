@@ -10,7 +10,9 @@
 //!             [--catalog DB] [--config config.toml] [--save-dir DIR]
 //!             [--system-dir DIR] [--order shelf|name] [--runahead N] [--no-scrape]
 //!
-//! The core path also reads from $XPERIENCE_CORE. Build the catalogue first with
+//! The core path also reads from $XPERIENCE_CORE, or — for a packaged launch
+//! with no arguments at all — a core dropped into the data dir's `core/`
+//! folder (see --help). Build the catalogue first with
 //! `library scan --roms <dir>` (see docs/fase-2.md). ScreenScraper credentials
 //! come from the settings screen (saved to config.toml) or, as a fallback,
 //! $SS_DEVID/$SS_DEVPASSWORD; --no-scrape opts out either way.
@@ -42,10 +44,26 @@ struct Args {
 }
 
 fn data_dir() -> PathBuf {
-    std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_default()
-        .join(".local/share/snes-xperience")
+    xperience_app::dirs::data_dir()
+}
+
+/// The core's file name for the platform this binary was built for — never
+/// distributed with the app (non-commercial snes9x license), but a launch
+/// with no `--core`/`$XPERIENCE_CORE` (a double-clicked .app/.exe/AppImage
+/// has neither) still needs somewhere to look.
+fn core_file_name() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "snes9x_libretro.dylib"
+    } else if cfg!(target_os = "windows") {
+        "snes9x_libretro.dll"
+    } else {
+        "snes9x_libretro.so"
+    }
+}
+
+fn default_core_path() -> Option<PathBuf> {
+    let p = data_dir().join("core").join(core_file_name());
+    p.is_file().then_some(p)
 }
 
 fn parse_args() -> Result<Args> {
@@ -96,7 +114,13 @@ fn parse_args() -> Result<Args> {
         }
     }
 
-    let core = core.ok_or_else(|| anyhow!("no core: pass --core or set $XPERIENCE_CORE"))?;
+    let core = core.or_else(default_core_path).ok_or_else(|| {
+        anyhow!(
+            "no core: pass --core, set $XPERIENCE_CORE, or drop {} into {}",
+            core_file_name(),
+            data_dir().join("core").display()
+        )
+    })?;
     let save_dir = save_dir.unwrap_or_else(|| data_dir().join("saves"));
     let system_dir = system_dir.unwrap_or_else(|| save_dir.clone());
     let notes_dir = notes_dir.unwrap_or_else(|| data_dir().join("notes"));
@@ -130,7 +154,11 @@ no ceremony there.\n\
 Build the catalogue first:  library scan --roms <dir>\n\
 ScreenScraper credentials come from the settings screen or, as a fallback,\n\
 SS_DEVID / SS_DEVPASSWORD; --no-scrape turns scraping off either way.\n\
-Defaults live under ~/.local/share/snes-xperience/ (catalog.db, saves/, notes/).";
+Defaults live under the data dir (catalog.db, saves/, notes/, core/) —\n\
+~/.local/share/snes-xperience on macOS/Linux, %APPDATA%\\snes-xperience on a\n\
+native Windows launch with no $HOME. No --core/$XPERIENCE_CORE? Drop the\n\
+snes9x core into <data dir>/core/ (snes9x_libretro.dylib/.so/.dll) — not\n\
+included, non-commercial license (see THIRD-PARTY-NOTICES.md).";
 
 fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();

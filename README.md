@@ -37,6 +37,16 @@ Quatro camadas, dependências só para baixo (plano §2):
 A camada de emulação não sabe que existe uma moldura; a de plataforma não
 conhece o core.
 
+## Baixar
+
+Pacotes prontos (DMG pro macOS, zip com os `.exe` pro Windows, AppImage pro
+Linux) saem automático a cada tag `vX.Y.Z`, na aba
+[Releases](https://github.com/ticianocorral/snes-xperience/releases) — SDL3
+já vem embutido, não precisa instalar nada. Sem `--core`/`$XPERIENCE_CORE`,
+o app procura `snes9x_libretro.{dylib,so,dll}` em `<diretório de dados>/core/`
+antes de desistir; o core e as ROMs não acompanham o pacote (ver
+[`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md)).
+
 ## Compilar
 
 Precisa de Rust estável e do SDL3.
