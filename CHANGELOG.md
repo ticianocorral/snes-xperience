@@ -9,6 +9,14 @@ aviso — só o incremento de _minor_ marca um conjunto de mudanças.
 
 ## [Não lançado]
 
+## [0.2.0] — 2026-09-11
+
+Fases 2, 3 e boa parte da 4 do [plano](docs/plano-emulador-moldura.md): o
+catálogo e a estante, a moldura de verdade (gabinete, tubo, ritual de
+ligar/desligar), e o painel lateral com comandos, cheats, caderno de
+capturas e tela de pausa. Sem anotação escrita por teclado ainda (falta o
+subsistema de entrada de texto) e sem a tabela manual de senhas/dicas.
+
 ### Adicionado
 
 - **Catálogo** (`xperience-domain`): `library::scan` varre uma pasta
@@ -155,5 +163,6 @@ emulador utilitário completo, sem moldura nem seletor.
   a Fase 3; os três modos de escala originais foram substituídos por essa
   visualização única a pedido.
 
-[Não lançado]: https://github.com/ticianocorral/snes-xperience/compare/v0.1.0...HEAD
+[Não lançado]: https://github.com/ticianocorral/snes-xperience/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/ticianocorral/snes-xperience/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/ticianocorral/snes-xperience/releases/tag/v0.1.0

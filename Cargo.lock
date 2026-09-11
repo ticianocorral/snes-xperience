@@ -1320,7 +1320,7 @@ checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
 
 [[package]]
 name = "xperience-app"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "env_logger",
@@ -1336,7 +1336,7 @@ dependencies = [
 
 [[package]]
 name = "xperience-domain"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "crc32fast",
@@ -1353,7 +1353,7 @@ dependencies = [
 
 [[package]]
 name = "xperience-emulation"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "libloading",
@@ -1363,14 +1363,14 @@ dependencies = [
 
 [[package]]
 name = "xperience-ntsc"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "cc",
 ]
 
 [[package]]
 name = "xperience-platform"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "font8x8",
  "log",
