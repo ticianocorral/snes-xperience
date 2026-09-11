@@ -29,6 +29,8 @@ struct Args {
     shot_frame: u32,
     /// Cartridge label art for the slot on the cabinet (dev/testing).
     cartridge_label: Option<PathBuf>,
+    /// Headless: preview the idle "console off" screen instead of gameplay.
+    shot_off: bool,
 }
 
 fn parse_args() -> Result<Args> {
@@ -41,6 +43,7 @@ fn parse_args() -> Result<Args> {
     let mut shot = None;
     let mut shot_frame = 180u32;
     let mut cartridge_label = None;
+    let mut shot_off = false;
 
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
@@ -109,6 +112,7 @@ fn parse_args() -> Result<Args> {
                         .into(),
                 )
             }
+            "--shot-off" => shot_off = true,
             "-h" | "--help" => {
                 println!("{}", HELP);
                 std::process::exit(0);
@@ -131,6 +135,7 @@ fn parse_args() -> Result<Args> {
         shot,
         shot_frame,
         cartridge_label,
+        shot_off,
     })
 }
 
@@ -138,6 +143,7 @@ const HELP: &str = "emu-run --core <lib> --rom <game.sfc> [--system-dir D] [--sa
        [--config config.toml] [--runahead N]\n\
        [--shot out.bmp [--shot-frame N]]   headless: run N frames, dump one, exit\n\
        [--cartridge-label img.png]         show a label in the cabinet's slot\n\
+       [--shot-off]                        with --shot, preview the idle off screen\n\
 \n\
 Presentation is fixed: RF NTSC + CRT-tube warp (knobs are consts in the source).\n\
 Battery SRAM and 10 save-state slots live next to --save-dir, keyed by ROM hash.\n\
@@ -146,7 +152,9 @@ Keyboard binds and the run-ahead default come from config.toml (see docs/fase-1)
 \n\
 default keys: arrows=dpad  Z=B X=A A=Y S=X Q=L W=R  Enter=Start RShift=Select\n\
       F2=save  F4=load  ] / [ =slot  Tab=fast-forward  \\=frame-step (paused)\n\
-      F12=screenshot  F=fullscreen  Backspace=reset  P=pause  Esc=quit";
+      F12=screenshot  F=fullscreen  Backspace=reset  P=pause\n\
+      Esc=power off (desligar)  E=eject (only once off)\n\
+      Closing the window always quits, on or off — no ceremony.";
 
 fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
@@ -172,6 +180,7 @@ fn main() -> Result<()> {
         runahead: args.runahead,
         shot: args.shot.map(|p| (p, args.shot_frame)),
         cartridge_label: args.cartridge_label,
+        shot_off: args.shot_off,
     };
     // Standalone: "back" and "close" both just end the process.
     run_game(&mut platform, &mut cabinet, &spec, &cfg)?;

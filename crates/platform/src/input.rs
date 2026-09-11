@@ -77,12 +77,17 @@ pub const MAX_PORTS: usize = 2;
 /// layer up; the platform only reports the intent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UiEvent {
-    /// "Leave this screen" — Esc. In the bare `emu-run` it ends the process; in
-    /// `xperience` it drops back to the selector.
+    /// "Leave this screen" — Esc. The run-loop decides what that means: the
+    /// bare `emu-run` just ends; `xperience` treats it as **desligar** — save,
+    /// signal off, console dark, cartridge still in the slot (plan §3.3). A
+    /// second press while already off does nothing (only `Eject` moves on).
     Quit,
     /// The OS asked the window to close (red button, Cmd-Q, `SIGTERM`). Always
     /// means "tear the whole app down", never "go back".
     CloseRequested,
+    /// **Ejetar** — only takes effect once the console is off; while it's
+    /// still on the lock resists (plan §3.3).
+    Eject,
     ToggleFullscreen,
     Reset,
     TogglePause,
@@ -102,6 +107,7 @@ impl UiEvent {
     /// Config token for bindable events (`Quit` is fixed to Esc, not listed).
     pub fn token(self) -> Option<&'static str> {
         Some(match self {
+            UiEvent::Eject => "eject",
             UiEvent::ToggleFullscreen => "fullscreen",
             UiEvent::Reset => "reset",
             UiEvent::TogglePause => "pause",
@@ -116,7 +122,8 @@ impl UiEvent {
         })
     }
 
-    pub const BINDABLE: [UiEvent; 10] = [
+    pub const BINDABLE: [UiEvent; 11] = [
+        UiEvent::Eject,
         UiEvent::ToggleFullscreen,
         UiEvent::Reset,
         UiEvent::TogglePause,
@@ -157,6 +164,7 @@ impl KeyMap {
             ("Right Shift", PadButton::Select),
         ];
         let ui = [
+            ("E", UiEvent::Eject),
             ("F", UiEvent::ToggleFullscreen),
             ("Backspace", UiEvent::Reset),
             ("P", UiEvent::TogglePause),

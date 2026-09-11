@@ -21,12 +21,18 @@ const SRAM_FLUSH_FRAMES: u32 = 600;
 const SLOTS: u8 = 10;
 /// Emulated frames per shown frame while fast-forward is held.
 const FF_SPEED: u32 = 8;
+/// The dim, near-still hiss the screen idles at once the console is off
+/// (plan §3.3) — also what the next screen fades in from.
+const OFF_STATIC_LEVEL: f32 = 0.12;
 
 /// Why the run-loop returned.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum GameExit {
-    /// Esc / "back" — the caller should show the selector again, if it has one.
-    ToShelf,
+    /// Ejected — the caller should show the selector again, if it has one.
+    /// Carries the signal-off static level the screen settled on, so the next
+    /// screen can fade in over it instead of a fresh burst (plan §3.3, "a
+    /// estante entra por cima").
+    ToShelf { static_level: f32 },
     /// Window close / Cmd-Q / headless self-check done — tear the app down.
     Quit,
 }
@@ -44,6 +50,10 @@ pub struct GameSpec {
     /// Cartridge label art (ScreenScraper `texture`) for the slot on the
     /// cabinet. `None` shows the ROM's name instead (plan §3.2/§4.3).
     pub cartridge_label: Option<PathBuf>,
+    /// Headless self-check: skip straight to the idle "console off" screen
+    /// (signal-off snow + cartridge still in the slot) and save `shot` there,
+    /// instead of running the game to `shot`'s frame count.
+    pub shot_off: bool,
 }
 
 const PAD: [(Button, xperience_platform::PadButton); 12] = {
@@ -74,6 +84,85 @@ fn map_format(f: EmuFormat) -> PlatFormat {
 
 fn state_file(hash: &Option<String>, dir: &Path, slot: u8) -> Option<PathBuf> {
     hash.as_ref().map(|h| dir.join(format!("{h}.state{slot}")))
+}
+
+/// Write battery SRAM to `path` if it changed since the last flush.
+fn flush_sram(path: &Option<PathBuf>, last: &mut Option<Vec<u8>>, cur: Option<Vec<u8>>) {
+    if let (Some(p), Some(cur)) = (path, cur) {
+        if last.as_ref() != Some(&cur) {
+            match fs::write(p, &cur) {
+                Ok(_) => log::info!("SRAM flushed -> {}", p.display()),
+                Err(e) => log::warn!("SRAM flush failed: {e}"),
+            }
+            *last = Some(cur);
+        }
+    }
+}
+
+/// Desligar (plan §3.3): a short burst of RF snow through the tube with a
+/// decaying buzz, settling to a dim near-still hiss — never a full-screen
+/// flash, and the noise cuts rather than lingers.
+fn power_off_burst(plat: &Platform, cab: &mut Cabinet) -> f32 {
+    const RATE: u32 = 22_050;
+    const SPAN: Duration = Duration::from_millis(650);
+    let audio = plat.open_audio(RATE).ok();
+    let frame = Duration::from_millis(16);
+    let mut rng: u32 = 0x1234_5678;
+    let start = Instant::now();
+
+    while start.elapsed() < SPAN {
+        let t = (start.elapsed().as_secs_f32() / SPAN.as_secs_f32()).min(1.0);
+        // Strong for the first half, then settle toward the idle-off hiss.
+        let level = if t < 0.5 {
+            1.0 - 0.5 * t
+        } else {
+            (0.9 - t).max(OFF_STATIC_LEVEL)
+        };
+        cab.present_static(level);
+
+        if let Some(a) = &audio {
+            let n = (RATE / 60) as usize;
+            let amp = ((1.0 - t) * 8000.0) as i32;
+            let mut buf = Vec::with_capacity(n * 2);
+            for _ in 0..n {
+                rng ^= rng << 13;
+                rng ^= rng >> 17;
+                rng ^= rng << 5;
+                let s = (((rng >> 8) & 0xFFFF) as i32 - 0x8000) * amp / 0x8000;
+                let v = s.clamp(-32000, 32000) as i16;
+                buf.push(v);
+                buf.push(v);
+            }
+            a.queue(&buf);
+        }
+        std::thread::sleep(frame);
+    }
+    if let Some(a) = &audio {
+        a.clear(); // buzz cut, not fade-out tail
+    }
+    OFF_STATIC_LEVEL
+}
+
+/// Ejetar with the console still on: the lock resists — a short mechanical
+/// thump, nothing else (plan §3.3, "a alavanca resiste, com um clunk seco").
+fn eject_clunk(plat: &Platform) {
+    const RATE: u32 = 22_050;
+    let Some(audio) = plat.open_audio(RATE).ok() else {
+        return;
+    };
+    let n = (RATE as f32 * 0.09) as usize;
+    let mut buf = Vec::with_capacity(n * 2);
+    let mut phase = 0f32;
+    for i in 0..n {
+        let env = 1.0 - i as f32 / n as f32;
+        phase += 90.0 / RATE as f32;
+        let s = (phase * std::f32::consts::TAU).sin() * env * env;
+        let v = (s * 12000.0) as i16;
+        buf.push(v);
+        buf.push(v);
+    }
+    audio.queue(&buf);
+    std::thread::sleep(Duration::from_millis(100));
 }
 
 /// Decode the cartridge label art (ScreenScraper `texture`) small enough for
@@ -183,6 +272,16 @@ pub fn run_game(
         cab.set_cartridge(None, &cart_name);
     }
 
+    // Headless self-check: skip straight to the idle "console off" screen.
+    if spec.shot_off {
+        if let Some((path, _)) = &spec.shot {
+            cab.capture_static_bmp(OFF_STATIC_LEVEL, path)
+                .map_err(|e| anyhow!(e.to_string()))?;
+            log::info!("wrote {} (idle-off preview)", path.display());
+        }
+        return Ok(GameExit::Quit);
+    }
+
     // --- audio -----------------------------------------------------------
     let audio = plat
         .open_audio(av.sample_rate.round().max(8000.0) as u32)
@@ -206,32 +305,59 @@ pub fn run_game(
     let mut spec_state: Vec<u8> = Vec::new();
     let mut last_sram = core.sram();
     let mut shot_request: Option<PathBuf> = None;
+    // The console: on while playing; off after Esc, idling on snow with the
+    // cartridge still seated until Eject (plan §3.3).
+    let mut powered = true;
+    let mut static_level = OFF_STATIC_LEVEL;
     log::info!("running: rf ntsc + crt tube, run-ahead {runahead}, slot {slot}");
 
     let exit = 'run: loop {
         let mut step_once = false;
         for ev in plat.poll(&mut input, &cfg.keymap) {
             match ev {
-                UiEvent::Quit => break 'run GameExit::ToShelf,
+                UiEvent::Quit => {
+                    if powered {
+                        // Desligar (plan §3.3): flush the cart, then the
+                        // signal-off ritual — cartridge stays seated; only
+                        // Eject moves on from here. A second Esc while
+                        // already off does nothing on purpose.
+                        flush_sram(&sram_path, &mut last_sram, core.sram());
+                        static_level = power_off_burst(plat, cab);
+                        powered = false;
+                        log::info!("power off — eject to leave");
+                    }
+                }
+                UiEvent::Eject => {
+                    if powered {
+                        eject_clunk(plat); // lock resists while it's still on
+                    } else {
+                        cab.clear_cartridge();
+                        break 'run GameExit::ToShelf { static_level };
+                    }
+                }
                 UiEvent::CloseRequested => break 'run GameExit::Quit,
                 UiEvent::FrameStep => step_once = true,
                 // Held state; platform surfaces it via input.fast_forward().
                 UiEvent::FastForward => {}
                 UiEvent::ToggleFullscreen => cab.toggle_fullscreen(),
-                UiEvent::Reset => core.reset(),
-                UiEvent::TogglePause => {
+                UiEvent::Reset => {
+                    if powered {
+                        core.reset();
+                    }
+                }
+                UiEvent::TogglePause if powered => {
                     paused = !paused;
                     log::info!("{}", if paused { "paused" } else { "resumed" });
                 }
-                UiEvent::NextSlot => {
+                UiEvent::NextSlot if powered => {
                     slot = (slot + 1) % SLOTS;
                     log::info!("slot {slot}");
                 }
-                UiEvent::PrevSlot => {
+                UiEvent::PrevSlot if powered => {
                     slot = (slot + SLOTS - 1) % SLOTS;
                     log::info!("slot {slot}");
                 }
-                UiEvent::SaveState => {
+                UiEvent::SaveState if powered => {
                     match (
                         state_file(&rom_hash, &spec.save_dir, slot),
                         core.save_state(),
@@ -243,7 +369,7 @@ pub fn run_game(
                         _ => log::warn!("no state slot (unidentified ROM?)"),
                     }
                 }
-                UiEvent::LoadState => {
+                UiEvent::LoadState if powered => {
                     match state_file(&rom_hash, &spec.save_dir, slot).map(|p| fs::read(&p)) {
                         Some(Ok(s)) if core.load_state(&s) => log::info!("slot {slot}: loaded"),
                         Some(Ok(_)) => log::warn!("slot {slot}: core rejected the state"),
@@ -251,12 +377,31 @@ pub fn run_game(
                         None => log::warn!("no state slot (unidentified ROM?)"),
                     }
                 }
-                UiEvent::Screenshot => {
+                UiEvent::Screenshot if powered => {
                     let p = spec.save_dir.join(format!("shot-{}.bmp", now_stamp()));
                     // capture happens after present, below; stash the request.
                     shot_request = Some(p);
                 }
+                // The rest only make sense with the console on; ignored off.
+                UiEvent::TogglePause
+                | UiEvent::NextSlot
+                | UiEvent::PrevSlot
+                | UiEvent::SaveState
+                | UiEvent::LoadState
+                | UiEvent::Screenshot => {}
             }
+        }
+
+        if !powered {
+            cab.present_static(OFF_STATIC_LEVEL);
+            next += frame_time;
+            let now = Instant::now();
+            if next > now {
+                std::thread::sleep(next - now);
+            } else {
+                next = now;
+            }
+            continue;
         }
 
         let ff = input.fast_forward() && !paused;
@@ -350,12 +495,7 @@ pub fn run_game(
 
             // Periodically flush battery SRAM if it changed.
             if frames.is_multiple_of(SRAM_FLUSH_FRAMES) {
-                if let (Some(p), Some(cur)) = (&sram_path, core.sram()) {
-                    if last_sram.as_ref() != Some(&cur) {
-                        let _ = fs::write(p, &cur);
-                        last_sram = Some(cur);
-                    }
-                }
+                flush_sram(&sram_path, &mut last_sram, core.sram());
             }
         }
 
@@ -375,14 +515,7 @@ pub fn run_game(
     };
 
     // Final SRAM flush on the way out (either exit path).
-    if let (Some(p), Some(cur)) = (&sram_path, core.sram()) {
-        if last_sram.as_ref() != Some(&cur) {
-            match fs::write(p, &cur) {
-                Ok(_) => log::info!("SRAM flushed -> {}", p.display()),
-                Err(e) => log::warn!("SRAM flush failed: {e}"),
-            }
-        }
-    }
+    flush_sram(&sram_path, &mut last_sram, core.sram());
 
     log::info!("game loop done: {exit:?}");
     Ok(exit)

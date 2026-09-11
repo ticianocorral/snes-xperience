@@ -1,6 +1,7 @@
 //! The whole thing: selector → game → selector, in one process, no shell glue.
-//! Leaving a game (Esc) drops back to the shelf; quitting the shelf (Esc/close)
-//! or closing a game window (Cmd-Q / red button) ends the app.
+//! In a game, Esc powers off (state, saves, TV to snow, cartridge stays
+//! seated) and E ejects once off, opening the shelf; Esc/close on the shelf,
+//! or closing a game window, ends the app — no ceremony there (plan §3.3).
 //!
 //! Usage:
 //!   xperience --core <path/to/snes9x_libretro.{dylib,so,dll}>
@@ -13,14 +14,13 @@
 //! out.
 
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Context, Result};
 use xperience_app::config::Config;
 use xperience_app::runner::{run_game, GameExit, GameSpec};
 use xperience_app::shelf::{self, Pick, ScrapeSetup, ShelfOpts};
 use xperience_domain::{Catalog, Credentials, Order};
-use xperience_platform::{Cabinet, Platform};
+use xperience_platform::Platform;
 
 struct Args {
     core: PathBuf,
@@ -102,8 +102,10 @@ const HELP: &str = "xperience --core <lib> [--catalog DB] [--config config.toml]
        [--save-dir DIR] [--system-dir DIR] [--order shelf|name] [--runahead N]\n\
        [--no-scrape]\n\
 \n\
-Selector → game → selector, one process. Esc in a game returns to the shelf;\n\
-Esc / window-close on the shelf, or closing a game window, ends the app.\n\
+Selector → game → selector, one process. In a game: Esc powers off (saves,\n\
+TV to snow, cartridge stays put), E ejects once off, opening the shelf.\n\
+Esc / window-close on the shelf, or closing a game window, ends the app —\n\
+no ceremony there.\n\
 Build the catalogue first:  library scan --roms <dir>\n\
 With SS_DEVID / SS_DEVPASSWORD set, the shelf scrapes the focused game;\n\
 --no-scrape turns that off.\n\
@@ -170,11 +172,13 @@ fn main() -> Result<()> {
             runahead: args.runahead,
             shot: None,
             cartridge_label,
+            shot_off: false,
         };
         match run_game(&mut plat, &mut cab, &spec, &cfg)? {
-            GameExit::ToShelf => {
-                // The shelf eases in over the static this left behind.
-                shelf_opts.fade_in = Some(signal_off(&plat, &mut cab));
+            // The power-off ritual (desligar, snow, wait for eject) already
+            // ran inside run_game; the shelf just eases in over what it left.
+            GameExit::ToShelf { static_level } => {
+                shelf_opts.fade_in = Some(static_level);
             }
             GameExit::Quit => break,
         }
@@ -182,52 +186,4 @@ fn main() -> Result<()> {
 
     log::info!("bye");
     Ok(())
-}
-
-/// The power-off ritual between game and shelf (plan §3.3): a short burst of
-/// RF snow through the tube with a decaying buzz, settling to a dim hiss —
-/// never a full-screen flash, and the noise cuts rather than lingers. Returns
-/// the static level it ended on, so the shelf can ease in over the same snow
-/// instead of cutting in cold ("a estante entra por cima").
-fn signal_off(plat: &Platform, cab: &mut Cabinet) -> f32 {
-    const RATE: u32 = 22_050;
-    const SPAN: Duration = Duration::from_millis(650);
-    const SETTLED: f32 = 0.12;
-    let audio = plat.open_audio(RATE).ok();
-    let frame = Duration::from_millis(16);
-    let mut rng: u32 = 0x1234_5678;
-    let start = Instant::now();
-    let mut level = 1.0f32;
-
-    while start.elapsed() < SPAN {
-        let t = (start.elapsed().as_secs_f32() / SPAN.as_secs_f32()).min(1.0);
-        // Strong for the first half, then settle toward a dim near-still hiss.
-        level = if t < 0.5 {
-            1.0 - 0.5 * t
-        } else {
-            (0.9 - t).max(SETTLED)
-        };
-        cab.present_static(level);
-
-        if let Some(a) = &audio {
-            let n = (RATE / 60) as usize;
-            let amp = ((1.0 - t) * 8000.0) as i32;
-            let mut buf = Vec::with_capacity(n * 2);
-            for _ in 0..n {
-                rng ^= rng << 13;
-                rng ^= rng >> 17;
-                rng ^= rng << 5;
-                let s = (((rng >> 8) & 0xFFFF) as i32 - 0x8000) * amp / 0x8000;
-                let v = s.clamp(-32000, 32000) as i16;
-                buf.push(v);
-                buf.push(v);
-            }
-            a.queue(&buf);
-        }
-        std::thread::sleep(frame);
-    }
-    if let Some(a) = &audio {
-        a.clear(); // buzz cut, not fade-out tail
-    }
-    level
 }

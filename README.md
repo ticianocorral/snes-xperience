@@ -4,16 +4,17 @@ Emulador de SNES com moldura estática — projeto pessoal, sem fins comerciais.
 Ver [`docs/plano-emulador-moldura.md`](docs/plano-emulador-moldura.md) para o
 desenho completo, e `docs/fase-0.md` … `docs/fase-3.md` para o que já foi feito.
 
-Estado atual: **Fases 0–2 prontas, Fase 3 em andamento.** `emu-run` roda uma ROM
-com vídeo, som, gamepad, save state, SRAM e run-ahead, visual fixo NTSC RF + tubo
-CRT. A Fase 2 entregou o catálogo (`library`), a estante na tela (`selector`:
-capas, navegação por gamepad, busca, scrape sob demanda, ficha com logo e sinopse
-rolante) e o binário `xperience`, que junta estante → jogo → estante num processo
-só. Da Fase 3 já existem o gabinete escuro atrás do tubo, a janela única (estante
-e jogo no mesmo gabinete, sem recriar), a estante deformada pelo mesmo tubo do
-jogo, a sequência de sinal off entre as telas e o cartucho no slot com o rótulo.
-Falta o teste de duas horas (em andamento) e os botões do console com trava de
-ejeção.
+Estado atual: **Fases 0–3 prontas.** `emu-run` roda uma ROM com vídeo, som,
+gamepad, save state, SRAM e run-ahead, visual fixo NTSC RF + tubo CRT. A Fase 2
+entregou o catálogo (`library`), a estante na tela (`selector`: capas,
+navegação por gamepad, busca, scrape sob demanda, ficha com logo e sinopse
+rolante) e o binário `xperience`, que junta estante → jogo → estante num
+processo só. A Fase 3 deu a esse binário a moldura de verdade: gabinete escuro
+atrás do tubo, janela única (estante e jogo no mesmo gabinete), a estante
+deformada pelo mesmo tubo do jogo, o ritual completo de desligar (Esc) →
+ejetar (`E`) com a TV em sinal off entre as telas, o cartucho no slot com o
+rótulo, e passou no teste de duas horas do plano (§9). Falta o painel lateral
+(Fase 4: logo, cheats, tela de pausa, anotações).
 
 ## Arquitetura
 
@@ -60,9 +61,13 @@ cargo run --bin library -- scan --roms /caminho/para/roms
 cargo run --bin xperience -- --core /caminho/snes9x_libretro.dylib
 ```
 
-`Esc` no jogo volta pra estante; `Esc` (ou fechar a janela) na estante encerra.
-Catálogo e saves ficam em `~/.local/share/snes-xperience/`. Para rodar uma ROM
-solta sem catálogo, use `emu-run` (ver Fase 0).
+No jogo: `Esc` desliga (salva, TV em sinal off, cartucho continua no slot —
+console desligado é um estado, não um beco) e `E` ejeta a partir daí, voltando
+pra estante; tentar ejetar ligado só resiste com um "clunk". `Backspace`
+reseta o jogo sem sair da tela. `Esc` (ou fechar a janela) na estante encerra;
+fechar a janela do jogo também encerra, sem cerimônia. Catálogo e saves ficam
+em `~/.local/share/snes-xperience/`. Para rodar uma ROM solta sem catálogo,
+use `emu-run` (ver Fase 0).
 
 Com `SS_DEVID` / `SS_DEVPASSWORD` (ScreenScraper) no ambiente, a estante busca a
 ficha e a capa do jogo em foco na hora; `--no-scrape` desliga. Para preencher o

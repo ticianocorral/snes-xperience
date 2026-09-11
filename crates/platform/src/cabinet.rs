@@ -207,6 +207,12 @@ impl Cabinet {
         });
     }
 
+    /// Empty the cartridge slot (plan §3.3: ejecting pulls it out — the slot
+    /// stays visibly empty until the next `set_cartridge`).
+    pub fn clear_cartridge(&mut self) {
+        self.cartridge = None;
+    }
+
     /// Size of the recessed screen area — what the selector lays itself out in.
     pub fn screen_size(&self) -> (u32, u32) {
         let (w, h) = self.canvas.output_size().unwrap_or((1280, 720));
@@ -427,8 +433,9 @@ impl Cabinet {
         saved
     }
 
-    /// One frame of signal-off snow through the tube. `level` 1.0 = a full
-    /// blizzard, 0.0 = a dim, near-still hiss. Never a full-screen flash.
+    /// One frame of signal-off snow through the tube, cartridge still visible
+    /// in its slot if one is set. `level` 1.0 = a full blizzard, 0.0 = a dim,
+    /// near-still hiss. Never a full-screen flash.
     pub fn present_static(&mut self, level: f32) {
         let (ww, wh) = self.canvas.output_size().unwrap_or((1280, 720));
         self.screen = screen_area(ww, wh);
@@ -449,7 +456,58 @@ impl Cabinet {
             .canvas
             .render_geometry(&bezel.verts, None, &bezel.indices[..]);
         self.bezel = Some(bezel);
+        if let (Some(cart), Some(rect)) =
+            (&self.cartridge, cartridge_slot_rect(self.screen, ww, wh))
+        {
+            draw_cartridge_slot(&mut self.canvas, &mut self.font, &self.images, cart, rect);
+        }
         self.canvas.present();
+    }
+
+    /// Like [`Cabinet::present_static`] but composited into an offscreen
+    /// target and saved as a BMP (headless — eyeball the power-off / idle-off
+    /// screen, cartridge and all, without a window).
+    pub fn capture_static_bmp(
+        &mut self,
+        level: f32,
+        path: &std::path::Path,
+    ) -> Result<(), PlatformError> {
+        let (ww, wh) = self.canvas.output_size().unwrap_or((1280, 720));
+        self.screen = screen_area(ww, wh);
+        self.ensure_bezel(ww, wh, self.screen);
+        self.update_noise_tex(level);
+
+        let mesh = build_crt_mesh(self.screen, 1.0);
+        let mut target = self
+            .canvas
+            .create_texture_target(SdlFormat::RGBA32, ww, wh)
+            .map_err(|e| PlatformError::Sdl(e.to_string()))?;
+        let nt = self.noise_tex.take().unwrap();
+        let bezel = self.bezel.take().unwrap();
+        let cart_draw = self
+            .cartridge
+            .as_ref()
+            .zip(cartridge_slot_rect(self.screen, ww, wh));
+        let font = &mut self.font;
+        let images = &self.images;
+        let mut saved: Result<(), PlatformError> = Ok(());
+        let outcome = self.canvas.with_texture_canvas(&mut target, |c| {
+            c.set_draw_color(Color::RGB(RECESS.0, RECESS.1, RECESS.2));
+            c.clear();
+            let _ = c.render_geometry(&mesh.verts, Some(&nt.tex), &mesh.indices[..]);
+            let _ = c.render_geometry(&bezel.verts, None, &bezel.indices[..]);
+            if let Some((cart, rect)) = cart_draw {
+                draw_cartridge_slot(c, font, images, cart, rect);
+            }
+            saved = c
+                .read_pixels(None::<Rect>)
+                .and_then(|s| s.save_bmp(path))
+                .map_err(|e| PlatformError::Sdl(e.to_string()));
+        });
+        self.noise_tex = Some(nt);
+        self.bezel = Some(bezel);
+        outcome.map_err(|e| PlatformError::Sdl(e.to_string()))?;
+        saved
     }
 
     /// Like [`Cabinet::frame_2d`], but blended up from residual signal-off snow

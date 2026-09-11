@@ -52,10 +52,10 @@ aviso — só o incremento de _minor_ marca um conjunto de mudanças.
   |Screen| …)` — o closure desenha num buffer do tamanho do vão, que é deformado
   pela mesma malha CRT do jogo. `capture_2d` salva isso headless (`selector
   --shot`).
-- **Sinal off** (Fase 3): ao sair do jogo pro seletor, `xperience::signal_off`
-  toca ~0,65 s de `Cabinet::present_static` (chuvisco pelo tubo, teto abaixo do
-  branco — sem flash) com um zumbido de RF decaindo que corta no fim.
-- **"A estante entra por cima"** (Fase 3): `signal_off` devolve o nível de
+- **Sinal off** (Fase 3): a queda de sinal toca ~0,65 s de
+  `Cabinet::present_static` (chuvisco pelo tubo, teto abaixo do branco — sem
+  flash) com um zumbido de RF decaindo que corta no fim.
+- **"A estante entra por cima"** (Fase 3): a queda de sinal devolve o nível de
   chuvisco em que parou; os 18 primeiros quadros da estante seguinte usam
   `Cabinet::frame_2d_fade_in`, que compõe o chuvisco e a estante juntos (alfa
   da estante subindo por quadro) em vez de cortar direto pra tela limpa.
@@ -65,6 +65,14 @@ aviso — só o incremento de _minor_ marca um conjunto de mudanças.
   gabinete, não passa pelo tubo. A estante manda o `texture_path` escolhido em
   `Pick::Play { texture, .. }`. `emu-run --cartridge-label img.png` testa sem
   catálogo.
+- **Comandos do console** (Fase 3, §3.3): `runner::run_game` ganhou um estado
+  `powered`. `Esc` desliga (só ligado): descarrega a SRAM, roda a queda de
+  sinal, o jogo trava e a tela vira chuvisco contínuo com o cartucho ainda no
+  slot — console desligado é um estado, não um beco. `E` (`UiEvent::Eject`
+  novo) só ejeta desligado (limpa o slot, sai pro seletor); ligado, a trava
+  resiste com um "clunk" de áudio e mais nada. `Backspace` continua resetando,
+  só ligado. Fechar a janela sempre funciona, sem cerimônia.
+  `emu-run --shot-off` prevê a tela ociosa headless.
 
 ## [0.1.0] — 2026-09-10
 
