@@ -7,7 +7,7 @@ Progresso:
 
 - [x] **Painel lateral (esqueleto)** — coluna de widgets reais ao lado do tubo
       durante o jogo, com logo (ou nome) no topo e o tempo de sessão embaixo
-- [ ] Comandos (item 3 do §3.2) — legenda dos botões do console
+- [x] **Comandos** (item 3 do §3.2) — legenda dos botões do console
 - [ ] Cheats com interruptor (`cht` do libretro-database, §4.4)
 - [ ] Anotações com captura de tela (§3.4)
 - [ ] Tela de pausa (layout de página dupla para anotações/senhas longas)
@@ -57,20 +57,37 @@ linha. O painel também aparece no chuvisco de "console desligado"
 `runner::run_game`, que decodifica (≤640 px, alfa preservado) e chama
 `Cabinet::set_panel`. `emu-run --logo img.png` testa sem catálogo.
 
+## Comandos (item 3 do §3.2)
+
+Legenda simples dos botões do próprio console — não os extras do emulador
+(save state, slot, fast-forward): **Desligar** (`Esc`), **Ejetar** (`E`),
+**Reset** (`Backspace`). São os três que existem numa SNES de verdade (liga,
+ejeta, reseta); os outros ficam de fora da legenda de propósito, do jeito que
+`docs/fase-3.md` já separava "comandos do console" de "extras do emulador".
+
+`runner::run_game` monta a lista lendo `cfg.keymap` (a tecla real, não a
+padrão — respeita o `config.toml` do usuário) e passa pra
+`Cabinet::set_panel`, que agora recebe um terceiro parâmetro
+`commands: &[(String, String)]`. `Esc` é fixo no código (não passa por
+`KeyMap::describe()`, que só lista os binds configuráveis — ver o comentário
+em `UiEvent::token`). `draw_panel` desenha o rótulo "comandos" (apagado) e
+cada linha com o nome à esquerda, a tecla à direita, logo abaixo do
+logo/título — cresce ou encolhe com a altura do título (uma ou duas linhas).
+
 ## Verificado
 
 - `emu-run --shot --cartridge-label` (sem `--logo`): painel com o título
-  quebrado em duas linhas, tempo de sessão, cartucho no canto do gabinete
-  encolhido
-- `emu-run --shot --cartridge-label --logo`: logo no topo do painel
-- `emu-run --shot --shot-off --cartridge-label --logo`: painel + cartucho
-  continuam visíveis durante o chuvisco de console desligado
+  quebrado em duas linhas, comandos abaixo, tempo de sessão, cartucho no
+  canto do gabinete encolhido
+- `emu-run --shot --cartridge-label --logo`: logo no topo, comandos logo
+  abaixo dele
+- `emu-run --shot --shot-off --logo`: painel + comandos + cartucho continuam
+  visíveis durante o chuvisco de console desligado
 - `selector --frames --shot`: estante **byte a byte idêntica** a antes — sem
   painel reservado lá, como esperado
 - fmt / clippy / 15 suítes — verdes
 
 ## A seguir
 
-Comandos (legenda simples dos botões — sem 3D do console ainda), depois
-cheats com interruptor (a parte mais autocontida: banco `cht` embutido, sem
+Cheats com interruptor (a parte mais autocontida: banco `cht` embutido, sem
 rede). Anotações e tela de pausa são as peças maiores, deixadas pro fim.

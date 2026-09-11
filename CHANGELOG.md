@@ -81,6 +81,12 @@ aviso — só o incremento de _minor_ marca um conjunto de mudanças.
   continua sem painel, janela inteira. `Pick::Play` ganhou `wheel`;
   `GameSpec::logo` chega em `Cabinet::set_panel` via `runner::run_game`.
   `emu-run --logo img.png` testa sem catálogo.
+- **Comandos no painel** (Fase 4, §3.2 item 3): legenda dos três botões do
+  console de verdade — Desligar (`Esc`), Ejetar, Reset — logo abaixo do
+  logo/título, tecla lida do `KeyMap` atual (respeita `config.toml`, não é
+  fixa). `Cabinet::set_panel` ganhou um terceiro parâmetro `commands`;
+  extras do emulador (save state, slot, fast-forward) ficam de fora de
+  propósito.
 
 ## [0.1.0] — 2026-09-10
 

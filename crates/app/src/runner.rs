@@ -10,7 +10,7 @@ use anyhow::{anyhow, Context, Result};
 use xperience_emulation::{Button, Core, PixelFormat as EmuFormat};
 use xperience_ntsc::{NtscFilter, Preset};
 use xperience_platform::{
-    Cabinet, FrameRef, PixelFormat as PlatFormat, Platform, UiEvent, MAX_PORTS,
+    Cabinet, FrameRef, KeyMap, PixelFormat as PlatFormat, Platform, UiEvent, MAX_PORTS,
 };
 
 use crate::config::Config;
@@ -87,6 +87,18 @@ fn map_format(f: EmuFormat) -> PlatFormat {
 
 fn state_file(hash: &Option<String>, dir: &Path, slot: u8) -> Option<PathBuf> {
     hash.as_ref().map(|h| dir.join(format!("{h}.state{slot}")))
+}
+
+/// The current key bound to a bindable [`UiEvent`] token, for the panel's
+/// command legend. `"?"` if somehow unbound (shouldn't happen — every
+/// bindable event has a default).
+fn key_for(keymap: &KeyMap, token: &str) -> String {
+    keymap
+        .describe()
+        .into_iter()
+        .find(|(t, _)| t == token)
+        .map(|(_, k)| k)
+        .unwrap_or_else(|| "?".to_string())
 }
 
 /// Write battery SRAM to `path` if it changed since the last flush.
@@ -275,17 +287,24 @@ pub fn run_game(
         cab.set_cartridge(None, &title);
     }
 
-    // --- side panel: logo on top, session timer at the bottom (plan §3.2) --
+    // --- side panel: logo, command legend, session timer (plan §3.2) ------
+    // "Desligar" is Esc unconditionally — it's the one binding `KeyMap` keeps
+    // fixed (see `UiEvent::token`), so it never shows up in `describe()`.
+    let commands = vec![
+        ("Desligar".to_string(), "Esc".to_string()),
+        ("Ejetar".to_string(), key_for(&cfg.keymap, "eject")),
+        ("Reset".to_string(), key_for(&cfg.keymap, "reset")),
+    ];
     if let Some(logo_path) = &spec.logo {
         match decode_art(logo_path, 640) {
-            Ok((w, h, rgba)) => cab.set_panel(Some((w, h, &rgba)), &title),
+            Ok((w, h, rgba)) => cab.set_panel(Some((w, h, &rgba)), &title, &commands),
             Err(e) => {
                 log::warn!("logo {}: {e}", logo_path.display());
-                cab.set_panel(None, &title);
+                cab.set_panel(None, &title, &commands);
             }
         }
     } else {
-        cab.set_panel(None, &title);
+        cab.set_panel(None, &title, &commands);
     }
     let session_start = Instant::now();
 

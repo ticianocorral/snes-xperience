@@ -133,10 +133,12 @@ struct CartridgeSlot {
 }
 
 /// What to draw at the top of the side panel: the `wheel` logo if we have it,
-/// else the ROM's title.
+/// else the ROM's title. `commands` is the button legend (plan §3.2, item 3):
+/// `(label, key)` pairs, in display order.
 struct PanelInfo {
     has_logo: bool,
     title: String,
+    commands: Vec<(String, String)>,
 }
 
 struct SrcTexture {
@@ -244,8 +246,15 @@ impl Cabinet {
 
     /// Show the side panel during play: `logo` (width, height, RGBA) is the
     /// scraped `wheel` art if there is one, else the panel falls back to
-    /// `title` in text (plan §3.2, item 1). Call once per game.
-    pub fn set_panel(&mut self, logo: Option<(u32, u32, &[u8])>, title: &str) {
+    /// `title` in text (plan §3.2, item 1). `commands` is the button legend
+    /// (item 3) — `(label, key)` pairs, e.g. `("Reset", "Backspace")`. Call
+    /// once per game.
+    pub fn set_panel(
+        &mut self,
+        logo: Option<(u32, u32, &[u8])>,
+        title: &str,
+        commands: &[(String, String)],
+    ) {
         let has_logo = if let Some((w, h, rgba)) = logo {
             self.set_image(PANEL_LOGO_IMG, w, h, rgba);
             true
@@ -255,6 +264,7 @@ impl Cabinet {
         self.panel = Some(PanelInfo {
             has_logo,
             title: title.to_string(),
+            commands: commands.to_vec(),
         });
     }
 
@@ -1153,8 +1163,9 @@ fn draw_panel(
     let y = rect.y() + pad;
 
     // 1. Logo, or the title if there isn't one (plan §3.2, item 1).
-    if panel.has_logo {
+    let mut cy = if panel.has_logo {
         draw_image_absolute(canvas, images, PANEL_LOGO_IMG, x, y, inner_w, 110);
+        y + 110
     } else {
         draw_text_wrapped_absolute(
             canvas,
@@ -1164,11 +1175,49 @@ fn draw_panel(
             inner_w,
             TextStyle::new(2, PANEL_TEXT),
             &panel.title,
+        )
+    };
+
+    // 3. Commands — the console's own buttons, not the emulator's extras
+    // (plan §3.2, item 3). Label left, key right, one line each.
+    if !panel.commands.is_empty() {
+        cy += 16;
+        draw_text_absolute(
+            canvas,
+            font,
+            x,
+            cy,
+            TextStyle::new(1, PANEL_DIM),
+            "comandos",
+            usize::MAX,
         );
+        cy += GLYPH as i32 + 6;
+        for (label, key) in &panel.commands {
+            draw_text_absolute(
+                canvas,
+                font,
+                x,
+                cy,
+                TextStyle::new(1, PANEL_TEXT),
+                label,
+                usize::MAX,
+            );
+            let key_w = (GLYPH as i32) * key.chars().count() as i32;
+            draw_text_absolute(
+                canvas,
+                font,
+                rect.right() - pad - key_w,
+                cy,
+                TextStyle::new(1, PANEL_DIM),
+                key,
+                usize::MAX,
+            );
+            cy += GLYPH as i32 + 4;
+        }
     }
 
-    // 6. Session clock, pinned to the bottom (plan §3.2, item 6). Commands,
-    // cheats and notes (items 3-5) land here in later increments.
+    // 6. Session clock, pinned to the bottom (plan §3.2, item 6). Cheats and
+    // notes (items 4-5) land here in later increments.
     let secs = session.as_secs();
     let stamp = if secs >= 3600 {
         format!("{}:{:02}:{:02}", secs / 3600, (secs / 60) % 60, secs % 60)
