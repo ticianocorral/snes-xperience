@@ -17,7 +17,8 @@ Progresso:
       aparecem misturados com o chuvisco residual, não um corte seco
 - [x] **Cartucho no slot** — procedural (sem Blender): rótulo `texture` do
       ScreenScraper quando existe, senão o nome da ROM. Nunca ausente.
-- [ ] **Teste de duas horas** (§9) — em andamento pelo usuário
+- [x] **Teste de duas horas** (§9) — feito, passou: a moldura sustentou a
+      sessão longa (2026-09-11)
 - [ ] Botões do console (desligar / ejetar / reset) com trava de ejeção
 
 ## `Cabinet` (`xperience-platform::cabinet`)
@@ -88,9 +89,14 @@ O chuvisco, o zumbido e a mistura de entrada usam o mesmo caminho de composiçã
 já conferido (mesma malha, mesmo `render_geometry`), mas não têm captura
 headless própria — falta ver ao vivo.
 
+## Teste de duas horas — resultado
+
+Passou (§9): sessão longa com a moldura na tela, sem incomodar. Critério do
+plano cumprido — segue liberado investir no resto da Fase 3 sem risco de ter
+modelado em cima de uma premissa que não se sustentava.
+
 ## A seguir
 
-**Teste de duas horas em andamento** pelo usuário (plano §7/§9) — o próximo
-passo depende do resultado: ajustar contraste/curvatura se cansar, ou seguir
-pros botões do console (desligar / ejetar / reset) com trava de ejeção se a
-moldura sustentar a sessão longa.
+Botões do console (desligar / ejetar / reset) com trava de ejeção — o ritual
+completo do §3.3 (desligar salva estado + TV sinal off + cartucho fica; ejetar
+só com console desligado; reset sem sair da tela).
