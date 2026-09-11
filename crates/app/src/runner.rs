@@ -3,11 +3,12 @@
 //! RF NTSC + CRT-tube warp (see docs/fase-0.md).
 
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Context, Result};
-use xperience_emulation::{Button, Core, PixelFormat as EmuFormat};
+use xperience_emulation::{Button, Core, Frame as EmuFrame, PixelFormat as EmuFormat};
 use xperience_ntsc::{NtscFilter, Preset};
 use xperience_platform::{
     Cabinet, FrameRef, KeyMap, PixelFormat as PlatFormat, Platform, UiEvent, MAX_PORTS,
@@ -43,6 +44,9 @@ pub struct GameSpec {
     pub rom: PathBuf,
     pub system_dir: PathBuf,
     pub save_dir: PathBuf,
+    /// Where per-ROM notebooks live: `<hash>.md` plus a `<hash>/` folder of
+    /// captured screenshots alongside it (plan §3.4).
+    pub notes_dir: PathBuf,
     /// Speculative frames past the shown one; `None` = take the config value.
     pub runahead: Option<u32>,
     /// Headless self-check: `(path, frame)` — run to `frame`, dump a BMP, exit.
@@ -57,6 +61,10 @@ pub struct GameSpec {
     /// (signal-off snow + cartridge still in the slot) and save `shot` there,
     /// instead of running the game to `shot`'s frame count.
     pub shot_off: bool,
+    /// Headless self-check: force one `NoteCapture` at `shot`'s frame (or
+    /// frame 1 without one), exactly like a live `N` press — so `--shot` can
+    /// prove out the panel's notebook block without a window.
+    pub debug_note_capture: bool,
 }
 
 const PAD: [(Button, xperience_platform::PadButton); 12] = {
@@ -234,6 +242,100 @@ fn now_stamp() -> u64 {
         .unwrap_or(0)
 }
 
+/// Decode a core frame's raw pixels into plain RGB8 — the un-warped, un-NTSC'd
+/// picture, not what's on screen, so a captured password stays legible on the
+/// page (plan §3.4: "é como se fazia no papel").
+fn frame_to_rgb8(frame: &EmuFrame) -> image::RgbImage {
+    let (w, h) = (frame.width as usize, frame.height as usize);
+    let mut img = image::RgbImage::new(frame.width, frame.height);
+    for y in 0..h {
+        let row = &frame.pixels[y * frame.pitch..];
+        for x in 0..w {
+            let rgb = match frame.format {
+                EmuFormat::Rgb565 => {
+                    let px = u16::from_le_bytes([row[x * 2], row[x * 2 + 1]]);
+                    let (r5, g6, b5) = ((px >> 11) & 0x1F, (px >> 5) & 0x3F, px & 0x1F);
+                    [
+                        ((r5 << 3) | (r5 >> 2)) as u8,
+                        ((g6 << 2) | (g6 >> 4)) as u8,
+                        ((b5 << 3) | (b5 >> 2)) as u8,
+                    ]
+                }
+                EmuFormat::Rgb1555 => {
+                    let px = u16::from_le_bytes([row[x * 2], row[x * 2 + 1]]);
+                    let (r5, g5, b5) = ((px >> 10) & 0x1F, (px >> 5) & 0x1F, px & 0x1F);
+                    [
+                        ((r5 << 3) | (r5 >> 2)) as u8,
+                        ((g5 << 3) | (g5 >> 2)) as u8,
+                        ((b5 << 3) | (b5 >> 2)) as u8,
+                    ]
+                }
+                // XRGB8888, little-endian bytes: B, G, R, X.
+                EmuFormat::Xrgb8888 => {
+                    let o = x * 4;
+                    [row[o + 2], row[o + 1], row[o]]
+                }
+            };
+            img.put_pixel(x as u32, y as u32, image::Rgb(rgb));
+        }
+    }
+    img
+}
+
+/// Screenshot straight into this ROM's notebook (plan §3.4): saves the frame
+/// next to a per-hash markdown file and appends an image reference — the
+/// file is plain text, readable outside the app, captures in a folder beside
+/// it. Indexed by hash so a rename or a re-dump doesn't orphan the notes.
+fn append_note_image(notes_dir: &Path, hash: &str, frame: &EmuFrame) -> Result<()> {
+    let img_dir = notes_dir.join(hash);
+    fs::create_dir_all(&img_dir).with_context(|| format!("creating {}", img_dir.display()))?;
+    // now_stamp() is second-resolution — bump past any collision from two
+    // captures inside the same second rather than silently overwriting one.
+    let mut stamp = now_stamp();
+    while img_dir.join(format!("{stamp}.png")).exists() {
+        stamp += 1;
+    }
+    let name = format!("{stamp}.png");
+    frame_to_rgb8(frame)
+        .save(img_dir.join(&name))
+        .with_context(|| format!("saving note image {name}"))?;
+
+    let md_path = notes_dir.join(format!("{hash}.md"));
+    let is_new = !md_path.exists();
+    let mut f = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&md_path)
+        .with_context(|| format!("opening {}", md_path.display()))?;
+    if is_new {
+        writeln!(f, "# Anotacoes\n")?;
+    }
+    writeln!(f, "![captura]({hash}/{name})\n")?;
+    Ok(())
+}
+
+/// Recompute the panel's notebook block from what's actually on disk: how
+/// many pages this ROM has, and the most recent one as a thumbnail. Call at
+/// game start and after every capture — cheap, there's only ever a handful.
+fn refresh_notes(cab: &mut Cabinet, notes_dir: &Path, hash: &Option<String>) {
+    let Some(hash) = hash else {
+        cab.set_notes(0, None);
+        return;
+    };
+    let mut names: Vec<std::ffi::OsString> = fs::read_dir(notes_dir.join(hash))
+        .map(|rd| rd.filter_map(|e| e.ok()).map(|e| e.file_name()).collect())
+        .unwrap_or_default();
+    names.sort();
+    let count = names.len();
+    match names
+        .last()
+        .map(|n| decode_art(&notes_dir.join(hash).join(n), 200))
+    {
+        Some(Ok((w, h, rgba))) => cab.set_notes(count, Some((w, h, &rgba))),
+        _ => cab.set_notes(count, None),
+    }
+}
+
 /// Load the core + ROM and run until the player leaves, drawing into `cab` (the
 /// one persistent window). `plat` and `cab` both outlive the call so `xperience`
 /// can reuse them for the next screen.
@@ -360,6 +462,10 @@ pub fn run_game(
     }
     cab.set_cheats(&cheat_rows(cheat_defs, &cheat_state), cheat_sel);
 
+    // --- notes: the notebook block, empty until the first capture (§3.4) --
+    fs::create_dir_all(&spec.notes_dir).ok();
+    refresh_notes(cab, &spec.notes_dir, &rom_hash);
+
     let session_start = Instant::now();
 
     // Headless self-check: skip straight to the idle "console off" screen.
@@ -395,6 +501,11 @@ pub fn run_game(
     let mut spec_state: Vec<u8> = Vec::new();
     let mut last_sram = core.sram();
     let mut shot_request: Option<PathBuf> = None;
+    let mut note_request = false;
+    // Debug capture lines up with --shot-frame (default: the very first
+    // frame) so the saved page actually shows whatever --shot is inspecting,
+    // not just a black boot frame.
+    let debug_note_frame = spec.shot.as_ref().map_or(1, |(_, f)| *f).max(1);
     // The console: on while playing; off after Esc, idling on snow with the
     // cartridge still seated until Eject (plan §3.3).
     let mut powered = true;
@@ -493,6 +604,10 @@ pub fn run_game(
                         if on { "on" } else { "off" }
                     );
                 }
+                UiEvent::NoteCapture if powered => {
+                    // capture happens after present, below, same as Screenshot.
+                    note_request = true;
+                }
                 // The rest only make sense with the console on; ignored off
                 // (or, for the cheat trio, with nothing curated to toggle).
                 UiEvent::TogglePause
@@ -503,7 +618,8 @@ pub fn run_game(
                 | UiEvent::Screenshot
                 | UiEvent::CheatNext
                 | UiEvent::CheatPrev
-                | UiEvent::CheatToggle => {}
+                | UiEvent::CheatToggle
+                | UiEvent::NoteCapture => {}
             }
         }
 
@@ -529,6 +645,9 @@ pub fn run_game(
             }
             core.run();
             frames += 1;
+            if spec.debug_note_capture && frames == debug_note_frame {
+                note_request = true;
+            }
             if audio.queued_frames() < audio_cap {
                 audio.queue(core.audio());
             }
@@ -595,6 +714,20 @@ pub fn run_game(
                     }
                 }
 
+                if note_request {
+                    note_request = false;
+                    match &rom_hash {
+                        Some(h) => match append_note_image(&spec.notes_dir, h, &frame) {
+                            Ok(_) => {
+                                refresh_notes(cab, &spec.notes_dir, &rom_hash);
+                                log::info!("note: captured");
+                            }
+                            Err(e) => log::warn!("note capture failed: {e}"),
+                        },
+                        None => log::warn!("note capture skipped (unidentified ROM)"),
+                    }
+                }
+
                 if let Some((path, at)) = &spec.shot {
                     if frames >= *at {
                         cab.capture_bmp(&fref, aspect, path)
@@ -640,12 +773,19 @@ pub fn run_game(
 
 #[cfg(test)]
 mod tests {
-    use super::{load_cheat_state, save_cheat_state};
+    use super::{append_note_image, frame_to_rgb8, load_cheat_state, save_cheat_state, EmuFrame};
+    use xperience_emulation::PixelFormat as EmuFormat;
+
+    fn scratch_dir(name: &str) -> std::path::PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("xperience-test-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
 
     #[test]
     fn cheat_state_round_trips_through_disk() {
-        let dir = std::env::temp_dir().join(format!("xperience-cheat-test-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = scratch_dir("cheats");
         let path = Some(dir.join("test.cheats"));
 
         save_cheat_state(&path, &[true, false, true]);
@@ -658,5 +798,52 @@ mod tests {
     fn missing_file_defaults_everything_off() {
         let path = Some(std::env::temp_dir().join("xperience-cheat-test-missing.cheats"));
         assert_eq!(load_cheat_state(&path, 2), vec![false, false]);
+    }
+
+    #[test]
+    fn frame_to_rgb8_decodes_rgb565_bit_layout() {
+        // Pure red, green, blue, white — 5-6-5 packed little-endian.
+        let px: [u16; 4] = [0xF800, 0x07E0, 0x001F, 0xFFFF];
+        let mut pixels = Vec::with_capacity(8);
+        for p in px {
+            pixels.extend_from_slice(&p.to_le_bytes());
+        }
+        let frame = EmuFrame {
+            width: 4,
+            height: 1,
+            pitch: 8,
+            format: EmuFormat::Rgb565,
+            pixels,
+        };
+        let img = frame_to_rgb8(&frame);
+        assert_eq!(img.get_pixel(0, 0).0, [255, 0, 0]);
+        assert_eq!(img.get_pixel(1, 0).0, [0, 255, 0]);
+        assert_eq!(img.get_pixel(2, 0).0, [0, 0, 255]);
+        assert_eq!(img.get_pixel(3, 0).0, [255, 255, 255]);
+    }
+
+    #[test]
+    fn note_capture_appends_markdown_and_saves_a_png() {
+        let dir = scratch_dir("notes");
+        let frame = EmuFrame {
+            width: 2,
+            height: 2,
+            pitch: 4,
+            format: EmuFormat::Rgb565,
+            pixels: vec![0u8; 4 * 2],
+        };
+
+        append_note_image(&dir, "deadbeef", &frame).unwrap();
+        append_note_image(&dir, "deadbeef", &frame).unwrap();
+
+        let md = std::fs::read_to_string(dir.join("deadbeef.md")).unwrap();
+        assert_eq!(md.matches("![captura]").count(), 2);
+        let images: Vec<_> = std::fs::read_dir(dir.join("deadbeef"))
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .collect();
+        assert_eq!(images.len(), 2);
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

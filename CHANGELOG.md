@@ -100,6 +100,14 @@ aviso — só o incremento de _minor_ marca um conjunto de mudanças.
   lista e viram o interruptor no painel; o estado liga/desliga persiste em
   `<hash>.cheats` no save-dir. Descrições escritas para o app, sem acento
   (a fonte do painel só cobre ASCII).
+- **Captura de tela pro caderno** (Fase 4, §3.4): `N` (rebindável) salva o
+  quadro cru do core — sem NTSC, sem tubo, pra ficar legível — como PNG em
+  `<notes-dir>/<hash>/<epoch>.png` e acrescenta a entrada em
+  `<notes-dir>/<hash>.md`, indexado pelo hash da ROM (sobrevive a rename ou
+  re-dump). `GameSpec::notes_dir` novo (`xperience`:
+  `~/.local/share/snes-xperience/notes/`; `emu-run`: `<save-dir>/notes`,
+  `--notes-dir` sobrescreve). O painel ganhou o item 5 do §3.2: miniatura da
+  captura mais recente + contador, ausente por completo sem nada capturado.
 
 ## [0.1.0] — 2026-09-10
 

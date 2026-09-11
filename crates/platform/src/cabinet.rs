@@ -44,6 +44,8 @@ const CART_RIM: (u8, u8, u8) = (96, 86, 72);
 const CARTRIDGE_IMG: u64 = u64::MAX;
 /// Reserved image-cache key for the side panel's logo art.
 const PANEL_LOGO_IMG: u64 = u64::MAX - 1;
+/// Reserved image-cache key for the panel's most-recent note thumbnail.
+const PANEL_NOTE_IMG: u64 = u64::MAX - 2;
 
 /// The side panel: a column of plain widgets beside the tube during play —
 /// not warped, drawn straight on the window (plan §2's presentation order,
@@ -149,6 +151,10 @@ struct PanelInfo {
     commands: Vec<(String, String)>,
     cheats: Vec<(String, bool)>,
     cheat_sel: usize,
+    /// Notebook block (item 5, plan §3.4): absent entirely when this is 0 —
+    /// no "no notes" filler.
+    note_count: usize,
+    has_note_thumb: bool,
 }
 
 struct SrcTexture {
@@ -277,7 +283,26 @@ impl Cabinet {
             commands: commands.to_vec(),
             cheats: Vec::new(),
             cheat_sel: 0,
+            note_count: 0,
+            has_note_thumb: false,
         });
+    }
+
+    /// Update the panel's notebook block (plan §3.4, item 5): `count` pages
+    /// captured so far for this ROM, `thumb` the most recent one (width,
+    /// height, RGBA) if there is one. Call once at game start and again
+    /// after every capture. A no-op before `set_panel`.
+    pub fn set_notes(&mut self, count: usize, thumb: Option<(u32, u32, &[u8])>) {
+        let has_thumb = if let Some((w, h, rgba)) = thumb {
+            self.set_image(PANEL_NOTE_IMG, w, h, rgba);
+            true
+        } else {
+            false
+        };
+        if let Some(panel) = &mut self.panel {
+            panel.note_count = count;
+            panel.has_note_thumb = has_thumb;
+        }
     }
 
     /// Update the side panel's cheat list (plan §4.4): `cheats` is
@@ -1305,8 +1330,41 @@ fn draw_panel(
         }
     }
 
-    // 6. Session clock, pinned to the bottom (plan §3.2, item 6). Notes
-    // (item 5) land here in a later increment.
+    // 5. Notes — most-recent capture + counter (plan §3.2, item 5; §3.4).
+    // Absent entirely with nothing captured yet, not a "no notes" filler.
+    if panel.note_count > 0 {
+        cy += 16;
+        draw_text_absolute(
+            canvas,
+            font,
+            x,
+            cy,
+            TextStyle::new(1, PANEL_DIM),
+            "notas",
+            usize::MAX,
+        );
+        cy += GLYPH as i32 + 6;
+        if panel.has_note_thumb {
+            draw_image_absolute(canvas, images, PANEL_NOTE_IMG, x, cy, inner_w, 70);
+            cy += 70 + 6;
+        }
+        let label = format!(
+            "{} captura{}",
+            panel.note_count,
+            if panel.note_count == 1 { "" } else { "s" }
+        );
+        draw_text_absolute(
+            canvas,
+            font,
+            x,
+            cy,
+            TextStyle::new(1, PANEL_TEXT),
+            &label,
+            usize::MAX,
+        );
+    }
+
+    // 6. Session clock, pinned to the bottom (plan §3.2, item 6).
     let secs = session.as_secs();
     let stamp = if secs >= 3600 {
         format!("{}:{:02}:{:02}", secs / 3600, (secs / 60) % 60, secs % 60)

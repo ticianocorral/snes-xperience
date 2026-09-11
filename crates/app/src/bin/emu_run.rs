@@ -21,6 +21,8 @@ struct Args {
     rom: PathBuf,
     system_dir: PathBuf,
     save_dir: PathBuf,
+    /// Per-ROM notebooks (plan §3.4); defaults to `<save-dir>/notes`.
+    notes_dir: PathBuf,
     config: Option<PathBuf>,
     /// Speculative frames past the shown one; `None` = take the config value.
     runahead: Option<u32>,
@@ -33,6 +35,8 @@ struct Args {
     logo: Option<PathBuf>,
     /// Headless: preview the idle "console off" screen instead of gameplay.
     shot_off: bool,
+    /// Headless: force one note capture on the first frame (dev/testing).
+    debug_note_capture: bool,
 }
 
 fn parse_args() -> Result<Args> {
@@ -40,6 +44,7 @@ fn parse_args() -> Result<Args> {
     let mut rom = None;
     let mut system_dir = None;
     let mut save_dir = None;
+    let mut notes_dir = None;
     let mut config = None;
     let mut runahead = None;
     let mut shot = None;
@@ -47,6 +52,7 @@ fn parse_args() -> Result<Args> {
     let mut cartridge_label = None;
     let mut logo = None;
     let mut shot_off = false;
+    let mut debug_note_capture = false;
 
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
@@ -123,6 +129,14 @@ fn parse_args() -> Result<Args> {
                 )
             }
             "--shot-off" => shot_off = true,
+            "--notes-dir" => {
+                notes_dir = Some(
+                    it.next()
+                        .ok_or_else(|| anyhow!("--notes-dir needs a path"))?
+                        .into(),
+                )
+            }
+            "--debug-note-capture" => debug_note_capture = true,
             "-h" | "--help" => {
                 println!("{}", HELP);
                 std::process::exit(0);
@@ -135,11 +149,13 @@ fn parse_args() -> Result<Args> {
     let rom = rom.ok_or_else(|| anyhow!("no ROM: pass --rom <file>"))?;
     let save_dir = save_dir.unwrap_or_else(|| PathBuf::from("."));
     let system_dir = system_dir.unwrap_or_else(|| save_dir.clone());
+    let notes_dir = notes_dir.unwrap_or_else(|| save_dir.join("notes"));
     Ok(Args {
         core,
         rom,
         system_dir,
         save_dir,
+        notes_dir,
         config,
         runahead,
         shot,
@@ -147,6 +163,7 @@ fn parse_args() -> Result<Args> {
         cartridge_label,
         logo,
         shot_off,
+        debug_note_capture,
     })
 }
 
@@ -156,6 +173,8 @@ const HELP: &str = "emu-run --core <lib> --rom <game.sfc> [--system-dir D] [--sa
        [--cartridge-label img.png]         show a label in the cabinet's slot\n\
        [--logo img.png]                    show a logo atop the side panel\n\
        [--shot-off]                        with --shot, preview the idle off screen\n\
+       [--notes-dir DIR]                   per-ROM notebooks (default: <save-dir>/notes)\n\
+       [--debug-note-capture]              force one note capture at --shot-frame (dev/testing)\n\
 \n\
 Presentation is fixed: RF NTSC + CRT-tube warp (knobs are consts in the source).\n\
 Battery SRAM and 10 save-state slots live next to --save-dir, keyed by ROM hash.\n\
@@ -167,6 +186,7 @@ default keys: arrows=dpad  Z=B X=A A=Y S=X Q=L W=R  Enter=Start RShift=Select\n\
       F12=screenshot  F=fullscreen  Backspace=reset  P=pause\n\
       Esc=power off (desligar)  E=eject (only once off)\n\
       , / . =cheat cursor  /=toggle cheat (panel, curated games only)\n\
+      N=capture into notebook (saved next to --notes-dir, plan §3.4)\n\
       Closing the window always quits, on or off — no ceremony.";
 
 fn main() -> Result<()> {
@@ -190,11 +210,13 @@ fn main() -> Result<()> {
         rom: args.rom,
         system_dir: args.system_dir,
         save_dir: args.save_dir,
+        notes_dir: args.notes_dir,
         runahead: args.runahead,
         shot: args.shot.map(|p| (p, args.shot_frame)),
         cartridge_label: args.cartridge_label,
         logo: args.logo,
         shot_off: args.shot_off,
+        debug_note_capture: args.debug_note_capture,
     };
     // Standalone: "back" and "close" both just end the process.
     run_game(&mut platform, &mut cabinet, &spec, &cfg)?;

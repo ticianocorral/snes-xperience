@@ -9,8 +9,10 @@ Progresso:
       durante o jogo, com logo (ou nome) no topo e o tempo de sessão embaixo
 - [x] **Comandos** (item 3 do §3.2) — legenda dos botões do console
 - [x] **Cheats com interruptor** (`cht` do libretro-database, §4.4)
-- [ ] Anotações com captura de tela (§3.4)
-- [ ] Tela de pausa (layout de página dupla para anotações/senhas longas)
+- [x] **Captura de tela pro caderno** (§3.4) — falta só a leitura/escrita
+      longa, que é item da tela de pausa, abaixo
+- [ ] Tela de pausa (layout de página dupla; é onde anotações/senhas longas
+      se leem e se escrevem)
 - [ ] Senhas e dicas — tabela manual, cinco jogos pra começar (§4.5/§4.6)
 
 ## Desvio deliberado do §3.2
@@ -122,6 +124,35 @@ No painel, a lista fica entre comandos e o relógio de sessão: cabeçalho
 cursor `>` e brilho total, as outras apagadas — só ASCII, então o
 interruptor é textual, não um ícone.
 
+## Captura de tela pro caderno (§3.4)
+
+"O jogador chega na tela de senha, aperta um botão, a imagem entra no
+caderno daquele jogo" — a parte que cobre todo jogo, inclusive os que
+nunca vão ganhar anotação escrita à mão. `N` (rebindável, `UiEvent::NoteCapture`,
+só com o console ligado) salva o quadro **cru** do core — antes do NTSC e
+antes do tubo — como PNG em `<notes-dir>/<hash>/<epoch>.png` e acrescenta
+`![captura](hash/epoch.png)` em `<notes-dir>/<hash>.md`. Cru de propósito:
+o visual do tubo é bonito, mas borra a tela de senha que você queria
+guardar legível; "como se fazia no papel" pede nitidez, não atmosfera.
+
+Indexado pelo **hash da ROM** (`rom_hash`, o mesmo SHA1 dos saves/estados,
+plano §3.4) — nome de arquivo trocado ou re-dump não orfanam o caderno.
+Markdown solto, legível fora do app, com as capturas numa pasta ao lado do
+`.md` — dá pra abrir num editor de texto qualquer sem o SNES Xperience por
+perto.
+
+`xperience_emulation::Core` não precisou de nada novo — `runner::frame_to_rgb8`
+decodifica RGB565/RGB1555/XRGB8888 na mão (o `Frame` bruto do core, os
+mesmos formatos que a NTSC e o `Cabinet` já entendiam, só que sem passar
+por nenhum dos dois). `GameSpec::notes_dir` é novo, ao lado de `save_dir`/
+`system_dir` (`xperience`: `~/.local/share/snes-xperience/notes/`;
+`emu-run`: `<save-dir>/notes` por padrão, `--notes-dir` sobrescreve).
+
+No painel, item 5 (§3.2) fica entre cheats e o relógio: cabeçalho "notas"
+apagado, a miniatura da captura mais recente (a mesma arte do cartucho/logo,
+letterboxed) e "N captura(s)" — **some por completo** sem nenhuma capturada
+ainda, nada de "0 anotações" ocupando espaço à toa.
+
 ## Verificado
 
 - `emu-run --shot --cartridge-label` (sem `--logo`): painel com o título
@@ -142,9 +173,19 @@ interruptor é textual, não um ícone.
   efeito num único frame de boot headless, mas a aplicação em si (FFI +
   persistência + UI) está provada de ponta a ponta
 - fmt / clippy / 15 suítes, +4 testes novos (`cheats::tests`, round-trip do
-  estado salvo em `runner::tests`) — verdes
+  estado salvo em `runner::tests`) — verdes, na entrega de cheats
+- `emu-run --shot --shot-frame 60 --debug-note-capture` no Aladdin real: a
+  tela do Capcom/Disney vira um PNG 256×224 nítido em `<notes-dir>/<hash>/`,
+  a entrada `![captura](...)` aparece no `.md`, e o painel mostra a mesma
+  imagem em miniatura + "1 captura" — testado de novo com uma segunda
+  captura no mesmo segundo pra confirmar que os nomes de arquivo não colidem
+- fmt / clippy / 15 suítes, +2 testes novos (`frame_to_rgb8` decodifica o
+  bit layout RGB565 certo; captura grava markdown + PNG e não sobrescreve
+  numa colisão de timestamp) — verdes, nesta entrega
 
 ## A seguir
 
-Anotações com captura de tela e a tela de pausa — as duas peças maiores,
-deixadas pro fim; a tela de pausa é onde a escrita das anotações acontece.
+A tela de pausa — a peça que falta: layout de página dupla pra ler as
+anotações já capturadas (e as futuras, escritas ali com o teclado), mais
+senhas/dicas manuais pra cinco jogos pra começar (§4.5/§4.6). É a maior
+peça que resta na Fase 4.

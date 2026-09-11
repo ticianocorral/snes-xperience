@@ -101,6 +101,10 @@ pub enum UiEvent {
     CheatPrev,
     /// Flip the cheat under the cursor — the interruptor itself.
     CheatToggle,
+    /// Screenshot straight into this game's notebook (plan §3.4) — not a
+    /// keepsake of the cabinet, a page for the password/map/progress screen
+    /// on-screen right now.
+    NoteCapture,
     /// Advance a single frame (only acted on while paused).
     FrameStep,
     /// Held state, not an edge — `FastForward` is filtered out of the event
@@ -124,13 +128,14 @@ impl UiEvent {
             UiEvent::CheatNext => "cheat_next",
             UiEvent::CheatPrev => "cheat_prev",
             UiEvent::CheatToggle => "cheat_toggle",
+            UiEvent::NoteCapture => "note_capture",
             UiEvent::FrameStep => "frame_step",
             UiEvent::FastForward => "fast_forward",
             UiEvent::Quit | UiEvent::CloseRequested => return None,
         })
     }
 
-    pub const BINDABLE: [UiEvent; 14] = [
+    pub const BINDABLE: [UiEvent; 15] = [
         UiEvent::Eject,
         UiEvent::ToggleFullscreen,
         UiEvent::Reset,
@@ -143,6 +148,7 @@ impl UiEvent {
         UiEvent::CheatNext,
         UiEvent::CheatPrev,
         UiEvent::CheatToggle,
+        UiEvent::NoteCapture,
         UiEvent::FrameStep,
         UiEvent::FastForward,
     ];
@@ -187,6 +193,7 @@ impl KeyMap {
             (".", UiEvent::CheatNext),
             (",", UiEvent::CheatPrev),
             ("/", UiEvent::CheatToggle),
+            ("N", UiEvent::NoteCapture),
             ("\\", UiEvent::FrameStep),
             ("Tab", UiEvent::FastForward),
         ];

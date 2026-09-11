@@ -28,6 +28,7 @@ struct Args {
     config: Option<PathBuf>,
     save_dir: PathBuf,
     system_dir: PathBuf,
+    notes_dir: PathBuf,
     order: Order,
     runahead: Option<u32>,
     no_scrape: bool,
@@ -46,6 +47,7 @@ fn parse_args() -> Result<Args> {
     let mut config = None;
     let mut save_dir = None;
     let mut system_dir = None;
+    let mut notes_dir = None;
     let mut order = Order::Shelf;
     let mut runahead = None;
     let mut no_scrape = false;
@@ -59,6 +61,7 @@ fn parse_args() -> Result<Args> {
             "--config" => config = Some(val()?.into()),
             "--save-dir" => save_dir = Some(val()?.into()),
             "--system-dir" => system_dir = Some(val()?.into()),
+            "--notes-dir" => notes_dir = Some(val()?.into()),
             "--no-scrape" => no_scrape = true,
             "--order" => {
                 order = match val()?.as_str() {
@@ -85,6 +88,7 @@ fn parse_args() -> Result<Args> {
     let core = core.ok_or_else(|| anyhow!("no core: pass --core or set $XPERIENCE_CORE"))?;
     let save_dir = save_dir.unwrap_or_else(|| data_dir().join("saves"));
     let system_dir = system_dir.unwrap_or_else(|| save_dir.clone());
+    let notes_dir = notes_dir.unwrap_or_else(|| data_dir().join("notes"));
     let catalog = catalog.unwrap_or_else(|| data_dir().join("catalog.db"));
     Ok(Args {
         core,
@@ -92,6 +96,7 @@ fn parse_args() -> Result<Args> {
         config,
         save_dir,
         system_dir,
+        notes_dir,
         order,
         runahead,
         no_scrape,
@@ -109,7 +114,7 @@ no ceremony there.\n\
 Build the catalogue first:  library scan --roms <dir>\n\
 With SS_DEVID / SS_DEVPASSWORD set, the shelf scrapes the focused game;\n\
 --no-scrape turns that off.\n\
-Defaults live under ~/.local/share/snes-xperience/ (catalog.db, saves/).";
+Defaults live under ~/.local/share/snes-xperience/ (catalog.db, saves/, notes/).";
 
 fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
@@ -174,11 +179,13 @@ fn main() -> Result<()> {
             rom,
             system_dir: args.system_dir.clone(),
             save_dir: args.save_dir.clone(),
+            notes_dir: args.notes_dir.clone(),
             runahead: args.runahead,
             shot: None,
             cartridge_label,
             logo,
             shot_off: false,
+            debug_note_capture: false,
         };
         match run_game(&mut plat, &mut cab, &spec, &cfg)? {
             // The power-off ritual (desligar, snow, wait for eject) already
