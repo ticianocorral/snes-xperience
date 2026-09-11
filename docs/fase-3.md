@@ -15,7 +15,7 @@ Progresso:
       zumbido de RF decaindo, assentando num hiss fraco, e corta (§3.3)
 - [x] **"A estante entra por cima"** — os primeiros quadros da estante
       aparecem misturados com o chuvisco residual, não um corte seco
-- [ ] **Teste de duas horas** (§8) — recomendado *antes* de investir em
+- [ ] **Teste de duas horas** (§9) — recomendado *antes* de investir em
       cartucho/console, ver "A seguir"
 - [ ] Cartucho encaixado no console, com o rótulo (`texture` do ScreenScraper)
 - [ ] Botões do console (desligar / ejetar / reset) com trava de ejeção
@@ -71,10 +71,11 @@ headless própria — falta ver ao vivo.
 
 ## A seguir
 
-Recomendação do plano (§8, tabela de risco): fazer o **teste de duas horas**
-agora, com o jogo real, *antes* de investir em cartucho/console — evita
+Recomendação do plano (§7, tabela de risco + §9): fazer o **teste de duas
+horas** agora, com o jogo real, *antes* de investir em cartucho/console — evita
 modelar em cima de uma moldura que cansa em sessão longa. Isso pede jogo ao
-vivo, não dá pra automatizar aqui.
+vivo, não dá pra automatizar aqui. **Pausado aqui por decisão do usuário
+(2026-09-10) até o teste ser feito.**
 
 Depois disso: cartucho encaixado com o rótulo (`texture` do ScreenScraper) e
 botões do console com trava de ejeção — como não há pipeline de arte (Blender)
