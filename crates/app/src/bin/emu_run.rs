@@ -37,6 +37,8 @@ struct Args {
     shot_off: bool,
     /// Headless: force one note capture on the first frame (dev/testing).
     debug_note_capture: bool,
+    /// Headless: preview the pause book instead of gameplay (dev/testing).
+    debug_shot_pause: bool,
 }
 
 fn parse_args() -> Result<Args> {
@@ -53,6 +55,7 @@ fn parse_args() -> Result<Args> {
     let mut logo = None;
     let mut shot_off = false;
     let mut debug_note_capture = false;
+    let mut debug_shot_pause = false;
 
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
@@ -137,6 +140,7 @@ fn parse_args() -> Result<Args> {
                 )
             }
             "--debug-note-capture" => debug_note_capture = true,
+            "--debug-shot-pause" => debug_shot_pause = true,
             "-h" | "--help" => {
                 println!("{}", HELP);
                 std::process::exit(0);
@@ -164,6 +168,7 @@ fn parse_args() -> Result<Args> {
         logo,
         shot_off,
         debug_note_capture,
+        debug_shot_pause,
     })
 }
 
@@ -175,6 +180,7 @@ const HELP: &str = "emu-run --core <lib> --rom <game.sfc> [--system-dir D] [--sa
        [--shot-off]                        with --shot, preview the idle off screen\n\
        [--notes-dir DIR]                   per-ROM notebooks (default: <save-dir>/notes)\n\
        [--debug-note-capture]              force one note capture at --shot-frame (dev/testing)\n\
+       [--debug-shot-pause]                preview the pause book instead of gameplay (dev/testing)\n\
 \n\
 Presentation is fixed: RF NTSC + CRT-tube warp (knobs are consts in the source).\n\
 Battery SRAM and 10 save-state slots live next to --save-dir, keyed by ROM hash.\n\
@@ -187,6 +193,7 @@ default keys: arrows=dpad  Z=B X=A A=Y S=X Q=L W=R  Enter=Start RShift=Select\n\
       Esc=power off (desligar)  E=eject (only once off)\n\
       , / . =cheat cursor  /=toggle cheat (panel, curated games only)\n\
       N=capture into notebook (saved next to --notes-dir, plan §3.4)\n\
+      P=pause: opens the notebook's pages instead of freezing the frame\n\
       Closing the window always quits, on or off — no ceremony.";
 
 fn main() -> Result<()> {
@@ -217,6 +224,7 @@ fn main() -> Result<()> {
         logo: args.logo,
         shot_off: args.shot_off,
         debug_note_capture: args.debug_note_capture,
+        debug_shot_pause: args.debug_shot_pause,
     };
     // Standalone: "back" and "close" both just end the process.
     run_game(&mut platform, &mut cabinet, &spec, &cfg)?;

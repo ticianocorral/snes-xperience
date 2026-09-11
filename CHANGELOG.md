@@ -108,6 +108,13 @@ aviso — só o incremento de _minor_ marca um conjunto de mudanças.
   `~/.local/share/snes-xperience/notes/`; `emu-run`: `<save-dir>/notes`,
   `--notes-dir` sobrescreve). O painel ganhou o item 5 do §3.2: miniatura da
   captura mais recente + contador, ausente por completo sem nada capturado.
+- **Tela de pausa, leitura** (Fase 4, §3.2/§3.4): `P` abre o caderno do jogo
+  em página dupla, sem tubo — não mobília do gabinete, tela própria como o
+  seletor. Esquerda: título + contador de capturas (ou um convite a
+  capturar, sem nenhuma ainda); direita: a captura mais recente, grande.
+  `Cabinet::set_pause_note`/`present_pause`/`capture_pause_bmp` novos.
+  Escrita por teclado (precisa de entrada de texto, que a plataforma ainda
+  não tem) fica pro próximo incremento.
 
 ## [0.1.0] — 2026-09-10
 

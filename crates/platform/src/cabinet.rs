@@ -46,6 +46,15 @@ const CARTRIDGE_IMG: u64 = u64::MAX;
 const PANEL_LOGO_IMG: u64 = u64::MAX - 1;
 /// Reserved image-cache key for the panel's most-recent note thumbnail.
 const PANEL_NOTE_IMG: u64 = u64::MAX - 2;
+/// Reserved image-cache key for the pause book's right-hand page.
+const PAUSE_THUMB_IMG: u64 = u64::MAX - 3;
+
+/// The pause book: two pages, not warped by the tube — a dedicated screen
+/// (plan §3.2/§3.4), not cabinet furniture, so it replaces the whole window
+/// rather than sharing space with the panel/cartridge/brand.
+const PAUSE_MARGIN: f32 = 0.06;
+const PAUSE_GAP: f32 = 0.02;
+const PAUSE_TOP: f32 = 0.08;
 
 /// The side panel: a column of plain widgets beside the tube during play —
 /// not warped, drawn straight on the window (plan §2's presentation order,
@@ -130,6 +139,9 @@ pub struct Cabinet {
     /// Elapsed time to show at the bottom of the panel; the caller updates
     /// this once a frame (`set_session_time`).
     session: Duration,
+    /// The pause book's content (plan §3.2/§3.4), set once on entering pause
+    /// and read every frame while `present_pause` is what's on screen.
+    pause: Option<PauseNote>,
     fullscreen: bool,
 }
 
@@ -138,6 +150,15 @@ pub struct Cabinet {
 struct CartridgeSlot {
     has_image: bool,
     name: String,
+}
+
+/// The pause book, read-only for now (writing is a later increment):
+/// `captures` is how many screenshots this ROM's notebook holds, `has_thumb`
+/// whether the most recent one decoded into an image.
+struct PauseNote {
+    title: String,
+    captures: usize,
+    has_thumb: bool,
 }
 
 /// What to draw at the top of the side panel: the `wheel` logo if we have it,
@@ -228,6 +249,7 @@ impl Cabinet {
             cartridge: None,
             panel: None,
             session: Duration::ZERO,
+            pause: None,
             fullscreen: false,
         })
     }
@@ -320,6 +342,67 @@ impl Cabinet {
     /// frame; it just stores the value for the next present/capture.
     pub fn set_session_time(&mut self, elapsed: Duration) {
         self.session = elapsed;
+    }
+
+    /// Load the pause book's content (plan §3.2/§3.4): call once when pause
+    /// opens, not every frame — `present_pause` just redraws what's already
+    /// set. `thumb` is the notebook's most recent capture, if it has one.
+    pub fn set_pause_note(
+        &mut self,
+        title: &str,
+        captures: usize,
+        thumb: Option<(u32, u32, &[u8])>,
+    ) {
+        let has_thumb = if let Some((w, h, rgba)) = thumb {
+            self.set_image(PAUSE_THUMB_IMG, w, h, rgba);
+            true
+        } else {
+            false
+        };
+        self.pause = Some(PauseNote {
+            title: title.to_string(),
+            captures,
+            has_thumb,
+        });
+    }
+
+    /// Draw the pause book to the window: two pages, not warped by the tube,
+    /// replacing the whole window rather than sharing it with the cabinet
+    /// (plan §3.2/§3.4) — read-only for now, writing is a later increment.
+    pub fn present_pause(&mut self) {
+        let (out_w, out_h) = self.canvas.output_size().unwrap_or((1280, 720));
+        draw_pause_book(
+            &mut self.canvas,
+            &mut self.font,
+            &self.images,
+            self.pause.as_ref(),
+            out_w,
+            out_h,
+        );
+        self.canvas.present();
+    }
+
+    /// Like [`Cabinet::present_pause`] but composited into an offscreen
+    /// target and saved as a BMP (headless preview).
+    pub fn capture_pause_bmp(&mut self, path: &std::path::Path) -> Result<(), PlatformError> {
+        let (out_w, out_h) = self.canvas.output_size().unwrap_or((1280, 720));
+        let mut target = self
+            .canvas
+            .create_texture_target(SdlFormat::RGBA32, out_w, out_h)
+            .map_err(|e| PlatformError::Sdl(e.to_string()))?;
+        let pause = self.pause.as_ref();
+        let font = &mut self.font;
+        let images = &self.images;
+        let mut saved: Result<(), PlatformError> = Ok(());
+        let outcome = self.canvas.with_texture_canvas(&mut target, |c| {
+            draw_pause_book(c, font, images, pause, out_w, out_h);
+            saved = c
+                .read_pixels(None::<Rect>)
+                .and_then(|s| s.save_bmp(path))
+                .map_err(|e| PlatformError::Sdl(e.to_string()));
+        });
+        outcome.map_err(|e| PlatformError::Sdl(e.to_string()))?;
+        saved
     }
 
     /// Size of the recessed screen area — what the selector lays itself out in.
@@ -1391,6 +1474,102 @@ fn draw_panel(
         &stamp,
         usize::MAX,
     );
+}
+
+/// Where the pause book's two pages sit: a symmetric spread with a spine gap
+/// between them, margins all round. Not tied to the tube's geometry — this
+/// screen replaces the whole window (plan §3.2/§3.4).
+fn pause_pages(out_w: u32, out_h: u32) -> (Rect, Rect) {
+    let margin = (out_w as f32 * PAUSE_MARGIN) as i32;
+    let gap = (out_w as f32 * PAUSE_GAP) as i32;
+    let top = (out_h as f32 * PAUSE_TOP) as i32;
+    let page_w = ((out_w as i32 - 2 * margin - gap) / 2).max(32) as u32;
+    let page_h = (out_h as i32 - 2 * top).max(32) as u32;
+    let left = Rect::new(margin, top, page_w, page_h);
+    let right = Rect::new(margin + page_w as i32 + gap, top, page_w, page_h);
+    (left, right)
+}
+
+/// Draw the pause book: left page is the notebook's status (how many pages
+/// captured so far, or a hint if there are none), right page is the most
+/// recent capture, full-size. `None` (shouldn't happen — always set before
+/// `present_pause`/`capture_pause_bmp` are called) draws nothing.
+fn draw_pause_book(
+    canvas: &mut WindowCanvas,
+    font: &mut Texture,
+    images: &HashMap<u64, ImgTex>,
+    pause: Option<&PauseNote>,
+    out_w: u32,
+    out_h: u32,
+) {
+    canvas.set_draw_color(Color::RGB(CABINET.0, CABINET.1, CABINET.2));
+    let _ = canvas.fill_rect(Rect::new(0, 0, out_w, out_h));
+    let Some(pause) = pause else { return };
+
+    let (left, right) = pause_pages(out_w, out_h);
+    for page in [left, right] {
+        canvas.set_draw_color(Color::RGB(PANEL_BG.0, PANEL_BG.1, PANEL_BG.2));
+        let _ = canvas.fill_rect(page);
+    }
+
+    let pad = 24i32;
+    let lx = left.x() + pad;
+    let ly = left.y() + pad;
+    let lw = left.width().saturating_sub(pad as u32 * 2);
+    let mut cy = draw_text_wrapped_absolute(
+        canvas,
+        font,
+        lx,
+        ly,
+        lw,
+        TextStyle::new(2, PANEL_TEXT),
+        &pause.title,
+    );
+    cy += 16;
+    draw_text_absolute(
+        canvas,
+        font,
+        lx,
+        cy,
+        TextStyle::new(1, PANEL_DIM),
+        "anotacoes",
+        usize::MAX,
+    );
+    cy += GLYPH as i32 + 8;
+    let status = if pause.captures == 0 {
+        "Sem anotacoes ainda. Aperte N pra capturar a tela.".to_string()
+    } else if pause.captures == 1 {
+        "1 captura salva.".to_string()
+    } else {
+        format!("{} capturas salvas.", pause.captures)
+    };
+    draw_text_wrapped_absolute(
+        canvas,
+        font,
+        lx,
+        cy,
+        lw,
+        TextStyle::new(1, PANEL_TEXT),
+        &status,
+    );
+
+    let rx = right.x() + pad;
+    let ry = right.y() + pad;
+    let rw = right.width().saturating_sub(pad as u32 * 2);
+    let rh = right.height().saturating_sub(pad as u32 * 2);
+    if pause.has_thumb {
+        draw_image_absolute(canvas, images, PAUSE_THUMB_IMG, rx, ry, rw, rh);
+    } else {
+        draw_text_absolute(
+            canvas,
+            font,
+            rx,
+            ry,
+            TextStyle::new(1, PANEL_DIM),
+            "pagina em branco",
+            usize::MAX,
+        );
+    }
 }
 
 /// Build a textured grid over `dst` whose vertex positions are barrel-distorted

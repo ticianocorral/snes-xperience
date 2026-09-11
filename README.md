@@ -17,8 +17,9 @@ duas horas do plano (§9), e leva o selo "SNES Xperience" no queixo do
 gabinete. Da Fase 4 já existe o painel lateral (logo do jogo ou nome,
 legenda dos comandos do console, cheats com interruptor para os jogos do
 catálogo, captura de tela pro caderno de cada jogo, tempo de sessão) ao
-lado do tubo durante a partida. Falta a tela de pausa (onde anotações
-longas e senhas se leem e se escrevem) e a tabela manual de senhas/dicas.
+lado do tubo durante a partida, e a tela de pausa (`P`) folheia o caderno
+de cada jogo em página dupla. Falta a escrita de anotações por teclado e a
+tabela manual de senhas/dicas.
 
 ## Arquitetura
 
@@ -71,8 +72,10 @@ pra estante; tentar ejetar ligado só resiste com um "clunk". `Backspace`
 reseta o jogo sem sair da tela. `,`/`.` movem o cursor na lista de cheats do
 painel (quando o jogo tem algum curado) e `/` liga/desliga o selecionado.
 `N` salva a tela atual no caderno daquele jogo (markdown + PNG em
-`~/.local/share/snes-xperience/notes/`). `Esc` (ou fechar a janela) na
-estante encerra; fechar a janela do jogo também encerra, sem cerimônia.
+`~/.local/share/snes-xperience/notes/`). `P` abre o caderno em página
+dupla no lugar do jogo congelado; `P` de novo volta a jogar. `Esc` (ou
+fechar a janela) na estante encerra; fechar a janela do jogo também
+encerra, sem cerimônia.
 Catálogo e saves ficam em `~/.local/share/snes-xperience/`. Para rodar uma
 ROM solta sem catálogo, use `emu-run` (ver Fase 0).
 

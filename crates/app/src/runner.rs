@@ -65,6 +65,10 @@ pub struct GameSpec {
     /// frame 1 without one), exactly like a live `N` press — so `--shot` can
     /// prove out the panel's notebook block without a window.
     pub debug_note_capture: bool,
+    /// Headless self-check: skip straight to the pause book (plan §3.2/§3.4)
+    /// instead of gameplay, so `--shot` can prove it out against whatever
+    /// notes already exist on disk for this ROM.
+    pub debug_shot_pause: bool,
 }
 
 const PAD: [(Button, xperience_platform::PadButton); 12] = {
@@ -322,18 +326,45 @@ fn refresh_notes(cab: &mut Cabinet, notes_dir: &Path, hash: &Option<String>) {
         cab.set_notes(0, None);
         return;
     };
-    let mut names: Vec<std::ffi::OsString> = fs::read_dir(notes_dir.join(hash))
-        .map(|rd| rd.filter_map(|e| e.ok()).map(|e| e.file_name()).collect())
-        .unwrap_or_default();
-    names.sort();
-    let count = names.len();
-    match names
-        .last()
-        .map(|n| decode_art(&notes_dir.join(hash).join(n), 200))
-    {
+    let count = count_note_images(notes_dir, hash);
+    match latest_note_image_path(notes_dir, hash).map(|p| decode_art(&p, 200)) {
         Some(Ok((w, h, rgba))) => cab.set_notes(count, Some((w, h, &rgba))),
         _ => cab.set_notes(count, None),
     }
+}
+
+/// How many captures a ROM's notebook holds — a count of image files, not a
+/// markdown parse, so it stays right even before free-text writing exists.
+fn count_note_images(notes_dir: &Path, hash: &str) -> usize {
+    fs::read_dir(notes_dir.join(hash))
+        .map(|rd| rd.filter_map(|e| e.ok()).count())
+        .unwrap_or(0)
+}
+
+/// The most recently captured page, by filename — capture names are
+/// timestamps, so the last one sorted is the newest.
+fn latest_note_image_path(notes_dir: &Path, hash: &str) -> Option<PathBuf> {
+    let dir = notes_dir.join(hash);
+    let mut names: Vec<std::ffi::OsString> = fs::read_dir(&dir)
+        .map(|rd| rd.filter_map(|e| e.ok()).map(|e| e.file_name()).collect())
+        .unwrap_or_default();
+    names.sort();
+    names.last().map(|n| dir.join(n))
+}
+
+/// Everything the pause book needs to show (plan §3.2/§3.4, read-only for
+/// now): how many pages this ROM's notebook has, and the most recent one
+/// decoded big enough for the right-hand page.
+fn load_pause_note(
+    notes_dir: &Path,
+    hash: &Option<String>,
+) -> (usize, Option<(u32, u32, Vec<u8>)>) {
+    let Some(hash) = hash else {
+        return (0, None);
+    };
+    let captures = count_note_images(notes_dir, hash);
+    let thumb = latest_note_image_path(notes_dir, hash).and_then(|p| decode_art(&p, 900).ok());
+    (captures, thumb)
 }
 
 /// Load the core + ROM and run until the player leaves, drawing into `cab` (the
@@ -478,6 +509,24 @@ pub fn run_game(
         return Ok(GameExit::Quit);
     }
 
+    // Headless self-check: skip straight to the pause book, against whatever
+    // notes already exist on disk for this ROM (build them with a separate
+    // --debug-note-capture run first).
+    if spec.debug_shot_pause {
+        if let Some((path, _)) = &spec.shot {
+            let (captures, thumb) = load_pause_note(&spec.notes_dir, &rom_hash);
+            cab.set_pause_note(
+                &title,
+                captures,
+                thumb.as_ref().map(|(w, h, d)| (*w, *h, d.as_slice())),
+            );
+            cab.capture_pause_bmp(path)
+                .map_err(|e| anyhow!(e.to_string()))?;
+            log::info!("wrote {} (pause book preview)", path.display());
+        }
+        return Ok(GameExit::Quit);
+    }
+
     // --- audio -----------------------------------------------------------
     let audio = plat
         .open_audio(av.sample_rate.round().max(8000.0) as u32)
@@ -549,6 +598,16 @@ pub fn run_game(
                 }
                 UiEvent::TogglePause if powered => {
                     paused = !paused;
+                    if paused {
+                        // Load once on the way in; present_pause just
+                        // redraws it every frame (plan §3.2/§3.4).
+                        let (captures, thumb) = load_pause_note(&spec.notes_dir, &rom_hash);
+                        cab.set_pause_note(
+                            &title,
+                            captures,
+                            thumb.as_ref().map(|(w, h, d)| (*w, *h, d.as_slice())),
+                        );
+                    }
                     log::info!("{}", if paused { "paused" } else { "resumed" });
                 }
                 UiEvent::NextSlot if powered => {
@@ -746,6 +805,15 @@ pub fn run_game(
             // Periodically flush battery SRAM if it changed.
             if frames.is_multiple_of(SRAM_FLUSH_FRAMES) {
                 flush_sram(&sram_path, &mut last_sram, core.sram());
+            }
+        } else {
+            // Paused, not stepping: the book, not a frozen game frame.
+            cab.present_pause();
+            if let Some(path) = shot_request.take() {
+                match cab.capture_pause_bmp(&path) {
+                    Ok(_) => log::info!("screenshot -> {}", path.display()),
+                    Err(e) => log::warn!("screenshot failed: {e}"),
+                }
             }
         }
 

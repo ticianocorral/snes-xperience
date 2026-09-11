@@ -11,8 +11,10 @@ Progresso:
 - [x] **Cheats com interruptor** (`cht` do libretro-database, §4.4)
 - [x] **Captura de tela pro caderno** (§3.4) — falta só a leitura/escrita
       longa, que é item da tela de pausa, abaixo
-- [ ] Tela de pausa (layout de página dupla; é onde anotações/senhas longas
-      se leem e se escrevem)
+- [x] **Tela de pausa (leitura)** — página dupla, sem tubo, mostra o caderno
+      do jogo; a escrita por teclado fica pro próximo incremento
+- [ ] Tela de pausa (escrita) — subsistema de entrada de texto, ainda não
+      existe no app
 - [ ] Senhas e dicas — tabela manual, cinco jogos pra começar (§4.5/§4.6)
 
 ## Desvio deliberado do §3.2
@@ -153,6 +155,27 @@ apagado, a miniatura da captura mais recente (a mesma arte do cartucho/logo,
 letterboxed) e "N captura(s)" — **some por completo** sem nenhuma capturada
 ainda, nada de "0 anotações" ocupando espaço à toa.
 
+## Tela de pausa — leitura (§3.2/§3.4)
+
+Fatiada com o usuário: leitura primeiro, escrita (que precisa de um
+subsistema de entrada de texto que o app ainda não tem — hoje só existem
+teclas discretas, não digitação livre) fica pra um incremento à parte.
+
+`P` (a mesma tecla de sempre) agora abre o caderno em vez de só congelar o
+quadro do jogo: página dupla, **sem tubo** — cartucho, painel e o próprio
+gabinete somem, é uma tela dedicada (a mesma lógica do seletor: sua própria
+apresentação, não mobília por cima do jogo). Esquerda mostra o título e
+quantas capturas o caderno tem ("Sem anotações ainda. Aperte N pra capturar
+a tela." se for zero); direita mostra a captura mais recente, grande,
+letterboxed. `P` de novo volta pro jogo congelado, do jeito que já era.
+
+`Cabinet::set_pause_note` carrega o conteúdo uma vez, ao entrar na pausa —
+não a cada quadro, os frames enquanto pausado só redesenham o que já foi
+carregado (`present_pause`/`capture_pause_bmp`, mesmo par presente/capture
+headless dos outros estados). Reaproveita `decode_art` (o mesmo decodificador
+do cartucho/logo/miniatura do painel) num tamanho maior, e as funções de
+texto absolutas de sempre — nada de biblioteca de UI nova.
+
 ## Verificado
 
 - `emu-run --shot --cartridge-label` (sem `--logo`): painel com o título
@@ -181,11 +204,20 @@ ainda, nada de "0 anotações" ocupando espaço à toa.
   captura no mesmo segundo pra confirmar que os nomes de arquivo não colidem
 - fmt / clippy / 15 suítes, +2 testes novos (`frame_to_rgb8` decodifica o
   bit layout RGB565 certo; captura grava markdown + PNG e não sobrescreve
-  numa colisão de timestamp) — verdes, nesta entrega
+  numa colisão de timestamp) — verdes, na entrega da captura
+- `emu-run --shot --debug-shot-pause` sem nenhuma captura ainda: página dupla,
+  "Sem anotações ainda. Aperte N pra capturar a tela." à esquerda, "pagina em
+  branco" à direita
+- Mesmo teste depois de um `--debug-note-capture` real (Aladdin, frame 60):
+  "1 captura salva." à esquerda, a tela do Capcom/Disney grande e legível à
+  direita — sem tubo, sem NTSC, só a imagem
+- fmt / clippy / 15 suítes — verdes, na entrega da tela de pausa
 
 ## A seguir
 
-A tela de pausa — a peça que falta: layout de página dupla pra ler as
-anotações já capturadas (e as futuras, escritas ali com o teclado), mais
-senhas/dicas manuais pra cinco jogos pra começar (§4.5/§4.6). É a maior
-peça que resta na Fase 4.
+Escrita na pausa: precisa de um subsistema de entrada de texto que a
+plataforma ainda não tem (`Platform::poll` só traduz teclas discretas via
+`KeyMap` — nada de captura de texto livre/Unicode). Depois disso, o texto
+digitado entra no `.md` ao lado das capturas. Por fim, senhas/dicas manuais
+pra cinco a dez jogos (§4.5/§4.6) — conteúdo que preciso escrever com o
+usuário, não vou inventar senha de jogo.

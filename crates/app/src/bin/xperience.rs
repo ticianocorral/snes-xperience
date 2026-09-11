@@ -186,6 +186,7 @@ fn main() -> Result<()> {
             logo,
             shot_off: false,
             debug_note_capture: false,
+            debug_shot_pause: false,
         };
         match run_game(&mut plat, &mut cab, &spec, &cfg)? {
             // The power-off ritual (desligar, snow, wait for eject) already
