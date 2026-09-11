@@ -60,8 +60,8 @@ fn main() -> Result<()> {
         fade_in: None,
     };
     match shelf::run(&mut plat, &mut cab, &catalog, &opts)? {
-        Pick::Play(path) => {
-            println!("{}", path.display());
+        Pick::Play { rom, .. } => {
+            println!("{}", rom.display());
             Ok(())
         }
         // The `--frames` smoke test ends here too; that's a clean exit, not a cancel.

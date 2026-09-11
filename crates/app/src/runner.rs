@@ -41,6 +41,9 @@ pub struct GameSpec {
     pub runahead: Option<u32>,
     /// Headless self-check: `(path, frame)` — run to `frame`, dump a BMP, exit.
     pub shot: Option<(PathBuf, u32)>,
+    /// Cartridge label art (ScreenScraper `texture`) for the slot on the
+    /// cabinet. `None` shows the ROM's name instead (plan §3.2/§4.3).
+    pub cartridge_label: Option<PathBuf>,
 }
 
 const PAD: [(Button, xperience_platform::PadButton); 12] = {
@@ -71,6 +74,14 @@ fn map_format(f: EmuFormat) -> PlatFormat {
 
 fn state_file(hash: &Option<String>, dir: &Path, slot: u8) -> Option<PathBuf> {
     hash.as_ref().map(|h| dir.join(format!("{h}.state{slot}")))
+}
+
+/// Decode the cartridge label art (ScreenScraper `texture`) small enough for
+/// its slot on the cabinet.
+fn decode_cartridge_label(path: &Path) -> Result<(u32, u32, Vec<u8>)> {
+    let img = image::open(path)?.thumbnail(300, 300).to_rgba8();
+    let (w, h) = img.dimensions();
+    Ok((w, h, img.into_raw()))
 }
 
 /// Seconds since the epoch, for screenshot filenames.
@@ -153,6 +164,24 @@ pub fn run_game(
         av.fps,
         av.sample_rate
     );
+
+    // --- cartridge in the slot (plan §3.2/§4.3) --------------------------
+    let cart_name = spec
+        .rom
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "???".to_string());
+    if let Some(label_path) = &spec.cartridge_label {
+        match decode_cartridge_label(label_path) {
+            Ok((w, h, rgba)) => cab.set_cartridge(Some((w, h, &rgba)), &cart_name),
+            Err(e) => {
+                log::warn!("cartridge label {}: {e}", label_path.display());
+                cab.set_cartridge(None, &cart_name);
+            }
+        }
+    } else {
+        cab.set_cartridge(None, &cart_name);
+    }
 
     // --- audio -----------------------------------------------------------
     let audio = plat

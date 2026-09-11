@@ -27,6 +27,8 @@ struct Args {
     /// Headless self-check: run N frames, save the composited window, exit.
     shot: Option<PathBuf>,
     shot_frame: u32,
+    /// Cartridge label art for the slot on the cabinet (dev/testing).
+    cartridge_label: Option<PathBuf>,
 }
 
 fn parse_args() -> Result<Args> {
@@ -38,6 +40,7 @@ fn parse_args() -> Result<Args> {
     let mut runahead = None;
     let mut shot = None;
     let mut shot_frame = 180u32;
+    let mut cartridge_label = None;
 
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
@@ -99,6 +102,13 @@ fn parse_args() -> Result<Args> {
                     .parse()
                     .map_err(|_| anyhow!("--shot-frame wants a number"))?
             }
+            "--cartridge-label" => {
+                cartridge_label = Some(
+                    it.next()
+                        .ok_or_else(|| anyhow!("--cartridge-label needs a path (image)"))?
+                        .into(),
+                )
+            }
             "-h" | "--help" => {
                 println!("{}", HELP);
                 std::process::exit(0);
@@ -120,12 +130,14 @@ fn parse_args() -> Result<Args> {
         runahead,
         shot,
         shot_frame,
+        cartridge_label,
     })
 }
 
 const HELP: &str = "emu-run --core <lib> --rom <game.sfc> [--system-dir D] [--save-dir D]\n\
        [--config config.toml] [--runahead N]\n\
        [--shot out.bmp [--shot-frame N]]   headless: run N frames, dump one, exit\n\
+       [--cartridge-label img.png]         show a label in the cabinet's slot\n\
 \n\
 Presentation is fixed: RF NTSC + CRT-tube warp (knobs are consts in the source).\n\
 Battery SRAM and 10 save-state slots live next to --save-dir, keyed by ROM hash.\n\
@@ -159,6 +171,7 @@ fn main() -> Result<()> {
         save_dir: args.save_dir,
         runahead: args.runahead,
         shot: args.shot.map(|p| (p, args.shot_frame)),
+        cartridge_label: args.cartridge_label,
     };
     // Standalone: "back" and "close" both just end the process.
     run_game(&mut platform, &mut cabinet, &spec, &cfg)?;

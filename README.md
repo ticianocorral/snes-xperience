@@ -9,9 +9,11 @@ com vídeo, som, gamepad, save state, SRAM e run-ahead, visual fixo NTSC RF + tu
 CRT. A Fase 2 entregou o catálogo (`library`), a estante na tela (`selector`:
 capas, navegação por gamepad, busca, scrape sob demanda, ficha com logo e sinopse
 rolante) e o binário `xperience`, que junta estante → jogo → estante num processo
-só. Da Fase 3 já existe o gabinete escuro atrás do tubo — a tela do jogo fica
-recuada nele. Falta a estante dentro do mesmo gabinete, o sinal off, o cartucho e
-os botões do console.
+só. Da Fase 3 já existem o gabinete escuro atrás do tubo, a janela única (estante
+e jogo no mesmo gabinete, sem recriar), a estante deformada pelo mesmo tubo do
+jogo, a sequência de sinal off entre as telas e o cartucho no slot com o rótulo.
+Falta o teste de duas horas (em andamento) e os botões do console com trava de
+ejeção.
 
 ## Arquitetura
 

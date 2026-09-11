@@ -34,6 +34,13 @@ const BEZEL_CHIN: f32 = 0.110;
 const CABINET: (u8, u8, u8) = (40, 37, 33);
 /// The lip right against the glass, in shadow.
 const RECESS: (u8, u8, u8) = (4, 4, 5);
+/// Cartridge shell / rim — a touch warmer than the cabinet so it reads as its
+/// own object sitting in the slot, not part of the cabinet face (plan §3.2).
+const CART_SHELL: (u8, u8, u8) = (54, 46, 40);
+const CART_RIM: (u8, u8, u8) = (96, 86, 72);
+/// Reserved image-cache key for the current cartridge's label art. Distinct
+/// from any `Screen::set_image` id a caller might use.
+const CARTRIDGE_IMG: u64 = u64::MAX;
 
 /// 8x8 glyph cell, before scaling.
 const GLYPH: u32 = 8;
@@ -92,7 +99,17 @@ pub struct Cabinet {
     images: HashMap<u64, ImgTex>,
     /// The current inner-screen rect (the tube opening).
     screen: Rect,
+    /// The cartridge "inserted" in the slot (game path only). `None` = no game
+    /// running right now, so nothing is drawn.
+    cartridge: Option<CartridgeSlot>,
     fullscreen: bool,
+}
+
+/// What to draw in the cartridge slot: the label art if we have it, else just
+/// the ROM's name.
+struct CartridgeSlot {
+    has_image: bool,
+    name: String,
 }
 
 struct SrcTexture {
@@ -163,6 +180,7 @@ impl Cabinet {
             font,
             images: HashMap::new(),
             screen: screen_area(w, h),
+            cartridge: None,
             fullscreen: false,
         })
     }
@@ -170,6 +188,23 @@ impl Cabinet {
     pub fn toggle_fullscreen(&mut self) {
         self.fullscreen = !self.fullscreen;
         let _ = self.canvas.window_mut().set_fullscreen(self.fullscreen);
+    }
+
+    /// Show the cartridge in its slot on the cabinet during play: `label`
+    /// (width, height, RGBA) is the scraped `texture` art if there is one,
+    /// else the slot falls back to `name` in text. Call once per game; the
+    /// cabinet keeps showing it until the next `set_cartridge` call.
+    pub fn set_cartridge(&mut self, label: Option<(u32, u32, &[u8])>, name: &str) {
+        let has_image = if let Some((w, h, rgba)) = label {
+            self.set_image(CARTRIDGE_IMG, w, h, rgba);
+            true
+        } else {
+            false
+        };
+        self.cartridge = Some(CartridgeSlot {
+            has_image,
+            name: name.to_string(),
+        });
     }
 
     /// Size of the recessed screen area — what the selector lays itself out in.
@@ -191,6 +226,7 @@ impl Cabinet {
             .output_size()
             .unwrap_or((frame.width, frame.height));
         let screen = screen_area(out_w, out_h);
+        self.screen = screen;
         let dst = fit_aspect_in(screen, resolve_aspect(aspect_ratio));
         self.ensure_mesh(dst);
         self.ensure_bezel(out_w, out_h, dst);
@@ -212,6 +248,12 @@ impl Cabinet {
         self.mesh = Some(mesh);
         self.bezel = Some(bezel);
 
+        if let (Some(cart), Some(rect)) = (
+            &self.cartridge,
+            cartridge_slot_rect(self.screen, out_w, out_h),
+        ) {
+            draw_cartridge_slot(&mut self.canvas, &mut self.font, &self.images, cart, rect);
+        }
         self.canvas.present();
     }
 
@@ -232,6 +274,7 @@ impl Cabinet {
             .output_size()
             .unwrap_or((frame.width, frame.height));
         let screen = screen_area(out_w, out_h);
+        self.screen = screen;
         let dst = fit_aspect_in(screen, resolve_aspect(aspect_ratio));
         self.ensure_mesh(dst);
         self.ensure_bezel(out_w, out_h, dst);
@@ -244,12 +287,21 @@ impl Cabinet {
         let src = self.src.take().unwrap();
         let mesh = self.mesh.take().unwrap();
         let bezel = self.bezel.take().unwrap();
+        let cart_draw = self
+            .cartridge
+            .as_ref()
+            .zip(cartridge_slot_rect(self.screen, out_w, out_h));
+        let font = &mut self.font;
+        let images = &self.images;
         let mut saved: Result<(), PlatformError> = Ok(());
         let outcome = self.canvas.with_texture_canvas(&mut target, |c| {
             c.set_draw_color(Color::RGB(RECESS.0, RECESS.1, RECESS.2));
             c.clear();
             let _ = c.render_geometry(&mesh.verts, Some(&src.tex), &mesh.indices[..]);
             let _ = c.render_geometry(&bezel.verts, None, &bezel.indices[..]);
+            if let Some((cart, rect)) = cart_draw {
+                draw_cartridge_slot(c, font, images, cart, rect);
+            }
             saved = c
                 .read_pixels(None::<Rect>)
                 .and_then(|s| s.save_bmp(path))
@@ -753,6 +805,122 @@ fn build_bezel_mesh(out_w: u32, out_h: u32, screen: Rect, key: (u32, u32, u32, u
         verts,
         indices,
         key,
+    }
+}
+
+/// Where the cartridge slot sits: the cabinet's chin, right-aligned. `None` if
+/// the window is too short for the chin to hold anything.
+fn cartridge_slot_rect(screen: Rect, out_w: u32, out_h: u32) -> Option<Rect> {
+    let chin_top = screen.bottom();
+    let chin_h = out_h as i32 - chin_top;
+    if chin_h < 24 {
+        return None;
+    }
+    let h = ((chin_h as f32) * 0.62) as u32;
+    let w = ((h as f32) * 1.35) as u32;
+    let margin = 16i32;
+    let x = out_w as i32 - margin - w as i32;
+    let y = chin_top + (chin_h - h as i32) / 2;
+    Some(Rect::new(x, y, w, h))
+}
+
+/// Draw the cartridge slot — a small shell with the label art or, failing
+/// that, the ROM's name. Cabinet furniture: not warped by the tube, drawn
+/// straight on whatever `canvas` currently targets (live window or an
+/// offscreen capture target — same call either way).
+fn draw_cartridge_slot(
+    canvas: &mut WindowCanvas,
+    font: &mut Texture,
+    images: &HashMap<u64, ImgTex>,
+    cart: &CartridgeSlot,
+    rect: Rect,
+) {
+    canvas.set_draw_color(Color::RGB(CART_RIM.0, CART_RIM.1, CART_RIM.2));
+    let _ = canvas.fill_rect(Rect::new(
+        rect.x() - 3,
+        rect.y() - 3,
+        rect.width() + 6,
+        rect.height() + 6,
+    ));
+    canvas.set_draw_color(Color::RGB(CART_SHELL.0, CART_SHELL.1, CART_SHELL.2));
+    let _ = canvas.fill_rect(rect);
+
+    if cart.has_image {
+        draw_image_absolute(
+            canvas,
+            images,
+            CARTRIDGE_IMG,
+            rect.x() + 4,
+            rect.y() + 4,
+            rect.width().saturating_sub(8),
+            rect.height().saturating_sub(8),
+        );
+    } else {
+        let max_chars = (rect.width().saturating_sub(10) / GLYPH).max(1) as usize;
+        draw_text_absolute(
+            canvas,
+            font,
+            rect.x() + 5,
+            rect.y() + rect.height() as i32 / 2 - 4,
+            (220, 210, 190),
+            &cart.name,
+            max_chars,
+        );
+    }
+}
+
+/// Like `Screen::image_fit`, but at absolute window coordinates instead of
+/// offset into the 2D screen buffer — for cabinet furniture like the cartridge.
+fn draw_image_absolute(
+    canvas: &mut WindowCanvas,
+    images: &HashMap<u64, ImgTex>,
+    id: u64,
+    x: i32,
+    y: i32,
+    bw: u32,
+    bh: u32,
+) {
+    let Some(img) = images.get(&id) else {
+        return;
+    };
+    let (iw, ih) = (img.w as f32, img.h as f32);
+    let scale = (bw as f32 / iw).min(bh as f32 / ih);
+    let dw = (iw * scale).round() as i32;
+    let dh = (ih * scale).round() as i32;
+    let dx = x + (bw as i32 - dw) / 2;
+    let dy = y + (bh as i32 - dh) / 2;
+    let _ = canvas.copy(
+        &img.tex,
+        None::<sdl3::render::FRect>,
+        Rect::new(dx, dy, dw.max(1) as u32, dh.max(1) as u32),
+    );
+}
+
+/// A single line of 8px text at absolute window coordinates, truncated to
+/// `max_chars` — for cabinet furniture that isn't inside a `Screen`.
+fn draw_text_absolute(
+    canvas: &mut WindowCanvas,
+    font: &mut Texture,
+    x: i32,
+    y: i32,
+    c: (u8, u8, u8),
+    s: &str,
+    max_chars: usize,
+) {
+    font.set_color_mod(c.0, c.1, c.2);
+    let mut pen = x;
+    for ch in s.chars().take(max_chars) {
+        let idx = if (ch as u32) < 128 {
+            ch as u32
+        } else {
+            b'?' as u32
+        };
+        if ch != ' ' {
+            let src = Rect::new(idx as i32 * GLYPH as i32, 0, GLYPH, GLYPH);
+            let dst = Rect::new(pen, y, GLYPH, GLYPH);
+            let _ = canvas.copy(font, src, dst);
+        }
+        pen += GLYPH as i32;
     }
 }
 

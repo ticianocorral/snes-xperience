@@ -39,7 +39,12 @@ const SYNOPSIS_HOLD_FRAMES: u32 = 80;
 /// What the player did on the shelf.
 pub enum Pick {
     /// Launch this ROM (already marked played in the catalogue).
-    Play(PathBuf),
+    Play {
+        rom: PathBuf,
+        /// The cartridge label (`texture` media), if scraped — for the
+        /// cartridge-in-slot on the cabinet during play (plan §3.2/§4.3).
+        texture: Option<PathBuf>,
+    },
     /// Cancelled — quit the app.
     Quit,
 }
@@ -278,7 +283,15 @@ pub fn run(
                 MenuNav::Confirm => {
                     if let Some(e) = view.get(sel) {
                         let _ = catalog.mark_played(&e.rom.sha1);
-                        return Ok(Pick::Play(PathBuf::from(&e.rom.path)));
+                        let texture = e
+                            .meta
+                            .as_ref()
+                            .and_then(|m| m.texture_path.clone())
+                            .map(PathBuf::from);
+                        return Ok(Pick::Play {
+                            rom: PathBuf::from(&e.rom.path),
+                            texture,
+                        });
                     }
                 }
                 _ => {}

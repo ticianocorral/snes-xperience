@@ -157,9 +157,9 @@ fn main() -> Result<()> {
     };
 
     loop {
-        let rom = match shelf::run(&mut plat, &mut cab, &catalog, &shelf_opts)? {
+        let (rom, cartridge_label) = match shelf::run(&mut plat, &mut cab, &catalog, &shelf_opts)? {
             Pick::Quit => break,
-            Pick::Play(p) => p,
+            Pick::Play { rom, texture } => (rom, texture),
         };
         shelf_opts.fade_in = None; // consumed
         let spec = GameSpec {
@@ -169,6 +169,7 @@ fn main() -> Result<()> {
             save_dir: args.save_dir.clone(),
             runahead: args.runahead,
             shot: None,
+            cartridge_label,
         };
         match run_game(&mut plat, &mut cab, &spec, &cfg)? {
             GameExit::ToShelf => {

@@ -59,6 +59,12 @@ aviso — só o incremento de _minor_ marca um conjunto de mudanças.
   chuvisco em que parou; os 18 primeiros quadros da estante seguinte usam
   `Cabinet::frame_2d_fade_in`, que compõe o chuvisco e a estante juntos (alfa
   da estante subindo por quadro) em vez de cortar direto pra tela limpa.
+- **Cartucho no slot** (Fase 3): durante o jogo, `Cabinet::set_cartridge`
+  mostra o rótulo (`texture` do ScreenScraper) ou, sem ele, o nome da ROM —
+  nunca fica ausente. Procedural (retângulo + arte/texto), mobília do
+  gabinete, não passa pelo tubo. A estante manda o `texture_path` escolhido em
+  `Pick::Play { texture, .. }`. `emu-run --cartridge-label img.png` testa sem
+  catálogo.
 
 ## [0.1.0] — 2026-09-10
 

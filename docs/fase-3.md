@@ -15,9 +15,9 @@ Progresso:
       zumbido de RF decaindo, assentando num hiss fraco, e corta (§3.3)
 - [x] **"A estante entra por cima"** — os primeiros quadros da estante
       aparecem misturados com o chuvisco residual, não um corte seco
-- [ ] **Teste de duas horas** (§9) — recomendado *antes* de investir em
-      cartucho/console, ver "A seguir"
-- [ ] Cartucho encaixado no console, com o rótulo (`texture` do ScreenScraper)
+- [x] **Cartucho no slot** — procedural (sem Blender): rótulo `texture` do
+      ScreenScraper quando existe, senão o nome da ROM. Nunca ausente.
+- [ ] **Teste de duas horas** (§9) — em andamento pelo usuário
 - [ ] Botões do console (desligar / ejetar / reset) com trava de ejeção
 
 ## `Cabinet` (`xperience-platform::cabinet`)
@@ -57,12 +57,31 @@ um: o chuvisco pela malha CRT (alfa 1.0) e por cima a estante pela mesma malha
 com alfa 0..1 crescendo por quadro (precisa de `BlendMode::Blend` na textura da
 tela). Depois do quadro 18, volta pro `frame_2d` normal.
 
+## Cartucho no slot (`Cabinet::set_cartridge`)
+
+Puramente procedural, como o gabinete — sem depender de arte 3D. Um retângulo
+("casca" + friso, cores `CART_SHELL`/`CART_RIM`) no queixo do gabinete,
+canto inferior direito, do tamanho de ~62 % da altura do queixo:
+
+- Com rótulo (`texture` do ScreenScraper, escolhido na estante e passado pelo
+  `Pick::Play { texture, .. }`): a arte decodificada (`image`, ≤300 px) dentro
+  da casca, redimensionada mantendo proporção.
+- Sem rótulo: o nome da ROM (`file_stem`) em texto, truncado pra caber.
+- **Nunca ausente** — mesmo sem scrape, o slot mostra o nome (plano §3.2: "nunca
+  é o primeiro item a ser cortado").
+
+É mobília do gabinete, não passa pelo tubo — desenhada direto na janela, tanto
+em `present_frame` quanto em `capture_bmp` (mesmas funções livres
+`draw_cartridge_slot` / `cartridge_slot_rect`, chamadas nos dois caminhos).
+`emu-run --cartridge-label img.png` deixa testar sem catálogo.
+
 ## Verificado
 
 - `emu-run --shot` — jogo pelo gabinete, idêntico
-- `selector --frames --shot` — estante **pelo tubo**, antes e depois de ligar
-  `BlendMode::Blend` na textura da tela (BMP idêntico — sem regressão no
-  caminho normal)
+- `emu-run --shot --cartridge-label` — rótulo no slot, e sem a flag, nome em
+  texto — os dois caminhos headless, com e sem arte
+- `selector --frames --shot` — estante pelo tubo, **byte a byte idêntica** ao
+  shot anterior (sem regressão das mudanças de blend/cartucho no caminho 2D)
 - testes de `screen_area` / `fit_aspect_in` / `wrapped_height`
 
 O chuvisco, o zumbido e a mistura de entrada usam o mesmo caminho de composição
@@ -71,12 +90,7 @@ headless própria — falta ver ao vivo.
 
 ## A seguir
 
-Recomendação do plano (§7, tabela de risco + §9): fazer o **teste de duas
-horas** agora, com o jogo real, *antes* de investir em cartucho/console — evita
-modelar em cima de uma moldura que cansa em sessão longa. Isso pede jogo ao
-vivo, não dá pra automatizar aqui. **Pausado aqui por decisão do usuário
-(2026-09-10) até o teste ser feito.**
-
-Depois disso: cartucho encaixado com o rótulo (`texture` do ScreenScraper) e
-botões do console com trava de ejeção — como não há pipeline de arte (Blender)
-ainda, a forma mais provável é continuar procedural, como o gabinete.
+**Teste de duas horas em andamento** pelo usuário (plano §7/§9) — o próximo
+passo depende do resultado: ajustar contraste/curvatura se cansar, ou seguir
+pros botões do console (desligar / ejetar / reset) com trava de ejeção se a
+moldura sustentar a sessão longa.
