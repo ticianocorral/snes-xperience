@@ -19,6 +19,13 @@ chmod +x "$APP/Contents/MacOS/xperience"
 cp "$HERE/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 sed "s/__VERSION__/$VERSION/g" "$HERE/Info.plist" > "$APP/Contents/Info.plist"
 
+# Ad-hoc sign (identity "-", no Apple Developer account needed). Without
+# this, Gatekeeper's message for an unsigned app that's been quarantined by
+# a browser download is "is damaged and can't be opened" — misleading (the
+# file isn't corrupt), but that's what it shows instead of the older
+# "unidentified developer" prompt once there's no signature at all.
+codesign --force --deep --sign - "$APP"
+
 # Drag-to-install convenience: a shortcut to /Applications alongside the app.
 ln -s /Applications "$WORK/Applications"
 

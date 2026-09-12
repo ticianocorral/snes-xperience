@@ -9,6 +9,18 @@ aviso — só o incremento de _minor_ marca um conjunto de mudanças.
 
 ## [Não lançado]
 
+## [0.3.1] — 2026-09-11
+
+### Corrigido
+
+- **DMG "corrompido"**: era o Gatekeeper, não corrupção de verdade — sem
+  assinatura nenhuma, o macOS recusa um `.app` baixado da internet com
+  "está danificado", sem alternativa. `build-dmg.sh` agora assina ad-hoc
+  (`codesign --force --deep --sign -`, sem precisar de conta de
+  desenvolvedor Apple); o aviso vira o padrão "desenvolvedor não
+  verificado", com "Abrir mesmo assim". Notarização de verdade (sem aviso
+  nenhum) precisaria de conta paga da Apple — fica pra depois, se topar.
+
 ## [0.3.0] — 2026-09-11
 
 ### Adicionado
@@ -195,7 +207,8 @@ emulador utilitário completo, sem moldura nem seletor.
   a Fase 3; os três modos de escala originais foram substituídos por essa
   visualização única a pedido.
 
-[Não lançado]: https://github.com/ticianocorral/snes-xperience/compare/v0.3.0...HEAD
+[Não lançado]: https://github.com/ticianocorral/snes-xperience/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/ticianocorral/snes-xperience/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/ticianocorral/snes-xperience/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/ticianocorral/snes-xperience/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/ticianocorral/snes-xperience/releases/tag/v0.1.0
