@@ -1,14 +1,16 @@
-//! The settings screen — `O` on the shelf. Three flat lists (main, controls,
-//! ScreenScraper), no nesting deeper than that: pick a row, `Confirm` acts on
-//! it, `Back` goes up a level. Edits save to `config.toml` immediately, not
-//! on some later "apply" step — there's nothing to lose by backing out.
+//! The settings screen — `O` on the shelf. Two flat lists (main, controls),
+//! no nesting deeper than that: pick a row, `Confirm` acts on it, `Back` goes
+//! up a level. Edits save to `xperience.cfg` immediately, not on some later
+//! "apply" step — there's nothing to lose by backing out.
 
+use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use xperience_platform::{Cabinet, MenuMode, MenuNav, PadButton, Platform, Screen, UiEvent};
 
 use crate::config::Config;
+use crate::core_update::{self, CoreUpdateMsg};
 
 const BG: (u8, u8, u8) = (18, 18, 20);
 const TEXT: (u8, u8, u8) = (232, 232, 232);
@@ -23,15 +25,15 @@ const RUNAHEAD_MAX: u32 = 4;
 enum Mode {
     Main,
     Controls,
-    ScreenScraper,
 }
 
-/// Which field is being typed into right now, if any (ScreenScraper mode
-/// only — Controls captures a raw key instead, see `awaiting_key`).
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Field {
-    DevId,
-    DevPassword,
+/// Where the "Núcleo" row's background download stands right now — drives
+/// both its label and whether `Confirm` on it starts a new one.
+enum CoreStatus {
+    Idle,
+    Downloading { downloaded: u64, total: Option<u64> },
+    Done,
+    Failed(String),
 }
 
 /// Run the settings screen until the player backs all the way out. Returns
@@ -42,19 +44,36 @@ pub fn run(plat: &mut Platform, cab: &mut Cabinet, cfg: &mut Config) -> Result<b
     let mut main_sel: usize = 0;
     let mut controls_sel: usize = 0;
     let mut controls_top: usize = 0;
-    let mut ss_sel: usize = 0;
     let mut awaiting_key: Option<usize> = None; // index into keymap.describe()
-    let mut editing: Option<Field> = None;
-    let mut edit_buf = String::new();
+    let mut core_status = CoreStatus::Idle;
+    let mut core_worker: Option<Receiver<CoreUpdateMsg>> = None;
     let frame_time = Duration::from_millis(16);
 
     loop {
         let next = Instant::now() + frame_time;
 
+        if let Some(rx) = &core_worker {
+            while let Ok(msg) = rx.try_recv() {
+                match msg {
+                    CoreUpdateMsg::Progress { downloaded, total } => {
+                        core_status = CoreStatus::Downloading { downloaded, total };
+                    }
+                    CoreUpdateMsg::Done => {
+                        core_status = CoreStatus::Done;
+                        core_worker = None;
+                        break;
+                    }
+                    CoreUpdateMsg::Failed(e) => {
+                        core_status = CoreStatus::Failed(e);
+                        core_worker = None;
+                        break;
+                    }
+                }
+            }
+        }
+
         let poll_mode = if awaiting_key.is_some() {
             MenuMode::CaptureKey
-        } else if editing.is_some() {
-            MenuMode::TextEntry
         } else {
             MenuMode::Nav
         };
@@ -74,27 +93,6 @@ pub fn run(plat: &mut Platform, cab: &mut Cabinet, cfg: &mut Config) -> Result<b
             } else if m.capture_cancelled {
                 awaiting_key = None;
             }
-        } else if let Some(field) = editing {
-            if !m.typed.is_empty() {
-                edit_buf.push_str(&m.typed);
-            }
-            if m.backspace {
-                edit_buf.pop();
-            }
-            for nav in &m.nav {
-                match nav {
-                    MenuNav::Confirm => {
-                        match field {
-                            Field::DevId => cfg.screenscraper.dev_id = edit_buf.clone(),
-                            Field::DevPassword => cfg.screenscraper.dev_password = edit_buf.clone(),
-                        }
-                        let _ = cfg.save();
-                        editing = None;
-                    }
-                    MenuNav::Back => editing = None, // discard edit_buf
-                    _ => {}
-                }
-            }
         } else {
             match mode {
                 Mode::Main => {
@@ -105,7 +103,7 @@ pub fn run(plat: &mut Platform, cab: &mut Cabinet, cfg: &mut Config) -> Result<b
                             MenuNav::Back => return Ok(false),
                             MenuNav::Confirm => match main_sel {
                                 0 => mode = Mode::Controls,
-                                1 => mode = Mode::ScreenScraper,
+                                1 => start_core_download(&mut core_status, &mut core_worker),
                                 3 => {
                                     cfg.fullscreen = !cfg.fullscreen;
                                     cab.toggle_fullscreen();
@@ -150,43 +148,12 @@ pub fn run(plat: &mut Platform, cab: &mut Cabinet, cfg: &mut Config) -> Result<b
                         controls_top = controls_sel + 1 - visible;
                     }
                 }
-                Mode::ScreenScraper => {
-                    for nav in &m.nav {
-                        match nav {
-                            MenuNav::Up => ss_sel = ss_sel.saturating_sub(1),
-                            MenuNav::Down => ss_sel = (ss_sel + 1).min(SS_ROWS - 1),
-                            MenuNav::Back => mode = Mode::Main,
-                            MenuNav::Confirm => match ss_sel {
-                                0 => {
-                                    cfg.screenscraper.enabled = !cfg.screenscraper.enabled;
-                                    let _ = cfg.save();
-                                }
-                                1 => {
-                                    edit_buf = cfg.screenscraper.dev_id.clone();
-                                    editing = Some(Field::DevId);
-                                }
-                                2 => {
-                                    edit_buf = cfg.screenscraper.dev_password.clone();
-                                    editing = Some(Field::DevPassword);
-                                }
-                                3 => mode = Mode::Main,
-                                _ => {}
-                            },
-                            MenuNav::Left | MenuNav::Right if ss_sel == 0 => {
-                                cfg.screenscraper.enabled = !cfg.screenscraper.enabled;
-                                let _ = cfg.save();
-                            }
-                            _ => {}
-                        }
-                    }
-                }
             }
         }
 
         let render = |d: &mut Screen| match mode {
-            Mode::Main => draw_main(d, cfg, main_sel),
+            Mode::Main => draw_main(d, cfg, main_sel, &core_status),
             Mode::Controls => draw_controls(d, cfg, controls_sel, controls_top, awaiting_key),
-            Mode::ScreenScraper => draw_screenscraper(d, cfg, ss_sel, editing, &edit_buf),
         };
         cab.frame_2d(BG, render);
 
@@ -197,8 +164,65 @@ pub fn run(plat: &mut Platform, cab: &mut Cabinet, cfg: &mut Config) -> Result<b
     }
 }
 
+/// Kick off a background download of the snes9x core (plan: "opção pra
+/// baixar o snes9x... e opção de update do núcleo" — one action serves both,
+/// the buildbot only ever serves "latest"). No-op while one is already in
+/// flight. Same thread + `mpsc` shape `shelf.rs` used for the old
+/// ScreenScraper worker — `settings::run`'s loop drains it with `try_recv()`
+/// every frame, same as there.
+fn start_core_download(status: &mut CoreStatus, worker: &mut Option<Receiver<CoreUpdateMsg>>) {
+    if matches!(status, CoreStatus::Downloading { .. }) {
+        return;
+    }
+    let Some(url) = core_update::core_download_url() else {
+        *status = CoreStatus::Failed("sem build automatica pra esta plataforma".to_string());
+        return;
+    };
+    let (tx, rx) = mpsc::channel();
+    let dest = crate::dirs::core_dir();
+    std::thread::spawn(move || core_update::download_and_install(url, &dest, &tx));
+    *worker = Some(rx);
+    *status = CoreStatus::Downloading {
+        downloaded: 0,
+        total: None,
+    };
+}
+
+/// How long since the installed core was written, in the coarse terms
+/// `draw_main`'s row wants — `None` if there's no core installed at all.
+fn core_installed_label() -> Option<String> {
+    let path = crate::dirs::core_dir().join(core_update::core_file_name());
+    let modified = std::fs::metadata(&path).ok()?.modified().ok()?;
+    let days = modified.elapsed().unwrap_or_default().as_secs() / 86_400;
+    Some(match days {
+        0 => "instalado hoje".to_string(),
+        1 => "instalado ha 1 dia".to_string(),
+        n => format!("instalado ha {n} dias"),
+    })
+}
+
+fn core_row_label(status: &CoreStatus) -> String {
+    match status {
+        CoreStatus::Downloading { downloaded, total } => {
+            let mb = *downloaded as f64 / 1_048_576.0;
+            match total {
+                Some(t) => format!(
+                    "Nucleo: baixando... {mb:.1}/{:.1} MB",
+                    *t as f64 / 1_048_576.0
+                ),
+                None => format!("Nucleo: baixando... {mb:.1} MB"),
+            }
+        }
+        CoreStatus::Done => "Nucleo: atualizado com sucesso".to_string(),
+        CoreStatus::Failed(e) => format!("Nucleo: falha - {e}"),
+        CoreStatus::Idle => match core_installed_label() {
+            Some(installed) => format!("Nucleo: atualizar ({installed})"),
+            None => "Nucleo: baixar".to_string(),
+        },
+    }
+}
+
 const MAIN_ROWS: usize = 5;
-const SS_ROWS: usize = 4;
 
 fn bind_row(cfg: &mut Config, row: usize, key_name: &str) {
     let Some((action, _)) = cfg.keymap.describe().into_iter().nth(row) else {
@@ -219,7 +243,7 @@ fn bind_row(cfg: &mut Config, row: usize, key_name: &str) {
     }
 }
 
-fn draw_main(d: &mut Screen, cfg: &Config, sel: usize) {
+fn draw_main(d: &mut Screen, cfg: &Config, sel: usize, core_status: &CoreStatus) {
     let x = MARGIN;
     let mut y = MARGIN;
     d.text(x, y, 2, TEXT, "configuracoes");
@@ -227,7 +251,7 @@ fn draw_main(d: &mut Screen, cfg: &Config, sel: usize) {
 
     let rows = [
         "Controles".to_string(),
-        "ScreenScraper".to_string(),
+        core_row_label(core_status),
         format!("Run-ahead: {} quadro(s)", cfg.runahead),
         format!(
             "Tela cheia: {}",
@@ -280,79 +304,8 @@ fn draw_controls(d: &mut Screen, cfg: &Config, sel: usize, top: usize, awaiting:
     );
 }
 
-fn draw_screenscraper(d: &mut Screen, cfg: &Config, sel: usize, editing: Option<Field>, buf: &str) {
-    let x = MARGIN;
-    let mut y = MARGIN;
-    d.text(x, y, 2, TEXT, "screenscraper");
-    y += 40;
-
-    let masked: String = "*".repeat(cfg.screenscraper.dev_password.chars().count());
-    let dev_id_label = match editing {
-        Some(Field::DevId) => format!("Dev ID: {buf}_"),
-        _ => format!(
-            "Dev ID: {}",
-            if cfg.screenscraper.dev_id.is_empty() {
-                "(vazio)"
-            } else {
-                &cfg.screenscraper.dev_id
-            }
-        ),
-    };
-    let dev_pw_label = match editing {
-        Some(Field::DevPassword) => format!("Dev Password: {}_", "*".repeat(buf.chars().count())),
-        _ => format!(
-            "Dev Password: {}",
-            if cfg.screenscraper.dev_password.is_empty() {
-                "(vazio)".to_string()
-            } else {
-                masked
-            }
-        ),
-    };
-    let rows = [
-        format!(
-            "Ativado: {}",
-            if cfg.screenscraper.enabled {
-                "sim"
-            } else {
-                "nao"
-            }
-        ),
-        dev_id_label,
-        dev_pw_label,
-        "Voltar".to_string(),
-    ];
-    for (i, row) in rows.iter().enumerate() {
-        draw_row(d, x, y, row, i == sel);
-        y += ROW_H;
-    }
-
-    y += 12;
-    d.text_wrapped(
-        x,
-        y,
-        d.size().0.saturating_sub(MARGIN as u32 * 2),
-        1,
-        DIM,
-        "Conta gratuita em screenscraper.fr. Sem essas duas linhas preenchidas e Ativado, \
-         a estante busca fichas e capas por SS_DEVID/SS_DEVPASSWORD do ambiente, se existirem.",
-    );
-
-    d.text(
-        x,
-        d.size().1 as i32 - MARGIN,
-        1,
-        HINT,
-        if editing.is_some() {
-            "enter: salva  esc: cancela"
-        } else {
-            "enter: liga/edita  esc: volta"
-        },
-    );
-}
-
-/// Headless preview of one screen (`"main"` | `"controls"` | `"screenscraper"`),
-/// for verification — not part of the interactive `run` loop.
+/// Headless preview of one screen (`"main"` | `"controls"`), for
+/// verification — not part of the interactive `run` loop.
 pub fn capture_preview(
     cab: &mut Cabinet,
     cfg: &Config,
@@ -361,8 +314,7 @@ pub fn capture_preview(
 ) -> Result<()> {
     let render = |d: &mut Screen| match screen {
         "controls" => draw_controls(d, cfg, 0, 0, None),
-        "screenscraper" => draw_screenscraper(d, cfg, 0, None, ""),
-        _ => draw_main(d, cfg, 0),
+        _ => draw_main(d, cfg, 0, &CoreStatus::Idle),
     };
     cab.capture_2d(BG, render, path)
         .map_err(|e| anyhow::anyhow!(e.to_string()))

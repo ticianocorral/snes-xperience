@@ -7,7 +7,8 @@ Progresso:
 
 - [x] **Painel lateral (esqueleto)** — coluna de widgets reais ao lado do tubo
       durante o jogo, com logo (ou nome) no topo e o tempo de sessão embaixo
-- [x] **Comandos** (item 3 do §3.2) — legenda dos botões do console
+- [x] **Comandos** (item do §3.2) — botões clicáveis Power/Ejetar/Reset,
+      não mais só legenda (ver Revisão abaixo)
 - [x] **Cheats com interruptor** (`cht` do libretro-database, §4.4)
 - [x] **Captura de tela pro caderno** (§3.4) — falta só a leitura/escrita
       longa, que é item da tela de pausa, abaixo
@@ -17,9 +18,9 @@ Progresso:
       existe no app
 - [ ] Senhas e dicas — tabela manual, cinco jogos pra começar (§4.5/§4.6)
 
-## Desvio deliberado do §3.2
+## Desvio deliberado do §3.2 (histórico, revertido — ver Revisão abaixo)
 
-O plano lista "cartucho encaixado no console" como item 2 da coluna do
+O plano listava "cartucho encaixado no console" como item 2 da coluna do
 painel. Na Fase 3 eu já tinha posto o cartucho no queixo do próprio gabinete
 (mobília da TV, não do painel) — decisão tomada antes do painel existir, e que
 já passou pelo teste de duas horas. Mantive assim em vez de mover: refazer
@@ -27,6 +28,10 @@ teria custo alto pra ganho estético pequeno, e o cartucho já cumpre o papel de
 "nunca é o primeiro item a ser cortado". O painel cobre os itens 1 e 6
 (logo, tempo de sessão) e vai cobrir 3-5 (comandos, cheats, anotações) nos
 próximos incrementos.
+
+*Revertido na revisão de 2026-09-13, abaixo: o cartucho não aparece mais em
+lugar nenhum, nem no queixo nem no painel — pedido do usuário, não uma volta
+ao texto original do plano.*
 
 ## Painel lateral (`xperience-platform::cabinet`)
 
@@ -178,6 +183,13 @@ texto absolutas de sempre — nada de biblioteca de UI nova.
 
 ## Menu de configurações
 
+*Revisão (2026-09-14): a linha/tela "ScreenScraper" descrita abaixo foi
+removida por completo — o ScreenScraper não existe mais no app (ver
+`docs/fase-2.md`). No lugar dela, uma linha "Núcleo" baixa/atualiza o
+snes9x pelo buildbot do libretro. O resto desta seção (estrutura de
+`Mode`/`MAIN_ROWS`, `poll_menu`/`MenuMode`, o padrão de salvar na hora)
+continua valendo — só o conteúdo daquela linha específica mudou.*
+
 Fora da numeração do plano — pedido direto do usuário antes de seguir a
 Fase 4, porque sem ele ligar o ScreenScraper e popular o catálogo com
 capas/fichas dependia de exportar `SS_DEVID`/`SS_DEVPASSWORD` na mão toda
@@ -264,3 +276,61 @@ plataforma ainda não tem (`Platform::poll` só traduz teclas discretas via
 digitado entra no `.md` ao lado das capturas. Por fim, senhas/dicas manuais
 pra cinco a dez jogos (§4.5/§4.6) — conteúdo que preciso escrever com o
 usuário, não vou inventar senha de jogo.
+
+## Revisão (2026-09-13): tela inicial, cartucho fora de cena, botões clicáveis
+
+Três pedidos do usuário, fora da numeração original do plano:
+
+1. **Tela inicial (TV off + "Inserir cartucho").** `xperience` não pula mais
+   direto pra estante. `crates/app/src/idle.rs` (novo módulo, mesmo padrão de
+   `shelf.rs`/`settings.rs`) desenha `Cabinet::present_static` sem nenhum
+   painel de jogo montado (`Cabinet::new` já nasce com `panel: None`) — nesse
+   estado, `draw_panel` (cabinet.rs) desenha só um botão "Inserir cartucho"
+   no lugar do bloco de logo/título (item 1 do §3.2). Essa tela é o **estado
+   raiz** do app agora: aparece na abertura, depois de Ejetar
+   (`GameExit::Ejected`, renomeado de `GameExit::ToShelf`) e no Esc da
+   estante (`shelf::Pick::Back`, novo — distinto de `Pick::Quit`, que hoje só
+   dispara ao fechar a janela). `xperience::main` ganhou um laço externo
+   (`'app`) em volta do laço estante↔jogo que já existia, alternando com
+   `idle::run`.
+2. **Cartucho no console removido.** O desvio da Fase 3 (cartucho no queixo
+   do gabinete) foi completamente desfeito — não só escondido, apagado:
+   `CartridgeSlot`, `Cabinet::set_cartridge`/`clear_cartridge`,
+   `cartridge_slot_rect`, `draw_cartridge_slot` e as cores
+   `CART_SHELL`/`CART_RIM` saíram de `cabinet.rs`; `GameSpec.cartridge_label`,
+   `Pick::Play.texture` e o `--cartridge-label` do `emu-run` saíram junto — a
+   mídia `texture` do ScreenScraper continua sendo raspada e cacheada no
+   catálogo (`xperience_domain`), só ficou sem consumidor visual.
+3. **Comandos viram botões clicáveis.** A legenda de texto "Desligar Esc /
+   Ejetar E / Reset Backspace" virou três caixas clicáveis (`draw_button`,
+   cabinet.rs), acesas ou apagadas conforme fazem algo *agora* —
+   `PanelInfo.powered` (atualizado por `Cabinet::set_powered`, chamado no
+   `UiEvent::Quit` de `run_game`): Power aceso enquanto ligado, Ejetar aceso
+   só desligado (senão só dá o clunk), Reset aceso só ligado. Clicar dispara
+   exatamente o mesmo `UiEvent` que a tecla já disparava (`Quit`/`Eject`/
+   `Reset`) — a máquina de estado de `run_game` não sabe que existe mouse.
+
+   Isso pediu infraestrutura nova em toda a pilha, porque **o app não tinha
+   nenhum evento de mouse antes**: `Platform::poll`/`poll_menu` (lib.rs)
+   ganharam captura de `Event::MouseButtonDown` (botão esquerdo),
+   `UiEvent::Click(i32, i32)` e `MenuInput.click` carregam a posição em
+   coordenadas de *janela*; `Cabinet::window_to_output` converte pra
+   coordenadas de canvas/output (necessário em telas HiDPI, onde as duas
+   divergem); `Cabinet::hit_panel_button` varre `panel_buttons` — os rects
+   dos botões desenhados no quadro anterior (`present_frame`/
+   `present_static` guardam o retorno de `draw_panel`, que agora é
+   `Vec<(PanelButton, Rect)>` em vez de `()`). `PanelButton` (`Insert`/
+   `Power`/`Eject`/`Reset`) é o mesmo tipo pra tela inicial e pra tela de
+   jogo — um hit-test só pros dois lugares.
+
+Verificado com um exemplo headless descartável (`Cabinet` puro, sem core/ROM
+— `cargo run -p xperience-platform --example panel_preview`, apagado depois
+de conferir): tela inicial com o botão no lugar do logo, cartucho ausente em
+todos os estados, e os três botões acendendo/apagando junto com
+`set_powered(true/false)`, exatamente como descrito acima. `cargo build`/
+`clippy`/`test --workspace` limpos nas 24 suítes existentes; não há teste
+automatizado novo cobrindo o clique em si (pediria simular eventos SDL de
+mouse, que os testes atuais de `cabinet` não fazem para teclado/gamepad
+também) — a sequência ao vivo completa (abrir o app → Inserir cartucho →
+escolher jogo → clicar Ejetar/Power/Reset no painel → Esc na estante) ainda
+não foi jogada de verdade, vale conferir na próxima sessão.

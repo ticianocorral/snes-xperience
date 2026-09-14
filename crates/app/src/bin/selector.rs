@@ -1,32 +1,24 @@
-//! Phase 2 selector: a scrollable shelf of covers with a details panel,
-//! gamepad-first navigation and type-to-search. On confirm it prints the chosen
-//! ROM path to stdout and exits 0; on cancel it exits 1. The shelf itself lives
-//! in `xperience_app::shelf`, shared with the unified `xperience` binary.
-//!
-//! With SS_DEVID / SS_DEVPASSWORD in the environment, the game you rest on is
-//! scraped on the spot (disable with --no-scrape).
+//! Standalone shelf preview: a scrollable grid of covers (or a multicart
+//! list, see `xperience_app::shelf`) with a details panel, gamepad-first
+//! navigation, mouse and type-to-search. On confirm it prints the chosen ROM
+//! path to stdout and exits 0; on cancel it exits 1. The shelf itself lives
+//! in `xperience_app::shelf`, shared with the unified `xperience` binary —
+//! this binary is just a dev/test harness for it, reading `roms/` next to
+//! wherever it's run from (same portable layout as `xperience`, see
+//! `xperience_app::dirs`).
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use anyhow::{anyhow, Context, Result};
-use xperience_app::shelf::{self, Pick, ScrapeSetup, ShelfOpts};
-use xperience_domain::{Catalog, Credentials, Order};
+use xperience_app::dirs;
+use xperience_app::shelf::{self, Pick, ShelfOpts};
+use xperience_domain::{Catalog, NoIntroDat, Order};
 use xperience_platform::Platform;
-
-fn default_catalog() -> PathBuf {
-    std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_default()
-        .join(".local/share/snes-xperience/catalog.db")
-}
 
 fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
 
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let catalog_path = arg(&args, "--catalog")
-        .map(PathBuf::from)
-        .unwrap_or_else(default_catalog);
     let order = match arg(&args, "--order") {
         Some("name") => Order::Name,
         _ => Order::Shelf,
@@ -35,18 +27,10 @@ fn main() -> Result<()> {
     // with --shot, save the last frame (shelf through the tube) as a BMP.
     let max_frames: Option<u64> = arg(&args, "--frames").and_then(|s| s.parse().ok());
     let shot = arg(&args, "--shot").map(PathBuf::from);
-    let no_scrape = args.iter().any(|a| a == "--no-scrape");
 
-    let catalog = Catalog::open(&catalog_path)
-        .with_context(|| format!("opening catalogue {}", catalog_path.display()))?;
-
-    let scrape = (!no_scrape)
-        .then(Credentials::from_env)
-        .flatten()
-        .map(|creds| ScrapeSetup {
-            creds,
-            art_dir: art_dir_for(&catalog_path),
-        });
+    let dat = NoIntroDat::load(&dirs::nointro_dat_path()).ok();
+    let catalog = Catalog::open(&dirs::roms_dir(), &dirs::library_path(), dat.as_ref())
+        .with_context(|| "opening the catalog")?;
 
     let mut plat = Platform::new().map_err(|e| anyhow!(e.to_string()))?;
     let mut cab = plat
@@ -56,7 +40,6 @@ fn main() -> Result<()> {
         order,
         max_frames,
         shot,
-        scrape,
         fade_in: None,
     };
     match shelf::run(&mut plat, &mut cab, &catalog, &opts)? {
@@ -67,16 +50,14 @@ fn main() -> Result<()> {
         // The `--frames` smoke test ends here too; that's a clean exit, not a cancel.
         Pick::Quit if max_frames.is_some() => Ok(()),
         Pick::Quit => std::process::exit(1),
+        // This standalone tool has no idle/root screen to fall back to —
+        // Esc backing out is the same cancel as closing the window.
+        Pick::Back => std::process::exit(1),
         Pick::Settings => {
             eprintln!("settings screen isn't wired up in `selector` — use `xperience`");
             std::process::exit(1);
         }
     }
-}
-
-/// `<catalog dir>/art`, matching the `library` CLI's default.
-fn art_dir_for(catalog_path: &Path) -> PathBuf {
-    catalog_path.parent().unwrap_or(Path::new(".")).join("art")
 }
 
 fn arg<'a>(args: &'a [String], key: &str) -> Option<&'a str> {

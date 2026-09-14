@@ -4,22 +4,22 @@ Emulador de SNES com moldura estática — projeto pessoal, sem fins comerciais.
 Ver [`docs/plano-emulador-moldura.md`](docs/plano-emulador-moldura.md) para o
 desenho completo, e `docs/fase-0.md` … `docs/fase-4.md` para o que já foi feito.
 
-Estado atual: **Fases 0–3 prontas, Fase 4 em andamento.** `emu-run` roda uma
-ROM com vídeo, som, gamepad, save state, SRAM e run-ahead, visual fixo NTSC RF
-+ tubo CRT. A Fase 2 entregou o catálogo (`library`), a estante na tela
-(`selector`: capas, navegação por gamepad, busca, scrape sob demanda, ficha com
-logo e sinopse rolante) e o binário `xperience`, que junta estante → jogo →
-estante num processo só. A Fase 3 deu a esse binário a moldura de verdade:
-gabinete escuro atrás do tubo, janela única, a estante deformada pelo mesmo
-tubo do jogo, o ritual completo de desligar (Esc) → ejetar (`E`) com a TV em
-sinal off entre as telas, o cartucho no slot com o rótulo, e passou no teste de
-duas horas do plano (§9), e leva o selo "SNES Xperience" no queixo do
-gabinete. Da Fase 4 já existe o painel lateral (logo do jogo ou nome,
-legenda dos comandos do console, cheats com interruptor para os jogos do
-catálogo, captura de tela pro caderno de cada jogo, tempo de sessão) ao
-lado do tubo durante a partida, e a tela de pausa (`P`) folheia o caderno
-de cada jogo em página dupla. Falta a escrita de anotações por teclado e a
-tabela manual de senhas/dicas.
+Estado atual: **Fases 0–3 prontas, Fase 4 em andamento**, mais uma revisão
+grande fora da numeração original (ver `docs/fase-2.md`/`fase-3.md`/
+`fase-4.md`, seções "Revisão"): o app virou **portátil e autoexecutável** —
+sem SQLite, sem ScreenScraper, tudo em pastas ao lado do executável (`roms/`,
+`core/`, `assets/`, `saves/`, `notes/`), nomes de jogo resolvidos por um DAT
+No-Intro local, capa/logo vêm de arte solta em `assets/` (sem mais raspagem
+online), o núcleo snes9x baixa/atualiza pelo próprio menu de configurações,
+e a moldura trava em 16:9 (com faixas pretas nas laterais num monitor
+ultrawide) em vez de distorcer. `emu-run` roda uma ROM solta com vídeo, som,
+gamepad, save state, SRAM e run-ahead, visual fixo NTSC RF + tubo CRT. O
+binário `xperience` junta tela inicial (TV fora do ar) → estante → jogo →
+tela inicial num processo só, com o gabinete/tubo CRT de verdade, o painel
+lateral (logo, comandos clicáveis Power/Ejetar/Reset, cheats com
+interruptor, captura de tela pro caderno, tempo de sessão) e a tela de
+pausa (`P`) folheando o caderno em página dupla. Falta a escrita de
+anotações por teclado e a tabela manual de senhas/dicas.
 
 ## Arquitetura
 
@@ -27,8 +27,8 @@ Quatro camadas, dependências só para baixo (plano §2):
 
 | Camada        | Crate                | Responsabilidade                                        |
 |---------------|----------------------|--------------------------------------------------------|
-| Apresentação  | `xperience-app`      | binários (`xperience`, `emu-run`, `selector`, `library`, `scrape-test`) + módulos `runner` / `shelf` que eles compartilham |
-| Domínio       | `xperience-domain`   | identificação de ROM, catálogo SQLite, ScreenScraper   |
+| Apresentação  | `xperience-app`      | binários (`xperience`, `emu-run`, `selector`) + módulos `runner` / `shelf` / `settings` / `core_update` que eles compartilham |
+| Domínio       | `xperience-domain`   | identificação de ROM, catálogo (JSON, sem banco), nomeação por DAT No-Intro |
 | Emulação      | `xperience-emulation`| core libretro carregado em runtime, laço de execução   |
 | Plataforma    | `xperience-platform` | SDL3: o `Cabinet` (janela única — gabinete, tubo CRT, camada 2D do seletor), áudio, gamepad |
 
@@ -42,9 +42,16 @@ conhece o core.
 Pacotes prontos (DMG pro macOS, zip com os `.exe` pro Windows, AppImage pro
 Linux) saem automático a cada tag `vX.Y.Z`, na aba
 [Releases](https://github.com/ticianocorral/snes-xperience/releases) — SDL3
-já vem embutido, não precisa instalar nada. Sem `--core`/`$XPERIENCE_CORE`,
-o app procura `snes9x_libretro.{dylib,so,dll}` em `<diretório de dados>/core/`
-antes de desistir; o core e as ROMs não acompanham o pacote (ver
+já vem embutido, não precisa instalar nada.
+
+**App portátil, sem instalação**: na primeira execução o `xperience` cria, ao
+lado do executável (ou ao lado do `.app` no macOS, não dentro dele), as
+pastas `roms/` (coloque seus arquivos aí), `core/`, `assets/{cover,logo,
+cartridge}/`, `saves/`, `notes/`, mais `xperience.cfg` e `library.json`. Sem
+`--core`/`$XPERIENCE_CORE`, o app procura `snes9x_libretro.{dylib,so,dll}`
+em `core/` — e o menu de configurações (`O` na estante) tem uma opção pra
+baixar/atualizar esse core sozinho, direto do buildbot do libretro. Nem o
+core nem as ROMs acompanham o pacote (ver
 [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md)).
 
 ## Compilar
@@ -69,52 +76,48 @@ cargo build --features xperience-platform/vendored-sdl
 ## Jogar
 
 ```bash
-# uma vez: montar o catálogo a partir de uma pasta de ROMs
-cargo run --bin library -- scan --roms /caminho/para/roms
-
-# estante → jogo → estante, um processo só
-cargo run --bin xperience -- --core /caminho/snes9x_libretro.dylib
+# coloque as ROMs em roms/, ao lado do binário, e rode:
+cargo run --bin xperience
 ```
 
-No jogo: `Esc` desliga (salva, TV em sinal off, cartucho continua no slot —
-console desligado é um estado, não um beco) e `E` ejeta a partir daí, voltando
-pra estante; tentar ejetar ligado só resiste com um "clunk". `Backspace`
-reseta o jogo sem sair da tela. `,`/`.` movem o cursor na lista de cheats do
-painel (quando o jogo tem algum curado) e `/` liga/desliga o selecionado.
-`N` salva a tela atual no caderno daquele jogo (markdown + PNG em
-`~/.local/share/snes-xperience/notes/`). `P` abre o caderno em página
-dupla no lugar do jogo congelado; `P` de novo volta a jogar. `Esc` (ou
-fechar a janela) na estante encerra; fechar a janela do jogo também
-encerra, sem cerimônia.
-Catálogo e saves ficam em `~/.local/share/snes-xperience/`. Para rodar uma
-ROM solta sem catálogo, use `emu-run` (ver Fase 0).
+Abre direto na tela inicial (TV fora do ar, botão "Inserir cartucho" no
+lugar do logo) — confirme/clique pra abrir a estante. Sem capa nenhuma em
+`assets/cover/`, a estante vira uma lista numerada estilo menu de multicart;
+solte um `<nome-da-rom>.png` (mesmo nome do arquivo da ROM, sem extensão)
+em `assets/cover/` ou `assets/logo/` pra dar capa/logo a um jogo.
+
+No jogo: `Esc` desliga (salva, TV em sinal off) e `E` ejeta a partir daí,
+voltando pra tela inicial; tentar ejetar ligado só resiste com um "clunk".
+`Backspace` reseta o jogo sem sair da tela — os três (Power/Ejetar/Reset)
+também são botões clicáveis no painel lateral. `,`/`.` movem o cursor na
+lista de cheats do painel (quando o jogo tem algum curado) e `/` liga/
+desliga o selecionado. `N` salva a tela atual no caderno daquele jogo
+(markdown + PNG em `notes/`). `P` abre o caderno em página dupla no lugar
+do jogo congelado; `P` de novo volta a jogar. `Esc` na estante volta pra
+tela inicial; `Esc`/fechar a janela na tela inicial, ou fechar a janela do
+jogo, encerra o app.
 
 Na estante, `O` abre as **configurações**: controles (rebind, tecla nova
-aperta e pronto), ScreenScraper (ativar + Dev ID/Dev Password — conta
-gratuita em screenscraper.fr) e run-ahead/tela cheia. Salva em
-`config.toml` a cada mudança. Com o ScreenScraper ativado ali (ou
-`SS_DEVID`/`SS_DEVPASSWORD` no ambiente, que continua funcionando como
-alternativa), a estante busca a ficha e a capa do jogo em foco na hora;
-`--no-scrape` desliga. Para preencher o catálogo inteiro de uma vez,
-`library scrape`.
+aperta e pronto), núcleo snes9x (baixar/atualizar direto do buildbot do
+libretro) e run-ahead/tela cheia. Salva em `xperience.cfg` a cada mudança.
+
+Um `nointro.dat` (DAT XML do [No-Intro](https://datomatic.no-intro.org/),
+"Nintendo - Super Nintendo Entertainment System") ao lado do executável dá
+o nome canônico do jogo (casado pelo CRC32 do arquivo) em vez do nome
+interno do cabeçalho SNES ou do nome do arquivo — opcional, baixe você
+mesmo, o app não tem como buscar isso sozinho.
 
 ## Fase 0
 
-Duas provas, descritas em [`docs/fase-0.md`](docs/fase-0.md):
+Prova original, descrita em [`docs/fase-0.md`](docs/fase-0.md): **`emu-run`**
+— um core libretro (snes9x) carrega e roda uma ROM com vídeo, som, gamepad,
+save state, SRAM e run-ahead. Visual fixo: NTSC RF + tubo CRT.
 
-1. **`emu-run`** — um core libretro (snes9x) carrega e roda uma ROM com vídeo,
-   som, gamepad, save state, SRAM e run-ahead. Visual fixo: NTSC RF + tubo CRT.
-   ```bash
-   cargo run --bin emu-run -- --core caminho/snes9x_libretro.dylib --rom jogo.sfc
-   ```
-2. **`scrape-test`** — o ScreenScraper devolve `texture` e `wheel` para uma
-   amostra de ROMs.
-   ```bash
-   export SS_DEVID=... SS_DEVPASSWORD=...
-   cargo run --bin scrape-test -- --roms ./roms --limit 20
-   ```
+```bash
+cargo run --bin emu-run -- --core caminho/snes9x_libretro.dylib --rom jogo.sfc
+```
 
-Nenhum core, ROM ou credencial é distribuído com o projeto. Ver `docs/fase-0.md`.
+Nenhum core ou ROM é distribuído com o projeto. Ver `docs/fase-0.md`.
 
 ## Versionamento
 

@@ -5,17 +5,14 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 repository.workspace = true
-description = "ROM identification (CRC32/MD5/SHA1), catalogue and ScreenScraper metadata client."
+description = "ROM identification (CRC32/MD5/SHA1), portable catalogue and No-Intro naming."
 
 [dependencies]
-anyhow.workspace = true
 thiserror.workspace = true
 log.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-ureq.workspace = true
 crc32fast.workspace = true
 md-5.workspace = true
 sha1.workspace = true
-hex.workspace = true
-rusqlite = { version = "0.32", features = ["bundled"] }
+roxmltree = "0.21"

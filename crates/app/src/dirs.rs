@@ -1,87 +1,119 @@
-//! Cross-platform base directories.
+//! Portable app layout: every folder the app uses lives next to the
+//! executable — no installation, no XDG dirs, no database. `roms/` (drop
+//! ROMs here), `core/` (the snes9x core), `assets/` (local cover/logo art),
+//! `saves/`, `notes/`, plus `xperience.cfg` and `library.json` at the root.
 //!
-//! `$HOME` exists on macOS/Linux unconditionally, and often on Windows too
-//! (Git Bash, WSL-adjacent shells) — when it's set, behavior is exactly what
-//! it always was (`~/.local/share/snes-xperience`, `~/.config/snes-xperience`),
-//! so nobody's existing data moves. A native Windows launch — an `.exe`
-//! double-clicked from Explorer, no shell involved — has no `$HOME`; there,
-//! `%APPDATA%\snes-xperience` is the fallback for both, which is the
-//! idiomatic single-folder-per-app shape on that platform anyway.
+//! macOS special case: a packaged `.app`'s real executable lives three
+//! levels inside the bundle (`Name.app/Contents/MacOS/xperience`). "Next to
+//! the executable" for a user means next to `Name.app` in Finder, not
+//! buried inside it — `app_root` detects that shape and climbs past it.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-/// Catalog, saves, notebooks.
-pub fn data_dir() -> PathBuf {
-    base(".local/share")
+/// The folder the app treats as its root — see the module doc for the macOS
+/// `.app` special case.
+pub fn app_root() -> PathBuf {
+    let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("."));
+    let dir = exe.parent().unwrap_or_else(|| Path::new("."));
+    app_root_for(dir)
 }
 
-/// `config.toml`.
-pub fn config_dir() -> PathBuf {
-    base(".config")
+/// The exe-parent-to-app-root logic, taking a `&Path` instead of reading
+/// `current_exe()` itself so it can be unit-tested with synthetic paths.
+fn app_root_for(dir: &Path) -> PathBuf {
+    #[cfg(target_os = "macos")]
+    {
+        use std::ffi::OsStr;
+        let bundle_root = (|| {
+            if dir.file_name() != Some(OsStr::new("MacOS")) {
+                return None;
+            }
+            let contents = dir.parent()?;
+            if contents.file_name() != Some(OsStr::new("Contents")) {
+                return None;
+            }
+            let bundle = contents.parent()?;
+            if bundle.extension() != Some(OsStr::new("app")) {
+                return None;
+            }
+            bundle.parent().map(Path::to_path_buf)
+        })();
+        if let Some(outside) = bundle_root {
+            return outside;
+        }
+    }
+    dir.to_path_buf()
 }
 
-fn base(unix_suffix: &str) -> PathBuf {
-    if let Some(home) = std::env::var_os("HOME") {
-        return PathBuf::from(home).join(unix_suffix).join("snes-xperience");
-    }
-    if let Some(appdata) = std::env::var_os("APPDATA") {
-        return PathBuf::from(appdata).join("snes-xperience");
-    }
-    PathBuf::from(".snes-xperience")
+pub fn roms_dir() -> PathBuf {
+    app_root().join("roms")
+}
+
+pub fn core_dir() -> PathBuf {
+    app_root().join("core")
+}
+
+pub fn assets_dir() -> PathBuf {
+    app_root().join("assets")
+}
+
+pub fn saves_dir() -> PathBuf {
+    app_root().join("saves")
+}
+
+pub fn notes_dir() -> PathBuf {
+    app_root().join("notes")
+}
+
+pub fn config_path() -> PathBuf {
+    app_root().join("xperience.cfg")
+}
+
+/// Play counts / added-at / last-played-at, keyed by ROM hash — the only
+/// state that needs to survive between runs (everything else is recomputed
+/// by scanning `roms/` fresh each launch).
+pub fn library_path() -> PathBuf {
+    app_root().join("library.json")
+}
+
+/// A No-Intro DAT (XML) for canonical ROM titles — optional, supplied by
+/// whoever runs the app (no direct download link exists on No-Intro's own
+/// site to fetch it automatically).
+pub fn nointro_dat_path() -> PathBuf {
+    app_root().join("nointro.dat")
 }
 
 #[cfg(test)]
 mod tests {
-    use super::base;
-    use std::path::PathBuf;
-
-    // These touch process-wide env vars, so they run serially by taking a
-    // lock — cargo test runs a crate's tests in one process, potentially in
-    // parallel, and env vars aren't test-local.
-    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    use super::app_root_for;
+    use std::path::Path;
 
     #[test]
-    fn home_wins_when_set() {
-        let _g = ENV_LOCK.lock().unwrap();
-        let prev_home = std::env::var_os("HOME");
-        let prev_appdata = std::env::var_os("APPDATA");
-        unsafe {
-            std::env::set_var("HOME", "/home/rex");
-            std::env::set_var("APPDATA", "C:\\Users\\rex\\AppData\\Roaming");
-        }
+    fn plain_folder_is_its_own_root() {
         assert_eq!(
-            base(".local/share"),
-            PathBuf::from("/home/rex/.local/share/snes-xperience")
+            app_root_for(Path::new("/opt/snes-xperience")),
+            Path::new("/opt/snes-xperience")
         );
-        unsafe {
-            restore("HOME", prev_home);
-            restore("APPDATA", prev_appdata);
-        }
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
-    fn appdata_is_the_windows_fallback_with_no_home() {
-        let _g = ENV_LOCK.lock().unwrap();
-        let prev_home = std::env::var_os("HOME");
-        let prev_appdata = std::env::var_os("APPDATA");
-        unsafe {
-            std::env::remove_var("HOME");
-            std::env::set_var("APPDATA", "C:\\Users\\rex\\AppData\\Roaming");
-        }
+    fn macos_bundle_climbs_to_the_app_s_sibling() {
         assert_eq!(
-            base(".config"),
-            PathBuf::from("C:\\Users\\rex\\AppData\\Roaming/snes-xperience")
+            app_root_for(Path::new(
+                "/Users/rex/Downloads/SNES Xperience.app/Contents/MacOS"
+            )),
+            Path::new("/Users/rex/Downloads")
         );
-        unsafe {
-            restore("HOME", prev_home);
-            restore("APPDATA", prev_appdata);
-        }
     }
 
-    unsafe fn restore(key: &str, value: Option<std::ffi::OsString>) {
-        match value {
-            Some(v) => std::env::set_var(key, v),
-            None => std::env::remove_var(key),
-        }
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_non_bundle_path_is_unaffected() {
+        // A dev build's target/debug/ isn't a bundle — no climbing.
+        assert_eq!(
+            app_root_for(Path::new("/repo/target/debug")),
+            Path::new("/repo/target/debug")
+        );
     }
 }

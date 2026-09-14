@@ -35,13 +35,6 @@ const BEZEL_CHIN: f32 = 0.110;
 const CABINET: (u8, u8, u8) = (40, 37, 33);
 /// The lip right against the glass, in shadow.
 const RECESS: (u8, u8, u8) = (4, 4, 5);
-/// Cartridge shell / rim — a touch warmer than the cabinet so it reads as its
-/// own object sitting in the slot, not part of the cabinet face (plan §3.2).
-const CART_SHELL: (u8, u8, u8) = (54, 46, 40);
-const CART_RIM: (u8, u8, u8) = (96, 86, 72);
-/// Reserved image-cache key for the current cartridge's label art. Distinct
-/// from any `Screen::set_image` id a caller might use.
-const CARTRIDGE_IMG: u64 = u64::MAX;
 /// Reserved image-cache key for the side panel's logo art.
 const PANEL_LOGO_IMG: u64 = u64::MAX - 1;
 /// Reserved image-cache key for the panel's most-recent note thumbnail.
@@ -66,6 +59,9 @@ const PANEL_MAX: u32 = 520;
 const PANEL_BG: (u8, u8, u8) = (16, 15, 14);
 const PANEL_TEXT: (u8, u8, u8) = (225, 220, 210);
 const PANEL_DIM: (u8, u8, u8) = (140, 134, 124);
+/// Fill for a clickable panel button (`draw_button`) — a shade lighter than
+/// `PANEL_BG` so it reads as its own control, not flat background text.
+const PANEL_BTN_BG: (u8, u8, u8) = (34, 32, 29);
 
 /// The set's own nameplate: a small wordmark printed into the chin, left of
 /// the cartridge — a touch lighter than the cabinet plastic, like an embossed
@@ -130,11 +126,9 @@ pub struct Cabinet {
     images: HashMap<u64, ImgTex>,
     /// The current inner-screen rect (the tube opening).
     screen: Rect,
-    /// The cartridge "inserted" in the slot (game path only). `None` = no game
-    /// running right now, so nothing is drawn.
-    cartridge: Option<CartridgeSlot>,
-    /// The side panel content (game path only, plan §3.2). `None` = nothing
-    /// drawn — the tube fills the whole window, as on the shelf.
+    /// The side panel content (game path only, plan §3.2). `None` = no game
+    /// loaded — the idle/root screen (§3.2 item 1's "Inserir cartucho"
+    /// button) draws there instead.
     panel: Option<PanelInfo>,
     /// Elapsed time to show at the bottom of the panel; the caller updates
     /// this once a frame (`set_session_time`).
@@ -143,13 +137,29 @@ pub struct Cabinet {
     /// and read every frame while `present_pause` is what's on screen.
     pause: Option<PauseNote>,
     fullscreen: bool,
+    /// Clickable panel buttons drawn last frame, in output/canvas coordinates
+    /// — `hit_panel_button` scans this. Repopulated by `present_frame`/
+    /// `present_static` right after `draw_panel`.
+    panel_buttons: Vec<(PanelButton, Rect)>,
+    /// Where the cabinet actually drew last frame, in real window/output
+    /// pixels — always 16:9, letterboxed/pillarboxed to fit whatever the
+    /// window's own shape is (plan: don't distort on an ultrawide monitor).
+    /// Every other stored rect (`screen`, `panel_buttons`, …) lives in this
+    /// rect's own local space; `window_to_output` subtracts its offset
+    /// before any hit-test runs.
+    canvas_rect: Rect,
 }
 
-/// What to draw in the cartridge slot: the label art if we have it, else just
-/// the ROM's name.
-struct CartridgeSlot {
-    has_image: bool,
-    name: String,
+/// A clickable spot in the side panel: the idle screen's "Inserir cartucho"
+/// button, or one of the in-game console commands. `hit_panel_button` turns a
+/// click into one of these; the caller (idle screen / `run_game`) decides
+/// what each one does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PanelButton {
+    Insert,
+    Power,
+    Eject,
+    Reset,
 }
 
 /// The pause book, read-only for now (writing is a later increment):
@@ -170,6 +180,11 @@ struct PanelInfo {
     has_logo: bool,
     title: String,
     commands: Vec<(String, String)>,
+    /// Whether the console is on right now — dims/brightens the command
+    /// buttons (Eject only clunks while powered, Reset only acts while
+    /// powered). Set via `Cabinet::set_powered`; starts `true` (a game is
+    /// always powered on when `set_panel` first runs).
+    powered: bool,
     cheats: Vec<(String, bool)>,
     cheat_sel: usize,
     /// Notebook block (item 5, plan §3.4): absent entirely when this is 0 —
@@ -234,6 +249,7 @@ impl Cabinet {
 
         let font = build_font_atlas(&mut canvas)?;
         let (w, h) = canvas.output_size().unwrap_or((width, height));
+        let canvas_rect = cabinet_canvas_rect(w, h);
         Ok(Self {
             canvas,
             src: None,
@@ -245,12 +261,13 @@ impl Cabinet {
             rng: 0x9E37_79B9,
             font,
             images: HashMap::new(),
-            screen: screen_area(w, h),
-            cartridge: None,
+            screen: screen_area(canvas_rect.width(), canvas_rect.height()),
             panel: None,
             session: Duration::ZERO,
             pause: None,
             fullscreen: false,
+            panel_buttons: Vec::new(),
+            canvas_rect,
         })
     }
 
@@ -259,27 +276,48 @@ impl Cabinet {
         let _ = self.canvas.window_mut().set_fullscreen(self.fullscreen);
     }
 
-    /// Show the cartridge in its slot on the cabinet during play: `label`
-    /// (width, height, RGBA) is the scraped `texture` art if there is one,
-    /// else the slot falls back to `name` in text. Call once per game; the
-    /// cabinet keeps showing it until the next `set_cartridge` call.
-    pub fn set_cartridge(&mut self, label: Option<(u32, u32, &[u8])>, name: &str) {
-        let has_image = if let Some((w, h, rgba)) = label {
-            self.set_image(CARTRIDGE_IMG, w, h, rgba);
-            true
-        } else {
-            false
-        };
-        self.cartridge = Some(CartridgeSlot {
-            has_image,
-            name: name.to_string(),
-        });
+    /// Convert a click's window coordinates (what SDL reports) into the
+    /// cabinet's own local space — what `panel_rect`/`draw_panel`/`screen`
+    /// all lay out in. Two corrections stack here: window → real output
+    /// pixels (they differ on a HiDPI display), then output → cabinet-local
+    /// (subtracting `canvas_rect`'s offset — on an ultrawide window the
+    /// cabinet is letterboxed, not the whole output). A point outside
+    /// `canvas_rect` (in the letterbox bars) still comes back as a
+    /// coordinate — callers bounds-check against their own rects, e.g.
+    /// `hit_panel_button`/`hit_screen_point`.
+    pub fn window_to_output(&self, x: i32, y: i32) -> (i32, i32) {
+        let (ww, wh) = self.canvas.window().size();
+        let (ow, oh) = self.canvas.output_size().unwrap_or((ww, wh));
+        let sx = ow as f32 / ww.max(1) as f32;
+        let sy = oh as f32 / wh.max(1) as f32;
+        let (ox, oy) = ((x as f32 * sx) as i32, (y as f32 * sy) as i32);
+        (ox - self.canvas_rect.x(), oy - self.canvas_rect.y())
     }
 
-    /// Empty the cartridge slot (plan §3.3: ejecting pulls it out — the slot
-    /// stays visibly empty until the next `set_cartridge`).
-    pub fn clear_cartridge(&mut self) {
-        self.cartridge = None;
+    /// Which panel button, if any, sits under an output-space point — the
+    /// idle screen's "Inserir cartucho" or one of the in-game commands drawn
+    /// last frame. Coordinates from a click go through `window_to_output`
+    /// first.
+    pub fn hit_panel_button(&self, out_x: i32, out_y: i32) -> Option<PanelButton> {
+        self.panel_buttons
+            .iter()
+            .find(|(_, r)| r.contains_point((out_x, out_y)))
+            .map(|(b, _)| *b)
+    }
+
+    /// Map an output/canvas-space click into the 2D screen buffer's local
+    /// coordinates — what `Screen::fill`/`text`/`image_fit` see, e.g. in the
+    /// shelf's grid (plan §3.1). `None` outside the tube. Approximate: the
+    /// buffer is warped onto the tube by `build_crt_mesh` (a mild barrel bow,
+    /// `CRT_WARP`), which this ignores — a click right at the curved edge can
+    /// land a few px off, but shelf tiles sit well inside it.
+    pub fn hit_screen_point(&self, out_x: i32, out_y: i32) -> Option<(i32, i32)> {
+        let (lx, ly) = (out_x - self.screen.x(), out_y - self.screen.y());
+        if lx < 0 || ly < 0 || lx >= self.screen.width() as i32 || ly >= self.screen.height() as i32
+        {
+            return None;
+        }
+        Some((lx, ly))
     }
 
     /// Show the side panel during play: `logo` (width, height, RGBA) is the
@@ -303,11 +341,29 @@ impl Cabinet {
             has_logo,
             title: title.to_string(),
             commands: commands.to_vec(),
+            powered: true,
             cheats: Vec::new(),
             cheat_sel: 0,
             note_count: 0,
             has_note_thumb: false,
         });
+    }
+
+    /// Dim/brighten the command buttons to match the console's power state
+    /// (Eject only clunks while powered, Reset only acts while powered) — see
+    /// `PanelInfo::powered`. A no-op before `set_panel`.
+    pub fn set_powered(&mut self, powered: bool) {
+        if let Some(panel) = &mut self.panel {
+            panel.powered = powered;
+        }
+    }
+
+    /// Drop the last game's panel (logo, commands, cheats, notes, clock) —
+    /// call on the way back to the idle/root screen, so `draw_panel` shows
+    /// the "Inserir cartucho" button instead of the previous game's stale
+    /// info. A no-op if there's nothing set.
+    pub fn clear_panel(&mut self) {
+        self.panel = None;
     }
 
     /// Update the panel's notebook block (plan §3.4, item 5): `count` pages
@@ -370,32 +426,44 @@ impl Cabinet {
     /// replacing the whole window rather than sharing it with the cabinet
     /// (plan §3.2/§3.4) — read-only for now, writing is a later increment.
     pub fn present_pause(&mut self) {
-        let (out_w, out_h) = self.canvas.output_size().unwrap_or((1280, 720));
+        let (real_w, real_h) = self.canvas.output_size().unwrap_or((1280, 720));
+        let rect = cabinet_canvas_rect(real_w, real_h);
+        self.canvas_rect = rect;
+        self.canvas
+            .set_draw_color(Color::RGB(RECESS.0, RECESS.1, RECESS.2));
+        self.canvas.clear();
+        self.canvas.set_viewport(Some(rect));
         draw_pause_book(
             &mut self.canvas,
             &mut self.font,
             &self.images,
             self.pause.as_ref(),
-            out_w,
-            out_h,
+            rect.width(),
+            rect.height(),
         );
+        self.canvas.set_viewport(None);
         self.canvas.present();
     }
 
     /// Like [`Cabinet::present_pause`] but composited into an offscreen
     /// target and saved as a BMP (headless preview).
     pub fn capture_pause_bmp(&mut self, path: &std::path::Path) -> Result<(), PlatformError> {
-        let (out_w, out_h) = self.canvas.output_size().unwrap_or((1280, 720));
+        let (real_w, real_h) = self.canvas.output_size().unwrap_or((1280, 720));
+        let rect = cabinet_canvas_rect(real_w, real_h);
         let mut target = self
             .canvas
-            .create_texture_target(SdlFormat::RGBA32, out_w, out_h)
+            .create_texture_target(SdlFormat::RGBA32, real_w, real_h)
             .map_err(|e| PlatformError::Sdl(e.to_string()))?;
         let pause = self.pause.as_ref();
         let font = &mut self.font;
         let images = &self.images;
         let mut saved: Result<(), PlatformError> = Ok(());
         let outcome = self.canvas.with_texture_canvas(&mut target, |c| {
-            draw_pause_book(c, font, images, pause, out_w, out_h);
+            c.set_draw_color(Color::RGB(RECESS.0, RECESS.1, RECESS.2));
+            c.clear();
+            c.set_viewport(Some(rect));
+            draw_pause_book(c, font, images, pause, rect.width(), rect.height());
+            c.set_viewport(None);
             saved = c
                 .read_pixels(None::<Rect>)
                 .and_then(|s| s.save_bmp(path))
@@ -405,10 +473,20 @@ impl Cabinet {
         saved
     }
 
+    /// Whether image `id` is already decoded and cached — e.g. to decide
+    /// whether any cover art exists at all before choosing how to lay out
+    /// the shelf (grid vs. list, plan §3.1). Same lookup `Screen::has_image`
+    /// does from inside a `frame_2d` closure, exposed here for callers that
+    /// need the answer *before* they can build that closure.
+    pub fn has_image(&self, id: u64) -> bool {
+        self.images.contains_key(&id)
+    }
+
     /// Size of the recessed screen area — what the selector lays itself out in.
     pub fn screen_size(&self) -> (u32, u32) {
-        let (w, h) = self.canvas.output_size().unwrap_or((1280, 720));
-        let s = screen_area(w, h);
+        let (real_w, real_h) = self.canvas.output_size().unwrap_or((1280, 720));
+        let rect = cabinet_canvas_rect(real_w, real_h);
+        let s = screen_area(rect.width(), rect.height());
         (s.width(), s.height())
     }
 
@@ -419,10 +497,13 @@ impl Cabinet {
         self.ensure_src(frame.width, frame.height, frame.format);
         self.upload(frame);
 
-        let (out_w, out_h) = self
+        let (real_w, real_h) = self
             .canvas
             .output_size()
             .unwrap_or((frame.width, frame.height));
+        let canvas_rect = cabinet_canvas_rect(real_w, real_h);
+        self.canvas_rect = canvas_rect;
+        let (out_w, out_h) = (canvas_rect.width(), canvas_rect.height());
         let panel = panel_rect(out_w, out_h);
         let cab_w = out_w.saturating_sub(panel.width());
         let screen = screen_area(cab_w, out_h);
@@ -434,6 +515,7 @@ impl Cabinet {
         self.canvas
             .set_draw_color(Color::RGB(RECESS.0, RECESS.1, RECESS.2));
         self.canvas.clear();
+        self.canvas.set_viewport(Some(canvas_rect));
 
         let src = self.src.take().unwrap();
         let mesh = self.mesh.take().unwrap();
@@ -449,13 +531,7 @@ impl Cabinet {
         self.bezel = Some(bezel);
 
         draw_brand(&mut self.canvas, &mut self.font, self.screen, out_h);
-        if let (Some(cart), Some(rect)) = (
-            &self.cartridge,
-            cartridge_slot_rect(self.screen, cab_w, out_h),
-        ) {
-            draw_cartridge_slot(&mut self.canvas, &mut self.font, &self.images, cart, rect);
-        }
-        draw_panel(
+        self.panel_buttons = draw_panel(
             &mut self.canvas,
             &mut self.font,
             &self.images,
@@ -463,6 +539,7 @@ impl Cabinet {
             panel,
             self.session,
         );
+        self.canvas.set_viewport(None);
         self.canvas.present();
     }
 
@@ -478,10 +555,13 @@ impl Cabinet {
         self.ensure_src(frame.width, frame.height, frame.format);
         self.upload(frame);
 
-        let (out_w, out_h) = self
+        let (real_w, real_h) = self
             .canvas
             .output_size()
             .unwrap_or((frame.width, frame.height));
+        let canvas_rect = cabinet_canvas_rect(real_w, real_h);
+        self.canvas_rect = canvas_rect;
+        let (out_w, out_h) = (canvas_rect.width(), canvas_rect.height());
         let panel = panel_rect(out_w, out_h);
         let cab_w = out_w.saturating_sub(panel.width());
         let screen = screen_area(cab_w, out_h);
@@ -492,16 +572,12 @@ impl Cabinet {
 
         let mut target = self
             .canvas
-            .create_texture_target(SdlFormat::RGBA32, out_w, out_h)
+            .create_texture_target(SdlFormat::RGBA32, real_w, real_h)
             .map_err(|e| PlatformError::Sdl(e.to_string()))?;
 
         let src = self.src.take().unwrap();
         let mesh = self.mesh.take().unwrap();
         let bezel = self.bezel.take().unwrap();
-        let cart_draw = self
-            .cartridge
-            .as_ref()
-            .zip(cartridge_slot_rect(self.screen, cab_w, out_h));
         let panel_info = self.panel.as_ref();
         let session = self.session;
         let font = &mut self.font;
@@ -510,13 +586,12 @@ impl Cabinet {
         let outcome = self.canvas.with_texture_canvas(&mut target, |c| {
             c.set_draw_color(Color::RGB(RECESS.0, RECESS.1, RECESS.2));
             c.clear();
+            c.set_viewport(Some(canvas_rect));
             let _ = c.render_geometry(&mesh.verts, Some(&src.tex), &mesh.indices[..]);
             let _ = c.render_geometry(&bezel.verts, None, &bezel.indices[..]);
             draw_brand(c, font, screen, out_h);
-            if let Some((cart, rect)) = cart_draw {
-                draw_cartridge_slot(c, font, images, cart, rect);
-            }
             draw_panel(c, font, images, panel_info, panel, session);
+            c.set_viewport(None);
             saved = c
                 .read_pixels(None::<Rect>)
                 .and_then(|s| s.save_bmp(path))
@@ -618,6 +693,7 @@ impl Cabinet {
         self.paint_2d(bg, draw);
 
         let (ww, wh) = self.canvas.output_size().unwrap_or((1280, 720));
+        let canvas_rect = self.canvas_rect;
         let screen = self.screen;
         let mesh = build_crt_mesh(screen, 1.0);
         let mut target = self
@@ -631,9 +707,11 @@ impl Cabinet {
         let outcome = self.canvas.with_texture_canvas(&mut target, |c| {
             c.set_draw_color(Color::RGB(RECESS.0, RECESS.1, RECESS.2));
             c.clear();
+            c.set_viewport(Some(canvas_rect));
             let _ = c.render_geometry(&mesh.verts, Some(&st.tex), &mesh.indices[..]);
             let _ = c.render_geometry(&bezel.verts, None, &bezel.indices[..]);
-            draw_brand(c, font, screen, wh);
+            draw_brand(c, font, screen, canvas_rect.height());
+            c.set_viewport(None);
             saved = c
                 .read_pixels(None::<Rect>)
                 .and_then(|s| s.save_bmp(path))
@@ -649,7 +727,10 @@ impl Cabinet {
     /// in its slot if one is set. `level` 1.0 = a full blizzard, 0.0 = a dim,
     /// near-still hiss. Never a full-screen flash.
     pub fn present_static(&mut self, level: f32) {
-        let (ww, wh) = self.canvas.output_size().unwrap_or((1280, 720));
+        let (real_w, real_h) = self.canvas.output_size().unwrap_or((1280, 720));
+        let canvas_rect = cabinet_canvas_rect(real_w, real_h);
+        self.canvas_rect = canvas_rect;
+        let (ww, wh) = (canvas_rect.width(), canvas_rect.height());
         let panel = panel_rect(ww, wh);
         let cab_w = ww.saturating_sub(panel.width());
         self.screen = screen_area(cab_w, wh);
@@ -660,6 +741,7 @@ impl Cabinet {
         self.canvas
             .set_draw_color(Color::RGB(RECESS.0, RECESS.1, RECESS.2));
         self.canvas.clear();
+        self.canvas.set_viewport(Some(canvas_rect));
         let nt = self.noise_tex.take().unwrap();
         let _ = self
             .canvas
@@ -671,12 +753,7 @@ impl Cabinet {
             .render_geometry(&bezel.verts, None, &bezel.indices[..]);
         self.bezel = Some(bezel);
         draw_brand(&mut self.canvas, &mut self.font, self.screen, wh);
-        if let (Some(cart), Some(rect)) =
-            (&self.cartridge, cartridge_slot_rect(self.screen, cab_w, wh))
-        {
-            draw_cartridge_slot(&mut self.canvas, &mut self.font, &self.images, cart, rect);
-        }
-        draw_panel(
+        self.panel_buttons = draw_panel(
             &mut self.canvas,
             &mut self.font,
             &self.images,
@@ -684,6 +761,7 @@ impl Cabinet {
             panel,
             self.session,
         );
+        self.canvas.set_viewport(None);
         self.canvas.present();
     }
 
@@ -695,7 +773,10 @@ impl Cabinet {
         level: f32,
         path: &std::path::Path,
     ) -> Result<(), PlatformError> {
-        let (ww, wh) = self.canvas.output_size().unwrap_or((1280, 720));
+        let (real_w, real_h) = self.canvas.output_size().unwrap_or((1280, 720));
+        let canvas_rect = cabinet_canvas_rect(real_w, real_h);
+        self.canvas_rect = canvas_rect;
+        let (ww, wh) = (canvas_rect.width(), canvas_rect.height());
         let panel = panel_rect(ww, wh);
         let cab_w = ww.saturating_sub(panel.width());
         self.screen = screen_area(cab_w, wh);
@@ -706,14 +787,10 @@ impl Cabinet {
         let mesh = build_crt_mesh(screen, 1.0);
         let mut target = self
             .canvas
-            .create_texture_target(SdlFormat::RGBA32, ww, wh)
+            .create_texture_target(SdlFormat::RGBA32, real_w, real_h)
             .map_err(|e| PlatformError::Sdl(e.to_string()))?;
         let nt = self.noise_tex.take().unwrap();
         let bezel = self.bezel.take().unwrap();
-        let cart_draw = self
-            .cartridge
-            .as_ref()
-            .zip(cartridge_slot_rect(self.screen, cab_w, wh));
         let panel_info = self.panel.as_ref();
         let session = self.session;
         let font = &mut self.font;
@@ -722,13 +799,12 @@ impl Cabinet {
         let outcome = self.canvas.with_texture_canvas(&mut target, |c| {
             c.set_draw_color(Color::RGB(RECESS.0, RECESS.1, RECESS.2));
             c.clear();
+            c.set_viewport(Some(canvas_rect));
             let _ = c.render_geometry(&mesh.verts, Some(&nt.tex), &mesh.indices[..]);
             let _ = c.render_geometry(&bezel.verts, None, &bezel.indices[..]);
             draw_brand(c, font, screen, wh);
-            if let Some((cart, rect)) = cart_draw {
-                draw_cartridge_slot(c, font, images, cart, rect);
-            }
             draw_panel(c, font, images, panel_info, panel, session);
+            c.set_viewport(None);
             saved = c
                 .read_pixels(None::<Rect>)
                 .and_then(|s| s.save_bmp(path))
@@ -754,7 +830,7 @@ impl Cabinet {
     ) {
         self.paint_2d(bg, draw);
         self.update_noise_tex(static_level);
-        let (_, out_h) = self.canvas.output_size().unwrap_or((1280, 720));
+        let canvas_rect = self.canvas_rect;
 
         let mesh_static = build_crt_mesh(self.screen, 1.0);
         let mesh_shelf = build_crt_mesh(self.screen, shelf_alpha.clamp(0.0, 1.0));
@@ -762,6 +838,7 @@ impl Cabinet {
         self.canvas
             .set_draw_color(Color::RGB(RECESS.0, RECESS.1, RECESS.2));
         self.canvas.clear();
+        self.canvas.set_viewport(Some(canvas_rect));
 
         let nt = self.noise_tex.take().unwrap();
         let _ = self.canvas.render_geometry(
@@ -782,8 +859,14 @@ impl Cabinet {
             .canvas
             .render_geometry(&bezel.verts, None, &bezel.indices[..]);
         self.bezel = Some(bezel);
-        draw_brand(&mut self.canvas, &mut self.font, self.screen, out_h);
+        draw_brand(
+            &mut self.canvas,
+            &mut self.font,
+            self.screen,
+            canvas_rect.height(),
+        );
 
+        self.canvas.set_viewport(None);
         self.canvas.present();
     }
 
@@ -816,7 +899,9 @@ impl Cabinet {
 
     /// Render `draw` into the screen buffer. Shared by `frame_2d` / `capture_2d`.
     fn paint_2d<F: FnOnce(&mut Screen)>(&mut self, bg: (u8, u8, u8), draw: F) {
-        let (ww, wh) = self.canvas.output_size().unwrap_or((1280, 720));
+        let (real_w, real_h) = self.canvas.output_size().unwrap_or((1280, 720));
+        self.canvas_rect = cabinet_canvas_rect(real_w, real_h);
+        let (ww, wh) = (self.canvas_rect.width(), self.canvas_rect.height());
         self.screen = screen_area(ww, wh);
         let (sw, sh) = (self.screen.width(), self.screen.height());
         self.ensure_screen_tex(sw, sh);
@@ -853,6 +938,7 @@ impl Cabinet {
         self.canvas
             .set_draw_color(Color::RGB(RECESS.0, RECESS.1, RECESS.2));
         self.canvas.clear();
+        self.canvas.set_viewport(Some(self.canvas_rect));
         let st = self.screen_tex.take().unwrap();
         let _ = self
             .canvas
@@ -863,8 +949,13 @@ impl Cabinet {
             .canvas
             .render_geometry(&bezel.verts, None, &bezel.indices[..]);
         self.bezel = Some(bezel);
-        let (_, out_h) = self.canvas.output_size().unwrap_or((1280, 720));
-        draw_brand(&mut self.canvas, &mut self.font, self.screen, out_h);
+        draw_brand(
+            &mut self.canvas,
+            &mut self.font,
+            self.screen,
+            self.canvas_rect.height(),
+        );
+        self.canvas.set_viewport(None);
     }
 
     fn ensure_screen_tex(&mut self, w: u32, h: u32) {
@@ -1044,6 +1135,16 @@ fn fit_aspect_in(area: Rect, aspect: f32) -> Rect {
     centered_in(area, w, h)
 }
 
+/// Where the cabinet actually draws within the real window/display: the
+/// largest 16:9 rect that fits, centered — a modern-TV shape, regardless of
+/// the window's own. `screen_area`/`panel_rect` (and everything downstream)
+/// only ever see this rect's width/height, never the raw output size, so an
+/// ultrawide monitor gets letterbox bars on the sides instead of a
+/// stretched-wide tube.
+fn cabinet_canvas_rect(out_w: u32, out_h: u32) -> Rect {
+    fit_aspect_in(Rect::new(0, 0, out_w, out_h), 16.0 / 9.0)
+}
+
 /// The cabinet opening: the window inset by the bezel fractions (a wider chin).
 fn screen_area(out_w: u32, out_h: u32) -> Rect {
     let sx = (out_w as f32 * BEZEL_SIDE).round() as i32;
@@ -1100,26 +1201,10 @@ fn build_bezel_mesh(out_w: u32, out_h: u32, screen: Rect, key: (u32, u32, u32, u
     }
 }
 
-/// Where the cartridge slot sits: the cabinet's chin, right-aligned. `None` if
-/// the window is too short for the chin to hold anything.
-fn cartridge_slot_rect(screen: Rect, out_w: u32, out_h: u32) -> Option<Rect> {
-    let chin_top = screen.bottom();
-    let chin_h = out_h as i32 - chin_top;
-    if chin_h < 24 {
-        return None;
-    }
-    let h = ((chin_h as f32) * 0.62) as u32;
-    let w = ((h as f32) * 1.35) as u32;
-    let margin = 16i32;
-    let x = out_w as i32 - margin - w as i32;
-    let y = chin_top + (chin_h - h as i32) / 2;
-    Some(Rect::new(x, y, w, h))
-}
-
 /// The set's nameplate, printed into the chin left of the tube — part of the
-/// cabinet itself, so unlike the cartridge/panel it's drawn in every context
-/// (shelf, game, idle-off) and never disappears. `None` if the chin is too
-/// short to hold it (mirrors `cartridge_slot_rect`'s own guard).
+/// cabinet itself, so unlike the panel it's drawn in every context (shelf,
+/// game, idle-off) and never disappears. `None` if the chin is too short to
+/// hold it.
 fn draw_brand(canvas: &mut WindowCanvas, font: &mut Texture, screen: Rect, out_h: u32) {
     let chin_top = screen.bottom();
     let chin_h = out_h as i32 - chin_top;
@@ -1138,53 +1223,8 @@ fn draw_brand(canvas: &mut WindowCanvas, font: &mut Texture, screen: Rect, out_h
     );
 }
 
-/// Draw the cartridge slot — a small shell with the label art or, failing
-/// that, the ROM's name. Cabinet furniture: not warped by the tube, drawn
-/// straight on whatever `canvas` currently targets (live window or an
-/// offscreen capture target — same call either way).
-fn draw_cartridge_slot(
-    canvas: &mut WindowCanvas,
-    font: &mut Texture,
-    images: &HashMap<u64, ImgTex>,
-    cart: &CartridgeSlot,
-    rect: Rect,
-) {
-    canvas.set_draw_color(Color::RGB(CART_RIM.0, CART_RIM.1, CART_RIM.2));
-    let _ = canvas.fill_rect(Rect::new(
-        rect.x() - 3,
-        rect.y() - 3,
-        rect.width() + 6,
-        rect.height() + 6,
-    ));
-    canvas.set_draw_color(Color::RGB(CART_SHELL.0, CART_SHELL.1, CART_SHELL.2));
-    let _ = canvas.fill_rect(rect);
-
-    if cart.has_image {
-        draw_image_absolute(
-            canvas,
-            images,
-            CARTRIDGE_IMG,
-            rect.x() + 4,
-            rect.y() + 4,
-            rect.width().saturating_sub(8),
-            rect.height().saturating_sub(8),
-        );
-    } else {
-        let max_chars = (rect.width().saturating_sub(10) / GLYPH).max(1) as usize;
-        draw_text_absolute(
-            canvas,
-            font,
-            rect.x() + 5,
-            rect.y() + rect.height() as i32 / 2 - 4,
-            TextStyle::new(1, (220, 210, 190)),
-            &cart.name,
-            max_chars,
-        );
-    }
-}
-
 /// Like `Screen::image_fit`, but at absolute window coordinates instead of
-/// offset into the 2D screen buffer — for cabinet furniture like the cartridge.
+/// offset into the 2D screen buffer — for cabinet furniture and panel art.
 fn draw_image_absolute(
     canvas: &mut WindowCanvas,
     images: &HashMap<u64, ImgTex>,
@@ -1306,7 +1346,10 @@ fn panel_rect(out_w: u32, out_h: u32) -> Rect {
 
 /// Draw the side panel: background, logo (or title) at top, session timer at
 /// the bottom. Plain widgets, not warped by the tube (plan §2, §3.2). `None`
-/// (no game running) draws nothing.
+/// (no game loaded — the idle/root screen) draws just the "Inserir cartucho"
+/// button in the logo's spot. Returns the clickable buttons drawn this frame,
+/// in `rect`'s (output/canvas) coordinate space — the caller stores them for
+/// `Cabinet::hit_panel_button`.
 fn draw_panel(
     canvas: &mut WindowCanvas,
     font: &mut Texture,
@@ -1314,10 +1357,9 @@ fn draw_panel(
     panel: Option<&PanelInfo>,
     rect: Rect,
     session: Duration,
-) {
-    let Some(panel) = panel else { return };
+) -> Vec<(PanelButton, Rect)> {
     if rect.width() == 0 {
-        return;
+        return Vec::new();
     }
     canvas.set_draw_color(Color::RGB(PANEL_BG.0, PANEL_BG.1, PANEL_BG.2));
     let _ = canvas.fill_rect(rect);
@@ -1326,6 +1368,17 @@ fn draw_panel(
     let inner_w = rect.width().saturating_sub(pad as u32 * 2);
     let x = rect.x() + pad;
     let y = rect.y() + pad;
+
+    let Some(panel) = panel else {
+        // Idle/root screen (plan §3.2, item 1 — in place of the logo/title):
+        // a single button that opens the shelf. Nothing else in the panel
+        // makes sense with no game loaded.
+        let btn = Rect::new(x, y, inner_w, 56);
+        return vec![(
+            PanelButton::Insert,
+            draw_button(canvas, font, btn, "Inserir cartucho", true),
+        )];
+    };
 
     // 1. Logo, or the title if there isn't one (plan §3.2, item 1).
     let mut cy = if panel.has_logo {
@@ -1344,7 +1397,10 @@ fn draw_panel(
     };
 
     // 3. Commands — the console's own buttons, not the emulator's extras
-    // (plan §3.2, item 3). Label left, key right, one line each.
+    // (plan §3.2, item 3), clickable. Power is "lit" while on; Eject/Reset
+    // dim when they wouldn't do anything right now (the lock still resists a
+    // clicked Eject with a clunk, same as the key).
+    let mut buttons = Vec::new();
     if !panel.commands.is_empty() {
         cy += 16;
         draw_text_absolute(
@@ -1357,28 +1413,36 @@ fn draw_panel(
             usize::MAX,
         );
         cy += GLYPH as i32 + 6;
-        for (label, key) in &panel.commands {
-            draw_text_absolute(
-                canvas,
-                font,
-                x,
-                cy,
-                TextStyle::new(1, PANEL_TEXT),
-                label,
-                usize::MAX,
-            );
-            let key_w = (GLYPH as i32) * key.chars().count() as i32;
-            draw_text_absolute(
-                canvas,
-                font,
-                rect.right() - pad - key_w,
-                cy,
-                TextStyle::new(1, PANEL_DIM),
-                key,
-                usize::MAX,
-            );
-            cy += GLYPH as i32 + 4;
-        }
+    }
+    for (i, (label, key)) in panel.commands.iter().enumerate() {
+        let kind = match i {
+            0 => PanelButton::Power,
+            1 => PanelButton::Eject,
+            2 => PanelButton::Reset,
+            _ => break,
+        };
+        let lit = match kind {
+            // Power is always the live control — lit whichever way it's
+            // about to act (turn off while on, turn back on while off), not
+            // just while powered.
+            PanelButton::Power => true,
+            PanelButton::Eject => !panel.powered,
+            PanelButton::Reset => panel.powered,
+            PanelButton::Insert => true,
+        };
+        cy += 6;
+        // Power's label flips with the state it's about to leave — "Desligar"
+        // while on, "Ligar" while off — the other two keep their static copy.
+        let label = if kind == PanelButton::Power && !panel.powered {
+            "Ligar"
+        } else {
+            label.as_str()
+        };
+        let text = format!("{label}  [{key}]");
+        let btn = Rect::new(x, cy, inner_w, GLYPH + 12);
+        let drawn = draw_button(canvas, font, btn, &text, lit);
+        cy = drawn.bottom();
+        buttons.push((kind, drawn));
     }
 
     // 4. Cheats — the interruptor list (plan §4.4), not the string of raw
@@ -1474,6 +1538,49 @@ fn draw_panel(
         &stamp,
         usize::MAX,
     );
+
+    buttons
+}
+
+/// Draw one clickable panel button: a filled box (brighter/bordered when
+/// `lit`, flush with the panel background otherwise) with `text` centered
+/// inside. Returns the box's rect for hit-testing.
+fn draw_button(
+    canvas: &mut WindowCanvas,
+    font: &mut Texture,
+    rect: Rect,
+    text: &str,
+    lit: bool,
+) -> Rect {
+    let (bg, border, fg) = if lit {
+        (PANEL_BTN_BG, PANEL_TEXT, PANEL_TEXT)
+    } else {
+        (PANEL_BG, PANEL_BTN_BG, PANEL_DIM)
+    };
+    canvas.set_draw_color(Color::RGB(border.0, border.1, border.2));
+    let _ = canvas.fill_rect(rect);
+    let inset = Rect::new(
+        rect.x() + 1,
+        rect.y() + 1,
+        rect.width() - 2,
+        rect.height() - 2,
+    );
+    canvas.set_draw_color(Color::RGB(bg.0, bg.1, bg.2));
+    let _ = canvas.fill_rect(inset);
+
+    let text_w = (GLYPH as i32) * text.chars().count() as i32;
+    let tx = rect.x() + (rect.width() as i32 - text_w).max(4) / 2;
+    let ty = rect.y() + (rect.height() as i32 - GLYPH as i32) / 2;
+    draw_text_absolute(
+        canvas,
+        font,
+        tx,
+        ty,
+        TextStyle::new(1, fg),
+        text,
+        usize::MAX,
+    );
+    rect
 }
 
 /// Where the pause book's two pages sit: a symmetric spread with a spine gap

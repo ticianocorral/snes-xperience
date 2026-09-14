@@ -6,12 +6,28 @@ mod cabinet;
 mod input;
 
 pub use audio::AudioOut;
-pub use cabinet::{Cabinet, FrameRef, PixelFormat, Screen};
+pub use cabinet::{Cabinet, FrameRef, PanelButton, PixelFormat, Screen};
 pub use input::{Input, KeyMap, PadButton, UiEvent, MAX_PORTS};
 
 use sdl3::event::Event;
 use sdl3::gamepad::{Button as PadBtn, Gamepad};
+use sdl3::mouse::MouseButton;
 use thiserror::Error;
+
+/// Left-button-down position, in window coordinates, or `None` for anything
+/// else. Shared between `poll` and `poll_menu` so the SDL event match isn't
+/// duplicated.
+fn left_click_at(event: &Event) -> Option<(i32, i32)> {
+    match event {
+        Event::MouseButtonDown {
+            mouse_btn: MouseButton::Left,
+            x,
+            y,
+            ..
+        } => Some((*x as i32, *y as i32)),
+        _ => None,
+    }
+}
 
 /// What `poll_menu` should do with keydowns this call.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -60,6 +76,8 @@ pub struct MenuInput {
     /// Set only in capture mode: Escape cancels the capture instead of being
     /// captured as the new binding.
     pub capture_cancelled: bool,
+    /// Left click this frame, in window coordinates (see `UiEvent::Click`).
+    pub click: Option<(i32, i32)>,
 }
 
 #[derive(Debug, Error)]
@@ -163,6 +181,10 @@ impl Platform {
         let mut out = MenuInput::default();
         let mut devices_changed = false;
         for event in self.event_pump.poll_iter() {
+            if let Some(pos) = left_click_at(&event) {
+                out.click = Some(pos);
+                continue;
+            }
             match event {
                 Event::Quit { .. } => out.quit = true,
                 Event::GamepadAdded { .. } | Event::GamepadRemoved { .. } => devices_changed = true,
@@ -247,6 +269,10 @@ impl Platform {
         let mut out = Vec::new();
         let mut devices_changed = false;
         for event in self.event_pump.poll_iter() {
+            if let Some((x, y)) = left_click_at(&event) {
+                out.push(UiEvent::Click(x, y));
+                continue;
+            }
             match event {
                 Event::Quit { .. } => out.push(UiEvent::CloseRequested),
                 Event::GamepadAdded { .. } | Event::GamepadRemoved { .. } => devices_changed = true,

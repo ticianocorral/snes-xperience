@@ -48,7 +48,7 @@ O laço do jogo agora tem um estado `powered: bool`, além de rodando/pausado:
 
 | Comando | Tecla | Efeito |
 |---|---|---|
-| Desligar | `Esc` | Só com o console ligado. Descarrega a SRAM na hora, roda o chuvisco (abaixo), `powered = false`. O laço **continua** — a janela não fecha, o cartucho continua no slot. Um segundo Esc não faz nada. |
+| Desligar / Ligar | `Esc` | Alterna. Ligado → desligado: descarrega a SRAM na hora, roda o chuvisco de queda (abaixo), `powered = false`. Desligado → ligado: `power_on_burst` (o espelho — chuvisco subindo de `OFF_STATIC_LEVEL` até um pico breve, corta), `powered = true`, o jogo **retoma exatamente de onde parou**, sem recarregar nada. O laço **continua** o tempo todo — a janela não fecha, o cartucho continua no slot. |
 | Ejetar | `E` | Só com o console **desligado** — a trava resiste enquanto ligado: só um "clunk" curto de áudio (`eject_clunk`), nada muda. Desligado, limpa o slot (`Cabinet::clear_cartridge`) e sai do laço com `GameExit::ToShelf { static_level }`. |
 | Reset | `Backspace` | Só com o console ligado — `core.reset()`, sem sair da tela. |
 | Sair | fechar a janela | Sempre funciona, ligado ou desligado — sem cerimônia (`GameExit::Quit`). |
@@ -58,7 +58,8 @@ onde estava) e cada quadro chama `Cabinet::present_static(OFF_STATIC_LEVEL)` —
 o mesmo chuvisco fraco, agora **contínuo**, com o cartucho ainda visível no
 slot. Eventos que só fazem sentido ligado (pause, save/load state, troca de
 slot, screenshot) são ignorados nesse estado. **Console desligado é um
-estado, não um beco** — só sai dele pelo Eject ou fechando a janela.
+estado, não um beco** — sai dele ligando de novo (mesma tecla/botão, `Esc`
+ou o botão Power do painel) ou ejetando.
 
 `power_off_burst` faz a queda de sinal: ~0,65 s de `Cabinet::present_static`
 com `level` caindo de 1.0 → `OFF_STATIC_LEVEL` (0,12), e em paralelo um buffer
@@ -121,3 +122,54 @@ quadro, embaralha tiles, zumbido) — explicitamente marcado como opcional no
 plano, não bloqueia o resto. Fora isso, a Fase 3 está com tudo do §6
 implementado; o próximo salto de fase é o painel lateral (Fase 4: logo,
 cheats, tela de pausa, anotações).
+
+## Revisão (2026-09-13): cartucho no slot removido, tela inicial nova
+
+Pedido do usuário, feito depois da Fase 4 já estar em andamento — ver
+`docs/fase-4.md` pela versão completa. Resumo do que muda neste documento:
+
+- **Cartucho no slot (`Cabinet::set_cartridge`, acima) deixou de existir.**
+  `CartridgeSlot`, `set_cartridge`/`clear_cartridge`, `cartridge_slot_rect` e
+  `draw_cartridge_slot` foram removidos por completo de `cabinet.rs` — o
+  cartucho não aparece mais em nenhum estado (ligado, desligado, tela
+  inicial). `Cabinet::set_powered` (novo) faz o papel que `clear_cartridge`
+  fazia na transição de Ejetar, mas só pra dimmear os botões do painel (Fase
+  4), não pra esconder um objeto no queixo. O texto acima sobre "cartucho
+  ainda visível no slot" ao desligar não é mais verdade — o queixo mostra só
+  `draw_brand` (a etiqueta "SNES Xperience", que nunca foi o cartucho).
+- **Ejetar não abre mais a estante direto** — volta pra uma tela inicial
+  nova (`crates/app/src/idle.rs`, TV off + botão "Inserir cartucho" no
+  lugar do logo/título do painel), e só ativar esse botão é que abre a
+  estante. `GameExit::ToShelf` virou `GameExit::Ejected` para refletir isso.
+  Essa tela inicial também é o que aparece ao abrir o app (em vez de cair
+  direto na estante) e ao dar Esc na estante (que antes encerrava o app —
+  agora `Pick::Back`, distinto de `Pick::Quit`, que fica só pra fechar a
+  janela).
+
+## Revisão (2026-09-14): a moldura trava em 16:9 num monitor ultrawide
+
+Achado ao testar num monitor ultrawide: `screen_area`/`panel_rect`
+(`cabinet.rs`) sempre escalaram linear e incondicionalmente pro
+`output_size()` da janela inteira — sem limite de proporção nenhum pro
+gabinete em si (o jogo dentro do tubo já tinha `fit_aspect_in` pro seu
+próprio 4:3/16:9, mas o tubo/gabinete ao redor virava uma forma larga-e-
+baixa fora de qualquer proporção real de TV). Corrigido sem tocar na
+matemática de layout existente: `cabinet_canvas_rect(out_w, out_h)` (nova,
+reaproveita o `fit_aspect_in` que já existia) calcula a maior área 16:9 que
+cabe na janela/tela real, centralizada; todo `present_*`/`capture_*_bmp`/
+`paint_2d` agora limpa a janela inteira (pinta as faixas pretas) e chama
+`canvas.set_viewport(Some(rect))` antes de desenhar — a partir daí todo o
+código existente (`panel_rect`, `screen_area`, `draw_panel`, `GridLayout`
+da estante) continua igual, só que recebendo as dimensões desse retângulo
+16:9 no lugar do tamanho bruto da janela. `Cabinet` ganhou um campo
+`canvas_rect` (mesmo padrão de `panel_buttons`: guardado no último quadro,
+consultado no próximo clique) — `window_to_output` agora subtrai o
+deslocamento das faixas antes de qualquer hit-test, senão um clique com a
+janela em formato ultrawide acertaria o alvo errado.
+
+Sem limite de pixels — só de proporção. Um monitor 16:9 comum (mesmo 4K)
+continua preenchendo cheio, sem faixa nenhuma; só ultrawide (21:9, 32:9) ou
+uma janela redimensionada pra uma forma esquisita ganha as faixas. Testado
+com um exemplo headless descartável, `Cabinet` a 3840×1080 (bem além de
+21:9): o gabinete ficou centralizado, do tamanho certo, com faixa preta
+igual dos dois lados — apagado depois de conferir.

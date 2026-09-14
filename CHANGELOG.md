@@ -9,6 +9,58 @@ aviso — só o incremento de _minor_ marca um conjunto de mudanças.
 
 ## [Não lançado]
 
+### Adicionado
+
+- **Tela inicial** (TV off + botão "Inserir cartucho" no lugar do logo):
+  agora é o estado raiz do app — aparece na abertura, depois de ejetar um
+  jogo e ao dar Esc na estante (que antes fechava o app direto).
+- **Botões clicáveis** de Power/Ejetar/Reset no painel lateral, no lugar da
+  legenda de texto — primeiro suporte a clique de mouse no app.
+- **Estante clicável**: clicar numa capa/linha seleciona, clicar de novo
+  lança o jogo.
+- **Lista estilo multicart** quando nenhum jogo da estante tem capa
+  carregada ainda, em vez de uma grade de tiles vazios.
+- A estante agora mostra o chuvisco de sinal off levemente por baixo o tempo
+  todo (antes só durante a entrada vinda de um eject).
+
+### Corrigido
+
+- Depois de ejetar, o painel ficava com os botões do jogo anterior em vez do
+  botão "Inserir cartucho" — não dava pra abrir a estante de novo por
+  clique. `Cabinet::clear_panel` (novo) limpa o painel ao entrar na tela
+  inicial.
+
+### Alterado
+
+- O cartucho não aparece mais encaixado no console durante a partida.
+
+### Removido
+
+- **ScreenScraper**: sem raspagem online — capa e logo agora vêm de arte
+  local em `assets/cover/`/`assets/logo/`, casada pelo nome do arquivo da
+  ROM. A ficha da estante perdeu ano/desenvolvedora/gênero/sinopse; sobrou
+  título + contagem de jogadas.
+- **Catálogo SQLite**: sem banco — o app escaneia `roms/` a cada abertura e
+  guarda só contagem de jogadas/datas num `library.json` ao lado do
+  executável. Binários `library` e `scrape-test` removidos (sem banco pra
+  popular/inspecionar, sem ScreenScraper pra testar).
+
+### Adicionado (continuação)
+
+- **App portátil**: `roms/`, `core/`, `assets/{cover,logo,cartridge}/`,
+  `saves/`, `notes/`, `xperience.cfg` e `library.json` moram ao lado do
+  executável (do `.app` no macOS, não dentro dele) — sem instalação, sem
+  `~/.local/share`. Uma cópia única do `saves/`/`notes/` antigo migra
+  sozinha na primeira execução, se existir.
+- **Nomes via No-Intro**: um `nointro.dat` opcional ao lado do executável dá
+  o título canônico de cada jogo (casado pelo CRC32 headerless), resolvido
+  no scan — sem raspagem, sem espera.
+- **Baixar/atualizar o núcleo snes9x** pelo menu de configurações, direto do
+  buildbot do libretro — sem precisar colocar o arquivo à mão.
+- **Moldura trava em 16:9**: num monitor ultrawide (ou janela redimensionada
+  pra uma forma esquisita) sobra faixa preta nas laterais em vez de esticar
+  o gabinete/tubo.
+
 ## [0.3.1] — 2026-09-11
 
 ### Corrigido

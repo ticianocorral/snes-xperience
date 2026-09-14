@@ -1,81 +1,67 @@
-//! The whole thing: selector → game → selector, in one process, no shell glue.
-//! In a game, Esc powers off (state, saves, TV to snow, cartridge stays
-//! seated) and E ejects once off, opening the shelf; Esc/close on the shelf,
-//! or closing a game window, ends the app — no ceremony there (plan §3.3).
-//! `O` on the shelf opens settings (controls, ScreenScraper, run-ahead,
-//! fullscreen) — see `xperience_app::settings`.
+//! The whole thing: idle → selector → game → idle → …, in one process, no
+//! shell glue, no installation. Portable: `roms/`, `core/`, `assets/`,
+//! `saves/`, `notes/`, `xperience.cfg` and `library.json` all live next to
+//! the executable (see `xperience_app::dirs`) — drop ROMs in `roms/` and go.
+//!
+//! The idle screen (TV off, "Inserir cartucho" in place of the logo) is the
+//! app's home: it's what you see at startup, after Esc on the shelf, and
+//! after ejecting a game — only closing the window (or Esc on the idle
+//! screen itself) ends the app. In a game, Esc powers off (state, saves, TV
+//! to snow) and E ejects once off, landing back on the idle screen
+//! (plan §3.3). `O` on the shelf opens settings (controls, run-ahead,
+//! fullscreen, snes9x core download/update) — see `xperience_app::settings`.
 //!
 //! Usage:
-//!   xperience --core <path/to/snes9x_libretro.{dylib,so,dll}>
-//!             [--catalog DB] [--config config.toml] [--save-dir DIR]
-//!             [--system-dir DIR] [--order shelf|name] [--runahead N] [--no-scrape]
+//!   xperience [--core path/to/snes9x_libretro.{dylib,so,dll}]
+//!             [--config xperience.cfg] [--save-dir DIR] [--system-dir DIR]
+//!             [--order shelf|name] [--runahead N]
 //!
-//! The core path also reads from $XPERIENCE_CORE, or — for a packaged launch
-//! with no arguments at all — a core dropped into the data dir's `core/`
-//! folder (see --help). Build the catalogue first with
-//! `library scan --roms <dir>` (see docs/fase-2.md). ScreenScraper credentials
-//! come from the settings screen (saved to config.toml) or, as a fallback,
-//! $SS_DEVID/$SS_DEVPASSWORD; --no-scrape opts out either way.
+//! No `--core`/`$XPERIENCE_CORE`? Looks for one already downloaded into
+//! `core/` (see the settings screen, "Núcleo") — not included in the app
+//! itself, non-commercial snes9x license (see THIRD-PARTY-NOTICES.md).
 
 use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Context, Result};
 use xperience_app::config::Config;
+use xperience_app::core_update;
+use xperience_app::idle::{self, IdleExit};
 use xperience_app::runner::{run_game, GameExit, GameSpec};
 use xperience_app::settings;
-use xperience_app::shelf::{self, Pick, ScrapeSetup, ShelfOpts};
-use xperience_domain::{Catalog, Order};
-use xperience_platform::Platform;
+use xperience_app::shelf::{self, Pick, ShelfOpts};
+use xperience_domain::{Catalog, NoIntroDat, Order};
+use xperience_platform::{Cabinet, MenuMode, MenuNav, Platform, Screen};
 
 struct Args {
-    core: PathBuf,
-    catalog: PathBuf,
+    /// Explicit override; `None` means "look in `core/` at launch, and again
+    /// each time a game is picked" (the settings screen may have just
+    /// downloaded one).
+    core: Option<PathBuf>,
     config: Option<PathBuf>,
     save_dir: PathBuf,
     system_dir: PathBuf,
     notes_dir: PathBuf,
     order: Order,
     runahead: Option<u32>,
-    no_scrape: bool,
-    /// Headless: render one settings screen ("main"|"controls"|"screenscraper")
-    /// to `--shot` and exit, instead of starting the shelf (dev/testing).
+    /// Headless: render one settings screen ("main"|"controls") to `--shot`
+    /// and exit, instead of starting the shelf (dev/testing).
     debug_settings: Option<String>,
     shot: Option<PathBuf>,
 }
 
-fn data_dir() -> PathBuf {
-    xperience_app::dirs::data_dir()
-}
-
-/// The core's file name for the platform this binary was built for — never
-/// distributed with the app (non-commercial snes9x license), but a launch
-/// with no `--core`/`$XPERIENCE_CORE` (a double-clicked .app/.exe/AppImage
-/// has neither) still needs somewhere to look.
-fn core_file_name() -> &'static str {
-    if cfg!(target_os = "macos") {
-        "snes9x_libretro.dylib"
-    } else if cfg!(target_os = "windows") {
-        "snes9x_libretro.dll"
-    } else {
-        "snes9x_libretro.so"
-    }
-}
-
 fn default_core_path() -> Option<PathBuf> {
-    let p = data_dir().join("core").join(core_file_name());
+    let p = xperience_app::dirs::core_dir().join(core_update::core_file_name());
     p.is_file().then_some(p)
 }
 
 fn parse_args() -> Result<Args> {
     let mut core = std::env::var_os("XPERIENCE_CORE").map(PathBuf::from);
-    let mut catalog = None;
     let mut config = None;
     let mut save_dir = None;
     let mut system_dir = None;
     let mut notes_dir = None;
     let mut order = Order::Shelf;
     let mut runahead = None;
-    let mut no_scrape = false;
     let mut debug_settings = None;
     let mut shot = None;
 
@@ -84,12 +70,10 @@ fn parse_args() -> Result<Args> {
         let mut val = || it.next().ok_or_else(|| anyhow!("{a} needs a value"));
         match a.as_str() {
             "--core" => core = Some(val()?.into()),
-            "--catalog" => catalog = Some(val()?.into()),
             "--config" => config = Some(val()?.into()),
             "--save-dir" => save_dir = Some(val()?.into()),
             "--system-dir" => system_dir = Some(val()?.into()),
             "--notes-dir" => notes_dir = Some(val()?.into()),
-            "--no-scrape" => no_scrape = true,
             "--debug-settings" => debug_settings = Some(val()?),
             "--shot" => shot = Some(val()?.into()),
             "--order" => {
@@ -114,85 +98,80 @@ fn parse_args() -> Result<Args> {
         }
     }
 
-    let core = core.or_else(default_core_path).ok_or_else(|| {
-        anyhow!(
-            "no core: pass --core, set $XPERIENCE_CORE, or drop {} into {}",
-            core_file_name(),
-            data_dir().join("core").display()
-        )
-    })?;
-    let save_dir = save_dir.unwrap_or_else(|| data_dir().join("saves"));
+    let save_dir = save_dir.unwrap_or_else(xperience_app::dirs::saves_dir);
     let system_dir = system_dir.unwrap_or_else(|| save_dir.clone());
-    let notes_dir = notes_dir.unwrap_or_else(|| data_dir().join("notes"));
-    let catalog = catalog.unwrap_or_else(|| data_dir().join("catalog.db"));
+    let notes_dir = notes_dir.unwrap_or_else(xperience_app::dirs::notes_dir);
     Ok(Args {
         core,
-        catalog,
         config,
         save_dir,
         system_dir,
         notes_dir,
         order,
         runahead,
-        no_scrape,
         debug_settings,
         shot,
     })
 }
 
-const HELP: &str = "xperience --core <lib> [--catalog DB] [--config config.toml]\n\
+const HELP: &str = "xperience [--core <lib>] [--config xperience.cfg]\n\
        [--save-dir DIR] [--system-dir DIR] [--notes-dir DIR]\n\
-       [--order shelf|name] [--runahead N] [--no-scrape]\n\
-       [--debug-settings main|controls|screenscraper --shot out.bmp]\n\
+       [--order shelf|name] [--runahead N]\n\
+       [--debug-settings main|controls --shot out.bmp]\n\
 \n\
-Selector → game → selector, one process. In a game: Esc powers off (saves,\n\
-TV to snow, cartridge stays put), E ejects once off, opening the shelf.\n\
-O on the shelf opens settings (controls, ScreenScraper, run-ahead,\n\
-fullscreen) — saved straight to config.toml.\n\
-Esc / window-close on the shelf, or closing a game window, ends the app —\n\
-no ceremony there.\n\
-Build the catalogue first:  library scan --roms <dir>\n\
-ScreenScraper credentials come from the settings screen or, as a fallback,\n\
-SS_DEVID / SS_DEVPASSWORD; --no-scrape turns scraping off either way.\n\
-Defaults live under the data dir (catalog.db, saves/, notes/, core/) —\n\
-~/.local/share/snes-xperience on macOS/Linux, %APPDATA%\\snes-xperience on a\n\
-native Windows launch with no $HOME. No --core/$XPERIENCE_CORE? Drop the\n\
-snes9x core into <data dir>/core/ (snes9x_libretro.dylib/.so/.dll) — not\n\
-included, non-commercial license (see THIRD-PARTY-NOTICES.md).";
+Idle (TV off) → selector → game → idle, one process. The idle screen's\n\
+\"Inserir cartucho\" opens the shelf; it's what you land on at startup, after\n\
+Esc on the shelf, and after ejecting a game. In a game: Esc powers off\n\
+(saves, TV to snow), E ejects once off, back to idle.\n\
+O on the shelf opens settings (controls, núcleo snes9x, run-ahead,\n\
+fullscreen) — saved straight to xperience.cfg.\n\
+Esc / window-close on the idle screen, or closing a game window, ends the\n\
+app — no ceremony there.\n\
+\n\
+Portable: everything lives next to this executable — roms/, core/, assets/\n\
+(cover/logo art, matched by ROM file name), saves/, notes/, xperience.cfg,\n\
+library.json. Drop ROMs into roms/ and go; no --core/$XPERIENCE_CORE? Use\n\
+the settings screen's \"Núcleo\" to download snes9x automatically, or drop\n\
+it into core/ by hand (not included — non-commercial license, see\n\
+THIRD-PARTY-NOTICES.md). An optional nointro.dat at the root gives games\n\
+their canonical No-Intro name.";
 
 fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     let args = parse_args()?;
+
+    for dir in [
+        xperience_app::dirs::roms_dir(),
+        xperience_app::dirs::core_dir(),
+        xperience_app::dirs::assets_dir().join("logo"),
+        xperience_app::dirs::assets_dir().join("cover"),
+        xperience_app::dirs::assets_dir().join("cartridge"),
+        args.save_dir.clone(),
+        args.notes_dir.clone(),
+    ] {
+        let _ = std::fs::create_dir_all(&dir);
+    }
+    migrate_old_data();
 
     let mut cfg = Config::load(args.config.as_deref())?;
     if let Some(p) = &cfg.source {
         log::info!("config: {}", p.display());
     }
 
-    let catalog = Catalog::open(&args.catalog)
-        .with_context(|| format!("opening catalogue {}", args.catalog.display()))?;
-    let (n_roms, _) = catalog.counts()?;
-    if n_roms == 0 {
-        eprintln!(
-            "catalogue is empty — run:  library scan --roms <dir> --catalog {}",
-            args.catalog.display()
-        );
-        std::process::exit(2);
-    }
-
-    let build_scrape = |cfg: &Config| -> Option<ScrapeSetup> {
-        if args.no_scrape {
-            return None;
+    let dat = match NoIntroDat::load(&xperience_app::dirs::nointro_dat_path()) {
+        Ok(dat) => Some(dat),
+        Err(e) => {
+            log::info!("no-intro DAT not loaded ({e}) — using internal/file names");
+            None
         }
-        cfg.resolve_screenscraper().map(|creds| ScrapeSetup {
-            creds,
-            art_dir: args.catalog.parent().unwrap_or(Path::new(".")).join("art"),
-        })
     };
-    let scrape = build_scrape(&cfg);
-    if scrape.is_some() {
-        log::info!("on-demand scrape: on");
-    }
+    let catalog = Catalog::open(
+        &xperience_app::dirs::roms_dir(),
+        &xperience_app::dirs::library_path(),
+        dat.as_ref(),
+    )
+    .with_context(|| "opening the catalog")?;
+    log::info!("{} rom(s) in roms/", catalog.counts()?);
 
     let mut plat = Platform::new().map_err(|e| anyhow!(e.to_string()))?;
     // One window for the whole session — shelf and game both draw into it.
@@ -214,54 +193,157 @@ fn main() -> Result<()> {
         order: args.order,
         max_frames: None,
         shot: None,
-        scrape,
         fade_in: None,
     };
+    let mut idle_static = idle::RESTING_STATIC;
+    let mut core_path = args.core.clone().or_else(default_core_path);
 
-    loop {
-        let (rom, cartridge_label, logo) =
-            match shelf::run(&mut plat, &mut cab, &catalog, &shelf_opts)? {
-                Pick::Quit => break,
+    'app: loop {
+        match idle::run(&mut plat, &mut cab, idle_static)? {
+            IdleExit::Quit => break 'app,
+            IdleExit::OpenShelf => shelf_opts.fade_in = Some(idle_static),
+        }
+
+        'shelf: loop {
+            let (rom, logo) = match shelf::run(&mut plat, &mut cab, &catalog, &shelf_opts)? {
+                Pick::Quit => break 'app,
+                Pick::Back => {
+                    idle_static = idle::RESTING_STATIC;
+                    break 'shelf;
+                }
                 Pick::Settings => {
                     let quit = settings::run(&mut plat, &mut cab, &mut cfg)?;
                     if quit {
-                        break;
+                        break 'app;
                     }
-                    // Bindings/ScreenScraper/run-ahead may have changed.
-                    shelf_opts.scrape = build_scrape(&cfg);
+                    // A core download may have just finished.
+                    core_path = args.core.clone().or_else(default_core_path);
                     continue;
                 }
-                Pick::Play {
-                    rom,
-                    texture,
-                    wheel,
-                } => (rom, texture, wheel),
+                Pick::Play { rom, wheel } => (rom, wheel),
             };
-        shelf_opts.fade_in = None; // consumed
-        let spec = GameSpec {
-            core: args.core.clone(),
-            rom,
-            system_dir: args.system_dir.clone(),
-            save_dir: args.save_dir.clone(),
-            notes_dir: args.notes_dir.clone(),
-            runahead: args.runahead,
-            shot: None,
-            cartridge_label,
-            logo,
-            shot_off: false,
-            debug_note_capture: false,
-            debug_shot_pause: false,
-        };
-        match run_game(&mut plat, &mut cab, &spec, &cfg)? {
-            // The power-off ritual (desligar, snow, wait for eject) already
-            // ran inside run_game; the shelf just eases in over what it left.
-            GameExit::ToShelf { static_level } => {
-                shelf_opts.fade_in = Some(static_level);
+            shelf_opts.fade_in = None; // consumed
+
+            let Some(core) = &core_path else {
+                if no_core_screen(&mut plat, &mut cab)? {
+                    break 'app;
+                }
+                continue;
+            };
+            let spec = GameSpec {
+                core: core.clone(),
+                rom,
+                system_dir: args.system_dir.clone(),
+                save_dir: args.save_dir.clone(),
+                notes_dir: args.notes_dir.clone(),
+                runahead: args.runahead,
+                shot: None,
+                logo,
+                shot_off: false,
+                debug_note_capture: false,
+                debug_shot_pause: false,
+            };
+            match run_game(&mut plat, &mut cab, &spec, &cfg)? {
+                // The power-off ritual (desligar, snow, wait for eject)
+                // already ran inside run_game — the idle screen just eases
+                // in over what it left (plan §3.3, "a estante entra por
+                // cima" now applies to the idle screen, not the shelf).
+                GameExit::Ejected { static_level } => {
+                    idle_static = static_level;
+                    break 'shelf;
+                }
+                GameExit::Quit => break 'app,
             }
-            GameExit::Quit => break,
         }
     }
 
     log::info!("bye");
+    Ok(())
+}
+
+/// A game was picked but no core is available yet — points at the settings
+/// screen instead of crashing the whole app (which used to happen at
+/// startup, before there was anything to download a core *from*). Returns
+/// `true` if the whole app should quit.
+fn no_core_screen(plat: &mut Platform, cab: &mut Cabinet) -> Result<bool> {
+    loop {
+        let m = plat.poll_menu(MenuMode::Nav);
+        if m.quit {
+            return Ok(true);
+        }
+        if m.nav
+            .iter()
+            .any(|n| matches!(n, MenuNav::Confirm | MenuNav::Back))
+        {
+            return Ok(false);
+        }
+        let render = |d: &mut Screen| {
+            d.text(40, 40, 2, (232, 232, 232), "nucleo nao encontrado");
+            d.text_wrapped(
+                40,
+                90,
+                700,
+                1,
+                (150, 150, 158),
+                "baixe o nucleo snes9x pelo menu de configuracoes (O na estante) \
+                 antes de jogar, ou coloque o arquivo em core/ a mao.",
+            );
+            d.text(
+                40,
+                d.size().1 as i32 - 40,
+                1,
+                (150, 150, 158),
+                "enter ou esc: voltar pra estante",
+            );
+        };
+        cab.frame_2d((18, 18, 20), render);
+        std::thread::sleep(std::time::Duration::from_millis(16));
+    }
+}
+
+/// One-time, best-effort copy of real play progress (saves/notebooks) from
+/// the pre-portable `~/.local/share/snes-xperience` location, if the new
+/// folders are still empty and the old ones exist. The catalog's play-count
+/// history is deliberately NOT migrated (fresh start) — but a save state or
+/// SRAM file is actual game progress, worth not losing silently just because
+/// the app changed where it looks. macOS/Linux only (old installs on native
+/// Windows used `%APPDATA%`, not covered here — lower value to chase).
+fn migrate_old_data() {
+    let Some(home) = std::env::var_os("HOME") else {
+        return;
+    };
+    let old_base = PathBuf::from(home).join(".local/share/snes-xperience");
+    let pairs = [
+        (old_base.join("saves"), xperience_app::dirs::saves_dir()),
+        (old_base.join("notes"), xperience_app::dirs::notes_dir()),
+    ];
+    for (old_dir, new_dir) in pairs {
+        if !old_dir.is_dir() {
+            continue;
+        }
+        let new_has_data = std::fs::read_dir(&new_dir)
+            .map(|mut it| it.next().is_some())
+            .unwrap_or(false);
+        if new_has_data {
+            continue;
+        }
+        match copy_dir_all(&old_dir, &new_dir) {
+            Ok(()) => log::info!("migrated {} -> {}", old_dir.display(), new_dir.display()),
+            Err(e) => log::warn!("migrating {}: {e}", old_dir.display()),
+        }
+    }
+}
+
+fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let dst_path = dst.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_dir_all(&entry.path(), &dst_path)?;
+        } else {
+            std::fs::copy(entry.path(), &dst_path)?;
+        }
+    }
     Ok(())
 }
