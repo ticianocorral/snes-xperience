@@ -134,3 +134,12 @@ Com as duas provas passando, seguir para a Fase 1 (plano §6): emulador feio que
 funciona — save state, run-ahead, configuração de input, sem moldura.
 O laço em `xperience-emulation` já expõe `save_state` / `load_state` para o
 run-ahead começar cedo.
+
+## Revisão (2026-09-14): ScreenScraper removido, `scrape-test` também
+
+A Prova 2 documentada acima provou que dava pra casar ROM com metadado
+online — mas o app virou portátil (sem banco) e sem raspagem (capa/logo
+agora são arte local em `assets/`, nome vem de um DAT No-Intro local, ver
+`docs/fase-2.md`). `scrape-test` não tem mais nada pra testar e foi
+removido junto do `Client`/`GameInfo` do ScreenScraper. Fica como registro
+histórico de que a integração funcionou, não como binário vivo.

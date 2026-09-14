@@ -137,3 +137,113 @@ capas, navegação por gamepad, preenchimento progressivo, busca por digitação
 scrape sob demanda, o binário `xperience` único e a ficha completa. O que falta
 pro projeto é a **moldura** (Fase 3): o mesmo tubo CRT do `emu-run` como janela
 sempre presente, com a estante e o jogo desenhados dentro dela.
+
+## Revisão (2026-09-14): estante sobre o sinal off, lista sem capa, clique
+
+Três pedidos do usuário, depois que a moldura (Fase 3) e o painel (Fase 4) já
+estavam no ar:
+
+- **Estante sobre a TV sem sinal.** `shelf::run` não desenha mais num fundo
+  liso — chama `Cabinet::frame_2d_fade_in(bg, render, nível, alpha)` o tempo
+  todo, não só nos 18 quadros de entrada depois de um eject. Antes, esse
+  alpha subia até 1.0 e a função dava lugar a `frame_2d` (fundo liso);
+  agora ele só sobe até `SHELF_ALPHA` (0.92) e fica ali, então o chuvisco
+  fraco (`idle::RESTING_STATIC`, o mesmo nível do console desligado) continua
+  sangrando por baixo da estante o tempo todo — sutil o bastante pra não
+  atrapalhar a leitura da grade/lista. Isso deixou o `--shot` headless
+  (`capture_2d`, sem o chuvisco) levemente diferente do que se vê ao vivo —
+  aceitável pra uma ferramenta de teste, não pro usuário final.
+- **Lista quando não há capa nenhuma.** Antes, sem `texture`/capa a estante
+  ainda tentava desenhar tiles vazios com o título quebrado dentro — parece
+  app quebrado, não um catálogo sem arte ainda. Agora, se **nenhum** jogo em
+  `view` tem capa decodificada (`Cabinet::has_image`, novo — o mesmo que
+  `Screen::has_image`, mas chamável antes de montar o closure de desenho),
+  a estante inteira vira uma lista numerada de uma coluna só, estilo menu de
+  multicart de NES pirata: `"{:03}  {}"` (índice + título em caixa alta),
+  barra de seleção inteira preenchida (`HILITE`) em vez de contorno em torno
+  de um tile. `GridLayout` (`shelf.rs`, novo) unifica os dois modos — a
+  navegação por D-pad/gamepad (`cols`/`vis_rows`) não muda nada, só a
+  geometria de célula (`cell_w`/`cell_h`/`item_w`/`item_h`) e o desenho.
+  Ainda progressivo: assim que a primeira capa chega (scrape ligado), a
+  estante volta pra grade sozinha no próximo quadro.
+- **Clique de verdade na estante.** Ver `docs/fase-4.md`, que documenta a
+  infraestrutura de mouse inteira (nasceu ali, junto dos botões do painel);
+  aqui só o consumo: `Cabinet::hit_screen_point` mapeia o clique (já em
+  coordenadas de output, via `window_to_output`) pro espaço 2D da estante —
+  aproximado, ignora a curvatura do tubo (`CRT_WARP` é sutil, 0.06), preciso
+  o bastante pra acertar tile/linha. `GridLayout::tile_at` devolve o índice;
+  clicar um item novo seleciona, clicar de novo no já selecionado joga —
+  o mesmo dois passos que mover-depois-confirmar no controle.
+
+## Revisão (2026-09-14): sem SQLite, sem ScreenScraper — app portátil
+
+Mudança grande, a pedido do usuário: o catálogo desta fase (`Catalog` sobre
+SQLite, seção acima) e o ScreenScraper (seção "ScreenScraper estendido")
+**saíram inteiros**. `crates/domain/src/screenscraper.rs`, `art.rs` e a
+dependência `rusqlite` não existem mais; os binários `library` e
+`scrape-test` também foram removidos (sem banco pra popular/inspecionar,
+sem API pra testar). O que fica desta fase: `library::scan` (intocado,
+nunca teve acoplamento com SQLite) e o laço da estante em `shelf.rs`
+(reescrito por dentro, mesma forma por fora).
+
+**`Catalog` novo (`crates/domain/src/catalog.rs`)** — sem banco: escaneia
+`roms/` do zero a cada `Catalog::open` (`library::scan`, o mesmo de sempre)
+e funde com um `library.json` ao lado do executável — só o que uma
+varredura não sabe por si (`added_at`/`last_played_at`/`play_count`, por
+sha1). `RomRow` perdeu a tabela `meta` inteira; ganhou `nointro_name`
+(abaixo). `CatalogEntry::title()`: No-Intro → nome interno do cabeçalho →
+nome do arquivo — a camada "nome raspado" não existe mais.
+
+**Nomeação por DAT No-Intro (`crates/domain/src/nointro.rs`, novo)** —
+resolve o que o plano §4.1 sempre pediu ("identificação por hash... devolve
+título canônico"), só que agora é o que existe de fato: `NoIntroDat::load`
+lê um XML do No-Intro (`roxmltree`, dependência nova — nada no workspace
+lia XML antes) e monta um `HashMap<CRC32, nome>`; `Catalog::open` faz um
+`lookup` por ROM escaneada, sem rede, sem espera — o nome certo já sai no
+primeiro quadro da estante, não precisa do esquema de "dwell" que o
+ScreenScraper precisava. Opcional: sem o arquivo (`dirs::nointro_dat_path()`,
+`app_root()/nointro.dat`), o app funciona como antes desta revisão. Testado
+com o DAT real "Nintendo - Super Nintendo Entertainment System" (4129
+entradas) contra ROMs reais do usuário — títulos com região/revisão saíram
+certos de primeira (`Aladdin (USA)`, `Donkey Kong Country 2 - Diddy's Kong
+Quest (USA) (En,Fr) (Rev 1)`).
+
+**Capa/logo local (`shelf.rs`)** — sem ScreenScraper, sem worker thread:
+`assets/cover/<nome-do-arquivo-da-rom>.{png,jpg,jpeg}` e `assets/logo/…`
+(mesma convenção), decodificados sob demanda, só pras linhas visíveis, sem
+thread nenhuma (arquivo local não tem cota nem latência de rede pra
+justificar isso — a thread + canal de decodificação em paralelo que existia
+saiu inteira). `assets/cartridge/` também nasce no boot, mas nada lê dela —
+o cartucho continua fora de cena (decisão de uma sessão anterior). Testado
+ao vivo: uma capa aparecendo já basta pra estante trocar de lista pra
+grade sozinha; os jogos sem capa continuam com o título dentro do tile
+(fallback que já existia).
+
+**App portátil (`crates/app/src/dirs.rs`, reescrito)** — troca a base XDG
+(`$HOME/.local/share`, `$HOME/.config`) por `app_root()`: a pasta do
+executável, com um caso especial no macOS pra um `.app` empacotado (o
+binário de verdade mora em `Nome.app/Contents/MacOS/`, três níveis dentro
+do bundle — `app_root()` detecta esse padrão e sobe até a pasta que contém
+o `Nome.app`, que é onde um usuário esperaria achar `roms/` no Finder).
+`xperience.rs::main` cria `roms/`, `core/`, `assets/{cover,logo,
+cartridge}/`, `saves/`, `notes/` no boot, e copia (uma vez, sem sobrescrever)
+`saves/`/`notes/` do local antigo se existirem e o novo ainda estiver vazio
+— proteção de progresso de jogo de verdade, diferente do play-count (esse
+começa do zero, por decisão do usuário). `config.toml` virou `xperience.cfg`
+(mesma sintaxe TOML por baixo, só nome/local novos — "cfg" aqui é a
+convenção de emulador tipo RetroArch, não formato diferente).
+
+**Núcleo do snes9x pelo menu (`crates/app/src/core_update.rs`, novo)** — a
+linha "ScreenScraper" das configurações virou "Núcleo": baixa/atualiza o
+`snes9x_libretro` direto do buildbot oficial do libretro
+(`buildbot.libretro.com/nightly/<plataforma>/<arquitetura>/latest/
+snes9x_libretro.<ext>.zip` — URLs confirmadas ao vivo pra macOS arm64/
+x86_64, Windows x86_64, Linux x86_64), numa thread em segundo plano (mesmo
+padrão thread+canal que o scrape usava, agora pro download). `xperience.rs`
+não trava mais de cara sem um core — a checagem que existia em
+`parse_args()` saiu de lá; agora o app abre normal (tela inicial → estante
+→ configurações) mesmo sem núcleo nenhum, e só avisa na hora de efetivamente
+jogar.
+
+Ver também `docs/fase-3.md` (a moldura trava em 16:9 num monitor ultrawide,
+mesma revisão) e `docs/fase-4.md` (o resto do painel/botões).

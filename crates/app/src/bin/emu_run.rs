@@ -29,8 +29,6 @@ struct Args {
     /// Headless self-check: run N frames, save the composited window, exit.
     shot: Option<PathBuf>,
     shot_frame: u32,
-    /// Cartridge label art for the slot on the cabinet (dev/testing).
-    cartridge_label: Option<PathBuf>,
     /// Logo art for the side panel (dev/testing).
     logo: Option<PathBuf>,
     /// Headless: preview the idle "console off" screen instead of gameplay.
@@ -51,7 +49,6 @@ fn parse_args() -> Result<Args> {
     let mut runahead = None;
     let mut shot = None;
     let mut shot_frame = 180u32;
-    let mut cartridge_label = None;
     let mut logo = None;
     let mut shot_off = false;
     let mut debug_note_capture = false;
@@ -117,13 +114,6 @@ fn parse_args() -> Result<Args> {
                     .parse()
                     .map_err(|_| anyhow!("--shot-frame wants a number"))?
             }
-            "--cartridge-label" => {
-                cartridge_label = Some(
-                    it.next()
-                        .ok_or_else(|| anyhow!("--cartridge-label needs a path (image)"))?
-                        .into(),
-                )
-            }
             "--logo" => {
                 logo = Some(
                     it.next()
@@ -164,7 +154,6 @@ fn parse_args() -> Result<Args> {
         runahead,
         shot,
         shot_frame,
-        cartridge_label,
         logo,
         shot_off,
         debug_note_capture,
@@ -175,7 +164,6 @@ fn parse_args() -> Result<Args> {
 const HELP: &str = "emu-run --core <lib> --rom <game.sfc> [--system-dir D] [--save-dir D]\n\
        [--config config.toml] [--runahead N]\n\
        [--shot out.bmp [--shot-frame N]]   headless: run N frames, dump one, exit\n\
-       [--cartridge-label img.png]         show a label in the cabinet's slot\n\
        [--logo img.png]                    show a logo atop the side panel\n\
        [--shot-off]                        with --shot, preview the idle off screen\n\
        [--notes-dir DIR]                   per-ROM notebooks (default: <save-dir>/notes)\n\
@@ -220,7 +208,6 @@ fn main() -> Result<()> {
         notes_dir: args.notes_dir,
         runahead: args.runahead,
         shot: args.shot.map(|p| (p, args.shot_frame)),
-        cartridge_label: args.cartridge_label,
         logo: args.logo,
         shot_off: args.shot_off,
         debug_note_capture: args.debug_note_capture,

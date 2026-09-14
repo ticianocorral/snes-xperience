@@ -110,6 +110,11 @@ pub enum UiEvent {
     /// Held state, not an edge — `FastForward` is filtered out of the event
     /// stream and surfaced via [`Input::fast_forward`].
     FastForward,
+    /// Left mouse button went down, in **window** coordinates — the caller
+    /// (which owns the `Cabinet`) converts to output/canvas space via
+    /// `Cabinet::window_to_output` before hit-testing anything. Not a
+    /// rebindable key, so it stays out of `BINDABLE`/`token()`.
+    Click(i32, i32),
 }
 
 impl UiEvent {
@@ -131,7 +136,7 @@ impl UiEvent {
             UiEvent::NoteCapture => "note_capture",
             UiEvent::FrameStep => "frame_step",
             UiEvent::FastForward => "fast_forward",
-            UiEvent::Quit | UiEvent::CloseRequested => return None,
+            UiEvent::Quit | UiEvent::CloseRequested | UiEvent::Click(..) => return None,
         })
     }
 

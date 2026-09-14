@@ -16,14 +16,6 @@ name = "emu-run"
 path = "src/bin/emu_run.rs"
 
 [[bin]]
-name = "scrape-test"
-path = "src/bin/scrape_test.rs"
-
-[[bin]]
-name = "library"
-path = "src/bin/library.rs"
-
-[[bin]]
 name = "selector"
 path = "src/bin/selector.rs"
 
@@ -36,8 +28,10 @@ anyhow.workspace = true
 log.workspace = true
 env_logger.workspace = true
 serde.workspace = true
+ureq.workspace = true
 toml = "0.8"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+zip = { version = "8", default-features = false, features = ["deflate"] }
 
 [target.'cfg(windows)'.build-dependencies]
 winres = "0.1"

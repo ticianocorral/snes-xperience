@@ -1,20 +1,20 @@
 //! The selector shelf, factored out of the `selector` binary so `xperience` can
-//! show it between games: a scrollable grid of covers with a details panel,
-//! gamepad-first navigation and type-to-search. Covers stream in on a background
-//! thread ("preenchimento progressivo", plan §3.1), and — when ScreenScraper
-//! credentials are present — the game you rest on is scraped on the spot.
+//! show it between games: a scrollable grid of covers (or a multicart-style
+//! list when no cover art is around) with a details panel, gamepad-first
+//! navigation, mouse, and type-to-search. Cover/logo art is local — dropped
+//! by hand into `assets/cover/`/`assets/logo/` (plan §4.3, no more
+//! ScreenScraper) — matched by the ROM's file name and decoded lazily as
+//! tiles scroll into view.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use anyhow::{anyhow, bail, Result};
-use xperience_domain::{
-    download_art, ArtPaths, Catalog, CatalogEntry, Client, Credentials, GameInfo, Order, RomId,
-    ScrapeError,
-};
+use anyhow::Result;
+use xperience_domain::{Catalog, CatalogEntry, Order};
 use xperience_platform::{Cabinet, MenuMode, MenuNav, Platform, Screen};
+
+use crate::idle;
 
 const TILE_W: u32 = 150;
 const TILE_H: u32 = 200;
@@ -22,43 +22,41 @@ const GAP: u32 = 18;
 const MARGIN: i32 = 28;
 const PANEL_W: u32 = 380;
 
+/// Row height when the shelf falls back to a plain text list (no cover art
+/// loaded at all, plan §3.1) — a multicart-style menu instead of a grid of
+/// empty tiles.
+const LIST_ROW_H: u32 = 22;
+const LIST_GAP: u32 = 6;
+
 const BG: (u8, u8, u8) = (18, 18, 20);
 const TILE_BG: (u8, u8, u8, u8) = (34, 34, 40, 255);
 const HILITE: (u8, u8, u8, u8) = (240, 200, 80, 255);
 const TEXT: (u8, u8, u8) = (232, 232, 232);
 const DIM: (u8, u8, u8) = (150, 150, 158);
-
-/// Frames the selection must sit still on an unscraped game before we fetch it
-/// (~130 ms at 60 fps) — so fast scrolling doesn't queue the whole shelf.
-const SCRAPE_DWELL_FRAMES: u32 = 8;
-/// Politeness gap between ScreenScraper calls on the worker thread.
-const SCRAPE_GAP: Duration = Duration::from_millis(700);
-/// Frames to hold a long synopsis still before it starts auto-scrolling (~1.3 s).
-const SYNOPSIS_HOLD_FRAMES: u32 = 80;
+/// Text color on top of the `HILITE` selection bar in list mode — dark, for
+/// contrast against the bright fill.
+const HILITE_TEXT: (u8, u8, u8) = (24, 20, 12);
+/// How opaque the shelf sits over the resting TV static (plan §3.3) — under
+/// 1.0 so the signal-off snow bleeds through faintly instead of a flat
+/// background, but not enough to fight with reading the grid/list.
+const SHELF_ALPHA: f32 = 0.92;
 
 /// What the player did on the shelf.
 pub enum Pick {
     /// Launch this ROM (already marked played in the catalogue).
     Play {
         rom: PathBuf,
-        /// The cartridge label (`texture` media), if scraped — for the
-        /// cartridge-in-slot on the cabinet during play (plan §3.2/§4.3).
-        texture: Option<PathBuf>,
-        /// The logo (`wheel` media), if scraped — for the side panel during
-        /// play (plan §3.2).
+        /// Local logo art (`assets/logo/<rom stem>.*`), if one exists — for
+        /// the side panel during play (plan §3.2).
         wheel: Option<PathBuf>,
     },
-    /// Cancelled — quit the app.
+    /// Esc with an empty search box — back out to the idle/root screen.
+    /// The app keeps running.
+    Back,
+    /// Window closed / Cmd-Q — tear the app down.
     Quit,
     /// `O` — open the settings screen, then come back to the shelf.
     Settings,
-}
-
-/// ScreenScraper access for on-demand metadata.
-pub struct ScrapeSetup {
-    pub creds: Credentials,
-    /// Where downloaded art lands (`<dir>/<sha1>-<kind>.png`).
-    pub art_dir: PathBuf,
 }
 
 /// Knobs for [`run`].
@@ -68,8 +66,6 @@ pub struct ShelfOpts {
     pub max_frames: Option<u64>,
     /// Headless: on the last frame, save the shelf (through the tube) here.
     pub shot: Option<PathBuf>,
-    /// On-demand scrape of the focused game. `None` disables it.
-    pub scrape: Option<ScrapeSetup>,
     /// Ease in from residual signal-off static instead of cutting in cold —
     /// the static level to fade from (plan §3.3). `None` draws from frame one.
     pub fade_in: Option<f32>,
@@ -81,36 +77,9 @@ impl Default for ShelfOpts {
             order: Order::Shelf,
             max_frames: None,
             shot: None,
-            scrape: None,
             fade_in: None,
         }
     }
-}
-
-struct DecodedCover {
-    id: u64,
-    w: u32,
-    h: u32,
-    rgba: Vec<u8>,
-}
-
-/// A ROM the shelf asked the worker to scrape.
-struct ScrapeJob {
-    sha1: String,
-    path: PathBuf,
-}
-
-/// What the worker sends back for one job.
-enum ScrapeMsg {
-    Done {
-        sha1: String,
-        info: Box<GameInfo>,
-        art: ArtPaths,
-    },
-    /// Not in ScreenScraper, file changed, or a transient error — don't retry.
-    Missing,
-    /// Daily quota hit; the worker has stopped.
-    Quota,
 }
 
 /// Texture key for a game's cover — first 64 bits of the SHA1.
@@ -124,6 +93,135 @@ fn wheel_id(sha1: &str) -> u64 {
     u64::from_str_radix(sha1.get(16..32).unwrap_or("0"), 16).unwrap_or(0)
 }
 
+/// `dir/<rom's file stem>.{png,jpg,jpeg}`, in that order — the convention for
+/// locally-supplied art: `roms/Aladdin.sfc` matches `assets/cover/Aladdin.png`.
+fn find_local_art(dir: &Path, rom_path: &str) -> Option<PathBuf> {
+    let stem = Path::new(rom_path).file_stem()?.to_str()?;
+    ["png", "jpg", "jpeg"]
+        .into_iter()
+        .map(|ext| dir.join(format!("{stem}.{ext}")))
+        .find(|p| p.is_file())
+}
+
+/// Mark `entry` played and build its launch — shared by Enter/A confirm and
+/// clicking the already-selected tile.
+fn pick_play(catalog: &Catalog, logo_dir: &Path, entry: &CatalogEntry) -> Pick {
+    let _ = catalog.mark_played(&entry.rom.sha1);
+    let wheel = find_local_art(logo_dir, &entry.rom.path);
+    Pick::Play {
+        rom: PathBuf::from(&entry.rom.path),
+        wheel,
+    }
+}
+
+/// Geometry of the shelf's item grid — image tiles, or (no cover art loaded
+/// at all, plan §3.1) a single-column text list styled like a pirate NES
+/// multicart menu. One column of navigation math (`cols`/`vis_rows`) serves
+/// both: list mode is just `cols == 1` with a short row instead of a tile.
+struct GridLayout {
+    x0: i32,
+    y0: i32,
+    /// Cell stride, including the gap.
+    cell_w: i32,
+    cell_h: i32,
+    /// The clickable item itself, within its cell (no gap).
+    item_w: i32,
+    item_h: i32,
+    cols: usize,
+    vis_rows: usize,
+    list_mode: bool,
+}
+
+impl GridLayout {
+    fn new(scr_w: u32, scr_h: u32, list_mode: bool) -> Self {
+        let grid_w = scr_w.saturating_sub(PANEL_W + MARGIN as u32 * 2);
+        let (cell_w, cell_h, item_w, item_h, cols) = if list_mode {
+            let cell_h = (LIST_ROW_H + LIST_GAP) as i32;
+            (grid_w as i32, cell_h, grid_w as i32, LIST_ROW_H as i32, 1)
+        } else {
+            let cell_w = (TILE_W + GAP) as i32;
+            let cell_h = (TILE_H + GAP) as i32;
+            let cols = (grid_w / (TILE_W + GAP)).max(1) as usize;
+            (cell_w, cell_h, TILE_W as i32, TILE_H as i32, cols)
+        };
+        let vis_rows = ((scr_h as i32 - MARGIN * 2 - 40) / cell_h).max(1) as usize;
+        Self {
+            x0: MARGIN,
+            y0: MARGIN + 28,
+            cell_w,
+            cell_h,
+            item_w,
+            item_h,
+            cols,
+            vis_rows,
+            list_mode,
+        }
+    }
+
+    /// Top-left of item `i`'s cell, relative to the grid's own row window
+    /// (`top_row` is the first visible row) — `None` if it's scrolled out of
+    /// view.
+    fn cell_pos(&self, i: usize, top_row: usize) -> Option<(i32, i32)> {
+        let row = i / self.cols;
+        if row < top_row || row >= top_row + self.vis_rows {
+            return None;
+        }
+        let col = i % self.cols;
+        Some((
+            self.x0 + col as i32 * self.cell_w,
+            self.y0 + (row - top_row) as i32 * self.cell_h,
+        ))
+    }
+
+    /// Which visible item (if any) a screen-local point sits inside — `None`
+    /// in the gap between cells, past the last column, below the last
+    /// visible row, or past the end of `view`.
+    fn tile_at(&self, x: i32, y: i32, top_row: usize, view_len: usize) -> Option<usize> {
+        let (dx, dy) = (x - self.x0, y - self.y0);
+        if dx < 0 || dy < 0 || dx % self.cell_w >= self.item_w || dy % self.cell_h >= self.item_h {
+            return None;
+        }
+        let col = (dx / self.cell_w) as usize;
+        let row_in_view = (dy / self.cell_h) as usize;
+        if col >= self.cols || row_in_view >= self.vis_rows {
+            return None;
+        }
+        let i = (top_row + row_in_view) * self.cols + col;
+        (i < view_len).then_some(i)
+    }
+}
+
+/// `roms/` has nothing in it — a friendlier landing than a hard error, since
+/// an empty ROMs folder is the expected first-launch state for a portable,
+/// autoexecutável app, not a misconfiguration.
+fn empty_roms_screen(plat: &mut Platform, cab: &mut Cabinet) -> Result<Pick> {
+    let frame = Duration::from_millis(16);
+    loop {
+        let m = plat.poll_menu(MenuMode::Nav);
+        if m.quit {
+            return Ok(Pick::Quit);
+        }
+        if m.nav.contains(&MenuNav::Back) {
+            return Ok(Pick::Back);
+        }
+        let render = |d: &mut Screen| {
+            d.text(MARGIN, MARGIN, 2, TEXT, "nenhuma rom encontrada");
+            d.text_wrapped(
+                MARGIN,
+                MARGIN + 40,
+                600,
+                1,
+                DIM,
+                "copie seus arquivos .sfc/.smc para a pasta roms/, ao lado do \
+                 executavel, e volte para esta tela.",
+            );
+            d.text(MARGIN, d.size().1 as i32 - MARGIN, 1, DIM, "esc: voltar");
+        };
+        cab.frame_2d(BG, render);
+        std::thread::sleep(frame);
+    }
+}
+
 /// Show the shelf in `cab` (the one persistent window) until the player picks a
 /// game or cancels. `plat` and `cab` both outlive the call.
 pub fn run(
@@ -132,45 +230,18 @@ pub fn run(
     catalog: &Catalog,
     opts: &ShelfOpts,
 ) -> Result<Pick> {
-    let mut all = catalog.list(opts.order)?;
-    if all.is_empty() {
-        bail!("catalogue is empty — run:  library scan --roms <dir>");
+    let all_scanned = catalog.list(opts.order)?;
+    if all_scanned.is_empty() {
+        return empty_roms_screen(plat, cab);
     }
+    let all = all_scanned;
 
-    // Background art decoder — a fed queue so freshly-scraped covers/wheels join.
-    let (art_tx, art_rx) = mpsc::channel::<(u64, PathBuf)>();
-    let (decoded_tx, decoded_rx) = mpsc::channel::<DecodedCover>();
-    for e in &all {
-        let Some(m) = e.meta.as_ref() else { continue };
-        for (id, path) in [
-            (cover_id(&e.rom.sha1), m.cover_path.clone()),
-            (wheel_id(&e.rom.sha1), m.wheel_path.clone()),
-        ] {
-            if let Some(p) = path.filter(|p| Path::new(p).is_file()) {
-                let _ = art_tx.send((id, PathBuf::from(p)));
-            }
-        }
-    }
-    std::thread::spawn(move || {
-        while let Ok((id, path)) = art_rx.recv() {
-            match decode_art(&path) {
-                Ok((w, h, rgba)) => {
-                    let _ = decoded_tx.send(DecodedCover { id, w, h, rgba });
-                }
-                Err(e) => log::warn!("art {}: {e}", path.display()),
-            }
-        }
-    });
-
-    // Background scraper (only if we have credentials).
-    let (job_tx, job_rx) = mpsc::channel::<ScrapeJob>();
-    let (scraped_tx, scraped_rx) = mpsc::channel::<ScrapeMsg>();
-    let scrape_enabled = opts.scrape.is_some();
-    if let Some(setup) = &opts.scrape {
-        let creds = setup.creds.clone();
-        let art_dir = setup.art_dir.clone();
-        std::thread::spawn(move || scrape_worker(creds, art_dir, job_rx, scraped_tx));
-    }
+    let cover_dir = crate::dirs::assets_dir().join("cover");
+    let logo_dir = crate::dirs::assets_dir().join("logo");
+    // Never re-stat a game's art more than once per shelf visit — most games
+    // won't have any, and disk isn't free even if it's cheap.
+    let mut tried_cover: HashSet<String> = HashSet::new();
+    let mut tried_logo: HashSet<String> = HashSet::new();
 
     let mut sel: usize = 0;
     let mut top_row: usize = 0;
@@ -178,17 +249,6 @@ pub fn run(
     let frame = Duration::from_millis(16);
     let mut frame_no = 0u64;
 
-    // Scrape bookkeeping: never ask twice, notice when the selection settles.
-    let mut requested: HashSet<String> = all
-        .iter()
-        .filter(|e| e.meta.is_some())
-        .map(|e| e.rom.sha1.clone())
-        .collect();
-    let mut quota_hit = false;
-    // Frames the selection has sat still (drives on-demand scrape + synopsis scroll).
-    let mut dwell: u32 = 0;
-    let mut dwell_sha1: Option<String> = None;
-    let mut synopsis_scroll: i32 = 0;
     // Frames left in the "entering over the static" ease-in (§3.3), if any.
     const FADE_IN_FRAMES: u32 = 18;
     let mut fade_frame: u32 = 0;
@@ -198,38 +258,6 @@ pub fn run(
         frame_no += 1;
         if opts.max_frames.is_some_and(|n| frame_no > n) {
             return Ok(Pick::Quit);
-        }
-
-        // Drain decoded covers.
-        while let Ok(c) = decoded_rx.try_recv() {
-            cab.set_image(c.id, c.w, c.h, &c.rgba);
-        }
-
-        // Drain scrape results; a hit rewrites the catalogue and the view.
-        let mut refresh = false;
-        while let Ok(msg) = scraped_rx.try_recv() {
-            match msg {
-                ScrapeMsg::Done { sha1, info, art } => {
-                    if let Err(e) = catalog.set_meta(&sha1, &info, &art) {
-                        log::warn!("catalogue set_meta {sha1}: {e}");
-                    }
-                    if let Some(cover) = &art.cover {
-                        let _ = art_tx.send((cover_id(&sha1), PathBuf::from(cover)));
-                    }
-                    if let Some(wheel) = &art.wheel {
-                        let _ = art_tx.send((wheel_id(&sha1), PathBuf::from(wheel)));
-                    }
-                    refresh = true;
-                }
-                ScrapeMsg::Missing => {}
-                ScrapeMsg::Quota => {
-                    quota_hit = true;
-                    log::warn!("ScreenScraper quota exhausted — on-demand scrape paused");
-                }
-            }
-        }
-        if refresh {
-            all = catalog.list(opts.order)?;
         }
 
         // Current (filtered) view.
@@ -246,9 +274,11 @@ pub fn run(
         }
 
         let (scr_w, scr_h) = cab.screen_size();
-        let grid_w = scr_w.saturating_sub(PANEL_W + MARGIN as u32 * 2);
-        let cols = (grid_w / (TILE_W + GAP)).max(1) as usize;
-        let vis_rows = ((scr_h as i32 - MARGIN * 2 - 40) / (TILE_H + GAP) as i32).max(1) as usize;
+        // No cover art loaded anywhere in view yet: a text list (multicart
+        // menu) reads as deliberate, where a grid of empty tiles reads as
+        // broken (plan §3.1).
+        let list_mode = !view.iter().any(|e| cab.has_image(cover_id(&e.rom.sha1)));
+        let grid = GridLayout::new(scr_w, scr_h, list_mode);
 
         // Input.
         let m = plat.poll_menu(MenuMode::Nav);
@@ -273,73 +303,80 @@ pub fn run(
             match nav {
                 MenuNav::Left => sel = sel.saturating_sub(1),
                 MenuNav::Right if sel + 1 < view.len() => sel += 1,
-                MenuNav::Up => sel = sel.saturating_sub(cols),
-                MenuNav::Down if sel + cols < view.len() => sel += cols,
-                MenuNav::PageUp => sel = sel.saturating_sub(cols * vis_rows),
+                MenuNav::Up => sel = sel.saturating_sub(grid.cols),
+                MenuNav::Down if sel + grid.cols < view.len() => sel += grid.cols,
+                MenuNav::PageUp => sel = sel.saturating_sub(grid.cols * grid.vis_rows),
                 MenuNav::PageDown => {
-                    sel = (sel + cols * vis_rows).min(view.len().saturating_sub(1))
+                    sel = (sel + grid.cols * grid.vis_rows).min(view.len().saturating_sub(1))
                 }
                 MenuNav::Home => sel = 0,
                 MenuNav::End => sel = view.len().saturating_sub(1),
                 MenuNav::Back => {
                     if search.is_empty() {
-                        return Ok(Pick::Quit);
+                        return Ok(Pick::Back);
                     }
                     search.clear();
                     sel = 0;
                 }
                 MenuNav::Confirm => {
                     if let Some(e) = view.get(sel) {
-                        let _ = catalog.mark_played(&e.rom.sha1);
-                        let texture = e
-                            .meta
-                            .as_ref()
-                            .and_then(|m| m.texture_path.clone())
-                            .map(PathBuf::from);
-                        let wheel = e
-                            .meta
-                            .as_ref()
-                            .and_then(|m| m.wheel_path.clone())
-                            .map(PathBuf::from);
-                        return Ok(Pick::Play {
-                            rom: PathBuf::from(&e.rom.path),
-                            texture,
-                            wheel,
-                        });
+                        return Ok(pick_play(catalog, &logo_dir, e));
                     }
                 }
                 _ => {}
             }
         }
 
-        // How long has the selection sat on this game?
-        let cur = view.get(sel).map(|e| e.rom.sha1.clone());
-        if cur == dwell_sha1 {
-            dwell += 1;
-        } else {
-            dwell = 0;
-            dwell_sha1 = cur;
-            synopsis_scroll = 0;
-        }
-
-        // On-demand scrape: once it has rested on an unscraped game.
-        if scrape_enabled && !quota_hit && dwell == SCRAPE_DWELL_FRAMES {
-            if let Some(e) = view.get(sel) {
-                if e.meta.is_none() && requested.insert(e.rom.sha1.clone()) {
-                    let _ = job_tx.send(ScrapeJob {
-                        sha1: e.rom.sha1.clone(),
-                        path: PathBuf::from(&e.rom.path),
-                    });
+        // Mouse: click a tile to select it, click the already-selected one
+        // to launch — the same two-step a controller does (move, then A).
+        if let Some((x, y)) = m.click {
+            let (ox, oy) = cab.window_to_output(x, y);
+            if let Some((lx, ly)) = cab.hit_screen_point(ox, oy) {
+                if let Some(i) = grid.tile_at(lx, ly, top_row, view.len()) {
+                    if i == sel {
+                        if let Some(e) = view.get(i) {
+                            return Ok(pick_play(catalog, &logo_dir, e));
+                        }
+                    } else {
+                        sel = i;
+                    }
                 }
             }
         }
 
         // Keep selection visible.
-        let sel_row = sel.checked_div(cols).unwrap_or(0);
+        let sel_row = sel.checked_div(grid.cols).unwrap_or(0);
         if sel_row < top_row {
             top_row = sel_row;
-        } else if sel_row >= top_row + vis_rows {
-            top_row = sel_row + 1 - vis_rows;
+        } else if sel_row >= top_row + grid.vis_rows {
+            top_row = sel_row + 1 - grid.vis_rows;
+        }
+
+        // Local art for whatever just scrolled into view — no network, no
+        // worker thread, so this can just happen inline. Each sha1 is tried
+        // at most once per visit, whether or not a file turns up.
+        for (i, entry) in view.iter().enumerate() {
+            if grid.cell_pos(i, top_row).is_none() {
+                continue;
+            }
+            let id = cover_id(&entry.rom.sha1);
+            if !cab.has_image(id) && tried_cover.insert(entry.rom.sha1.clone()) {
+                if let Some(path) = find_local_art(&cover_dir, &entry.rom.path) {
+                    if let Ok((w, h, rgba)) = decode_art(&path) {
+                        cab.set_image(id, w, h, &rgba);
+                    }
+                }
+            }
+        }
+        if let Some(e) = view.get(sel) {
+            let id = wheel_id(&e.rom.sha1);
+            if !cab.has_image(id) && tried_logo.insert(e.rom.sha1.clone()) {
+                if let Some(path) = find_local_art(&logo_dir, &e.rom.path) {
+                    if let Ok((w, h, rgba)) = decode_art(&path) {
+                        cab.set_image(id, w, h, &rgba);
+                    }
+                }
+            }
         }
 
         // --- draw (into a screen-sized buffer, then warped through the tube) --
@@ -351,33 +388,44 @@ pub fn run(
             };
             d.text(MARGIN, MARGIN - 12, 2, DIM, &label);
 
-            let grid_x0 = MARGIN;
-            let grid_y0 = MARGIN + 28;
-            for (i, entry) in view.iter().enumerate() {
-                let row = i / cols;
-                if row < top_row || row >= top_row + vis_rows {
-                    continue;
+            if grid.list_mode {
+                // Multicart menu: a plain numbered list, selection as an
+                // inverted bar — no tile, no art, nothing pretending there's
+                // a cover coming.
+                for (i, entry) in view.iter().enumerate() {
+                    let Some((x, y)) = grid.cell_pos(i, top_row) else {
+                        continue;
+                    };
+                    let selected = i == sel;
+                    if selected {
+                        d.fill(x, y, grid.item_w as u32, grid.item_h as u32, HILITE);
+                    }
+                    let label = format!("{:03}  {}", i + 1, entry.title().to_uppercase());
+                    let color = if selected { HILITE_TEXT } else { TEXT };
+                    d.text(x + 6, y + 3, 1, color, &label);
                 }
-                let col = i % cols;
-                let x = grid_x0 + col as i32 * (TILE_W + GAP) as i32;
-                let y = grid_y0 + (row - top_row) as i32 * (TILE_H + GAP) as i32;
-
-                d.fill(x, y, TILE_W, TILE_H, TILE_BG);
-                let id = cover_id(&entry.rom.sha1);
-                if d.has_image(id) {
-                    d.image_fit(id, x + 4, y + 4, TILE_W - 8, TILE_H - 8);
-                } else {
-                    d.text_wrapped(
-                        x + 8,
-                        y + 10,
-                        TILE_W - 16,
-                        1,
-                        DIM,
-                        &entry.title().to_uppercase(),
-                    );
-                }
-                if i == sel {
-                    d.outline(x - 3, y - 3, TILE_W + 6, TILE_H + 6, 3, HILITE);
+            } else {
+                for (i, entry) in view.iter().enumerate() {
+                    let Some((x, y)) = grid.cell_pos(i, top_row) else {
+                        continue;
+                    };
+                    d.fill(x, y, TILE_W, TILE_H, TILE_BG);
+                    let id = cover_id(&entry.rom.sha1);
+                    if d.has_image(id) {
+                        d.image_fit(id, x + 4, y + 4, TILE_W - 8, TILE_H - 8);
+                    } else {
+                        d.text_wrapped(
+                            x + 8,
+                            y + 10,
+                            TILE_W - 16,
+                            1,
+                            DIM,
+                            &entry.title().to_uppercase(),
+                        );
+                    }
+                    if i == sel {
+                        d.outline(x - 3, y - 3, TILE_W + 6, TILE_H + 6, 3, HILITE);
+                    }
                 }
             }
 
@@ -389,7 +437,7 @@ pub fn run(
                 let inner_w = PANEL_W - 44;
                 let mut iy = MARGIN;
 
-                // Header: the wheel logo if we have it, else the title in text.
+                // Header: the local logo if we have it, else the title in text.
                 let wid = wheel_id(&e.rom.sha1);
                 if d.has_image(wid) {
                     d.image_fit(wid, ix, iy, inner_w, 72);
@@ -398,50 +446,9 @@ pub fn run(
                     iy = d.text_wrapped(ix, iy, inner_w, 2, TEXT, &e.title()) + 8;
                 }
 
-                let m = e.meta.as_ref();
-                let plays = e.rom.play_count.to_string();
-                let rows: [(&str, Option<&str>); 7] = [
-                    ("year", m.and_then(|m| m.year.as_deref())),
-                    ("developer", m.and_then(|m| m.developer.as_deref())),
-                    ("publisher", m.and_then(|m| m.publisher.as_deref())),
-                    ("genre", m.and_then(|m| m.genre.as_deref())),
-                    ("players", m.and_then(|m| m.players.as_deref())),
-                    ("region", m.and_then(|m| m.region.as_deref())),
-                    ("plays", (e.rom.play_count > 0).then_some(plays.as_str())),
-                ];
-                for (k, v) in rows {
-                    if let Some(v) = v {
-                        d.text(ix, iy, 1, DIM, k);
-                        d.text(ix + 90, iy, 1, TEXT, v);
-                        iy += 16;
-                    }
-                }
-                iy += 10;
-                if let Some(s) = m.and_then(|m| m.synopsis.as_deref()) {
-                    // Scrollable region between the ficha and the footer. After a
-                    // short rest it creeps upward until the end is visible.
-                    let vp_y = iy;
-                    let vp_h = (scr_h as i32 - 40 - vp_y).max(0);
-                    if vp_h > 12 {
-                        let overflow = (d.wrapped_height(inner_w, 1, s) - vp_h).max(0);
-                        if dwell > SYNOPSIS_HOLD_FRAMES {
-                            synopsis_scroll = (synopsis_scroll + 1).min(overflow);
-                        }
-                        d.clip(Some((px, vp_y, PANEL_W, vp_h as u32)));
-                        d.text_wrapped(ix, vp_y - synopsis_scroll, inner_w, 1, DIM, s);
-                        d.clip(None);
-                    }
-                } else if e.meta.is_none() {
-                    let note = if quota_hit {
-                        "scrape quota reached"
-                    } else if scrape_enabled && requested.contains(&e.rom.sha1) {
-                        "scraping\u{2026}"
-                    } else if scrape_enabled {
-                        "not scraped yet"
-                    } else {
-                        "not scraped (no credentials)"
-                    };
-                    d.text(ix, iy, 1, DIM, note);
+                if e.rom.play_count > 0 {
+                    d.text(ix, iy, 1, DIM, "plays");
+                    d.text(ix + 90, iy, 1, TEXT, &e.rom.play_count.to_string());
                 }
             }
             d.text(
@@ -449,22 +456,26 @@ pub fn run(
                 scr_h as i32 - 30,
                 1,
                 DIM,
-                "A / Enter: play   B / Esc: quit",
+                "A / Enter / clique de novo: play   B / Esc: voltar",
             );
         };
 
         if let (Some(path), true) = (&opts.shot, opts.max_frames == Some(frame_no)) {
-            cab.capture_2d(BG, render, path)
-                .map_err(|e| anyhow!(e.to_string()))?;
+            cab.capture_2d(BG, render, path)?;
             return Ok(Pick::Quit);
         }
+        // The shelf sits on the same tube as the game — the signal-off snow
+        // stays faintly visible underneath it the whole time (plan §3.3),
+        // not just during the entrance. Easing in from a fresh eject just
+        // ramps *toward* that resting `SHELF_ALPHA` instead of straight to
+        // fully opaque.
         match opts.fade_in {
             Some(level) if fade_frame < FADE_IN_FRAMES => {
                 fade_frame += 1;
-                let alpha = fade_frame as f32 / FADE_IN_FRAMES as f32;
+                let alpha = (fade_frame as f32 / FADE_IN_FRAMES as f32) * SHELF_ALPHA;
                 cab.frame_2d_fade_in(BG, render, level, alpha);
             }
-            _ => cab.frame_2d(BG, render),
+            _ => cab.frame_2d_fade_in(BG, render, idle::RESTING_STATIC, SHELF_ALPHA),
         }
 
         let elapsed = started.elapsed();
@@ -474,59 +485,9 @@ pub fn run(
     }
 }
 
-/// Pull jobs off `jobs` until the channel closes, scraping each and reporting
-/// back on `out`. Stops for good on a quota response.
-fn scrape_worker(
-    creds: Credentials,
-    art_dir: PathBuf,
-    jobs: mpsc::Receiver<ScrapeJob>,
-    out: mpsc::Sender<ScrapeMsg>,
-) {
-    let client = Client::new(creds);
-    while let Ok(job) = jobs.recv() {
-        let filename = job
-            .path
-            .file_name()
-            .map(|s| s.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        let id = match RomId::from_path(&job.path) {
-            Ok(id) if id.sha1 == job.sha1 => id,
-            Ok(_) => {
-                log::info!("scrape {filename}: file changed on disk");
-                let _ = out.send(ScrapeMsg::Missing);
-                continue;
-            }
-            Err(e) => {
-                log::warn!("scrape {filename}: {e}");
-                let _ = out.send(ScrapeMsg::Missing);
-                continue;
-            }
-        };
-        match client.lookup(&id, &filename) {
-            Ok(info) => {
-                let art = download_art(&client, &art_dir, &job.sha1, &info);
-                let _ = out.send(ScrapeMsg::Done {
-                    sha1: job.sha1,
-                    info: Box::new(info),
-                    art,
-                });
-            }
-            Err(ScrapeError::QuotaExhausted) => {
-                let _ = out.send(ScrapeMsg::Quota);
-                return;
-            }
-            Err(e) => {
-                log::info!("scrape {filename}: {e}");
-                let _ = out.send(ScrapeMsg::Missing);
-            }
-        }
-        std::thread::sleep(SCRAPE_GAP);
-    }
-}
-
-/// Decode a cover or wheel PNG/JPEG to tightly-packed RGBA, downscaled for
-/// memory (covers feed 150px tiles, wheels a ~340px panel slot — 512 covers both
-/// at >2x and keeps alpha for the transparent wheels).
+/// Decode a cover or logo PNG/JPEG to tightly-packed RGBA, downscaled for
+/// memory (covers feed 150px tiles, logos a ~340px panel slot — 512 covers
+/// both at >2x and keeps alpha for transparent logos).
 fn decode_art(path: &Path) -> Result<(u32, u32, Vec<u8>)> {
     let img = image::open(path)?.thumbnail(512, 512).to_rgba8();
     let (w, h) = img.dimensions();

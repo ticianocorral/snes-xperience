@@ -11,7 +11,7 @@ use anyhow::{anyhow, Context, Result};
 use xperience_emulation::{Button, Core, Frame as EmuFrame, PixelFormat as EmuFormat};
 use xperience_ntsc::{NtscFilter, Preset};
 use xperience_platform::{
-    Cabinet, FrameRef, KeyMap, PixelFormat as PlatFormat, Platform, UiEvent, MAX_PORTS,
+    Cabinet, FrameRef, KeyMap, PanelButton, PixelFormat as PlatFormat, Platform, UiEvent, MAX_PORTS,
 };
 
 use crate::config::Config;
@@ -23,17 +23,18 @@ const SLOTS: u8 = 10;
 /// Emulated frames per shown frame while fast-forward is held.
 const FF_SPEED: u32 = 8;
 /// The dim, near-still hiss the screen idles at once the console is off
-/// (plan §3.3) — also what the next screen fades in from.
-const OFF_STATIC_LEVEL: f32 = 0.12;
+/// (plan §3.3) — also what the next screen fades in from, and the idle/root
+/// screen's resting level (`crate::idle`).
+pub(crate) const OFF_STATIC_LEVEL: f32 = 0.12;
 
 /// Why the run-loop returned.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum GameExit {
-    /// Ejected — the caller should show the selector again, if it has one.
-    /// Carries the signal-off static level the screen settled on, so the next
-    /// screen can fade in over it instead of a fresh burst (plan §3.3, "a
-    /// estante entra por cima").
-    ToShelf { static_level: f32 },
+    /// Ejected — the caller should show the idle/root screen again (not the
+    /// shelf directly). Carries the signal-off static level the screen
+    /// settled on, so the next screen can fade in over it instead of a fresh
+    /// burst (plan §3.3, "a estante entra por cima").
+    Ejected { static_level: f32 },
     /// Window close / Cmd-Q / headless self-check done — tear the app down.
     Quit,
 }
@@ -51,15 +52,12 @@ pub struct GameSpec {
     pub runahead: Option<u32>,
     /// Headless self-check: `(path, frame)` — run to `frame`, dump a BMP, exit.
     pub shot: Option<(PathBuf, u32)>,
-    /// Cartridge label art (ScreenScraper `texture`) for the slot on the
-    /// cabinet. `None` shows the ROM's name instead (plan §3.2/§4.3).
-    pub cartridge_label: Option<PathBuf>,
-    /// Logo art (ScreenScraper `wheel`) for the top of the side panel.
+    /// Local logo art (`assets/logo/<rom>.*`) for the top of the side panel.
     /// `None` shows the ROM's name instead (plan §3.2, item 1).
     pub logo: Option<PathBuf>,
-    /// Headless self-check: skip straight to the idle "console off" screen
-    /// (signal-off snow + cartridge still in the slot) and save `shot` there,
-    /// instead of running the game to `shot`'s frame count.
+    /// Headless self-check: skip straight to the console-off signal-off snow
+    /// and save `shot` there, instead of running the game to `shot`'s frame
+    /// count.
     pub shot_off: bool,
     /// Headless self-check: force one `NoteCapture` at `shot`'s frame (or
     /// frame 1 without one), exactly like a live `N` press — so `--shot` can
@@ -170,6 +168,44 @@ fn power_off_burst(plat: &Platform, cab: &mut Cabinet) -> f32 {
     OFF_STATIC_LEVEL
 }
 
+/// Ligar de novo: the mirror of `power_off_burst` — snow clears from a dim
+/// hiss back up to a brief bright burst, then cuts to the game resuming
+/// exactly where it was paused.
+fn power_on_burst(plat: &Platform, cab: &mut Cabinet) {
+    const RATE: u32 = 22_050;
+    const SPAN: Duration = Duration::from_millis(450);
+    let audio = plat.open_audio(RATE).ok();
+    let frame = Duration::from_millis(16);
+    let mut rng: u32 = 0x8765_4321;
+    let start = Instant::now();
+
+    while start.elapsed() < SPAN {
+        let t = (start.elapsed().as_secs_f32() / SPAN.as_secs_f32()).min(1.0);
+        let level = OFF_STATIC_LEVEL + (1.0 - OFF_STATIC_LEVEL) * t;
+        cab.present_static(level);
+
+        if let Some(a) = &audio {
+            let n = (RATE / 60) as usize;
+            let amp = (t * 8000.0) as i32;
+            let mut buf = Vec::with_capacity(n * 2);
+            for _ in 0..n {
+                rng ^= rng << 13;
+                rng ^= rng >> 17;
+                rng ^= rng << 5;
+                let s = (((rng >> 8) & 0xFFFF) as i32 - 0x8000) * amp / 0x8000;
+                let v = s.clamp(-32000, 32000) as i16;
+                buf.push(v);
+                buf.push(v);
+            }
+            a.queue(&buf);
+        }
+        std::thread::sleep(frame);
+    }
+    if let Some(a) = &audio {
+        a.clear();
+    }
+}
+
 /// Ejetar with the console still on: the lock resists — a short mechanical
 /// thump, nothing else (plan §3.3, "a alavanca resiste, com um clunk seco").
 fn eject_clunk(plat: &Platform) {
@@ -230,7 +266,7 @@ fn cheat_rows(defs: &[xperience_domain::CheatDef], state: &[bool]) -> Vec<(Strin
         .collect()
 }
 
-/// Decode scraped art (cartridge label, panel logo, …) small enough for its
+/// Decode scraped art (panel logo, note thumbnail, …) small enough for its
 /// slot, keeping alpha for transparent logos.
 fn decode_art(path: &Path, max: u32) -> Result<(u32, u32, Vec<u8>)> {
     let img = image::open(path)?.thumbnail(max, max).to_rgba8();
@@ -440,23 +476,11 @@ pub fn run_game(
         av.sample_rate
     );
 
-    // --- cartridge in the slot (plan §3.2/§4.3) --------------------------
     let title = spec
         .rom
         .file_stem()
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_else(|| "???".to_string());
-    if let Some(label_path) = &spec.cartridge_label {
-        match decode_art(label_path, 300) {
-            Ok((w, h, rgba)) => cab.set_cartridge(Some((w, h, &rgba)), &title),
-            Err(e) => {
-                log::warn!("cartridge label {}: {e}", label_path.display());
-                cab.set_cartridge(None, &title);
-            }
-        }
-    } else {
-        cab.set_cartridge(None, &title);
-    }
 
     // --- side panel: logo, command legend, session timer (plan §3.2) ------
     // "Desligar" is Esc unconditionally — it's the one binding `KeyMap` keeps
@@ -555,35 +579,61 @@ pub fn run_game(
     // frame) so the saved page actually shows whatever --shot is inspecting,
     // not just a black boot frame.
     let debug_note_frame = spec.shot.as_ref().map_or(1, |(_, f)| *f).max(1);
-    // The console: on while playing; off after Esc, idling on snow with the
-    // cartridge still seated until Eject (plan §3.3).
+    // The console: on while playing; off after Esc, idling on snow until
+    // Eject (plan §3.3).
     let mut powered = true;
     let mut static_level = OFF_STATIC_LEVEL;
     log::info!("running: rf ntsc + crt tube, run-ahead {runahead}, slot {slot}");
 
     let exit = 'run: loop {
         let mut step_once = false;
-        for ev in plat.poll(&mut input, &cfg.keymap) {
+        // A clicked panel button (Power/Eject/Reset) becomes exactly the
+        // `UiEvent` its key already sends — the match below doesn't need to
+        // know clicks exist at all.
+        let events: Vec<UiEvent> = plat
+            .poll(&mut input, &cfg.keymap)
+            .into_iter()
+            .filter_map(|ev| match ev {
+                UiEvent::Click(x, y) => {
+                    let (ox, oy) = cab.window_to_output(x, y);
+                    cab.hit_panel_button(ox, oy).and_then(|b| match b {
+                        PanelButton::Power => Some(UiEvent::Quit),
+                        PanelButton::Eject => Some(UiEvent::Eject),
+                        PanelButton::Reset => Some(UiEvent::Reset),
+                        PanelButton::Insert => None, // not shown in-game
+                    })
+                }
+                other => Some(other),
+            })
+            .collect();
+        for ev in events {
             match ev {
                 UiEvent::Quit => {
                     if powered {
                         // Desligar (plan §3.3): flush the cart, then the
-                        // signal-off ritual — cartridge stays seated; only
-                        // Eject moves on from here. A second Esc while
-                        // already off does nothing on purpose.
+                        // signal-off ritual. A second Esc while already off
+                        // does nothing on purpose — it's Ligar (below) now.
                         flush_sram(&sram_path, &mut last_sram, core.sram());
                         cab.set_session_time(session_start.elapsed());
                         static_level = power_off_burst(plat, cab);
                         powered = false;
-                        log::info!("power off — eject to leave");
+                        cab.set_powered(false);
+                        log::info!("power off — eject to leave, esc/power to resume");
+                    } else {
+                        // Ligar de novo: same button/key as power off, now
+                        // toggling back on — the game resumes exactly where
+                        // it was, no reload.
+                        power_on_burst(plat, cab);
+                        powered = true;
+                        cab.set_powered(true);
+                        log::info!("power on — resuming");
                     }
                 }
                 UiEvent::Eject => {
                     if powered {
                         eject_clunk(plat); // lock resists while it's still on
                     } else {
-                        cab.clear_cartridge();
-                        break 'run GameExit::ToShelf { static_level };
+                        break 'run GameExit::Ejected { static_level };
                     }
                 }
                 UiEvent::CloseRequested => break 'run GameExit::Quit,
@@ -669,6 +719,8 @@ pub fn run_game(
                 }
                 // The rest only make sense with the console on; ignored off
                 // (or, for the cheat trio, with nothing curated to toggle).
+                // `Click` never reaches this match — it's already resolved
+                // into one of the arms above (or dropped) before the loop.
                 UiEvent::TogglePause
                 | UiEvent::NextSlot
                 | UiEvent::PrevSlot
@@ -678,7 +730,8 @@ pub fn run_game(
                 | UiEvent::CheatNext
                 | UiEvent::CheatPrev
                 | UiEvent::CheatToggle
-                | UiEvent::NoteCapture => {}
+                | UiEvent::NoteCapture
+                | UiEvent::Click(..) => {}
             }
         }
 

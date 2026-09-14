@@ -101,19 +101,20 @@ precisa estar visível durante a partida.
 Todos os blocos ficam visíveis durante a partida, nesta ordem:
 
 1. **Logo do jogo** — mídia `wheel` do ScreenScraper, PNG transparente.
-   Fallback: título em tipografia.
-2. **Cartucho encaixado no console**, com o rótulo. É a premissa do app,
-   não um adereço — nunca é o primeiro item a ser cortado.
-3. **Comandos** — nos botões do próprio console.
-4. **Cheats** com interruptor.
-5. **Anotações** — miniatura da mais recente e contador.
-6. **Tempo de sessão.**
+   Fallback: título em tipografia. Quando não há jogo carregado (tela
+   inicial, §3.3), esse mesmo espaço vira o botão **"Inserir cartucho"**,
+   que abre a estante.
+2. **Comandos** — botões clicáveis (Power/Ejetar/Reset), refletindo o
+   estado do console (apagado quando não fazem nada agora). *Revisão: o
+   cartucho encaixado no console, que ocupava este lugar na versão
+   original do plano, deixou de aparecer — ver `docs/fase-4.md`.*
+3. **Cheats** com interruptor.
+4. **Anotações** — miniatura da mais recente e contador.
+5. **Tempo de sessão.**
 
-Cabe tudo sem apertar. A coluna tem 480 × 1080 px em Full HD; o orçamento
-aproximado é logo 120, console com cartucho 380, comandos 80, cheats 300,
-anotações 120, rodapé 60 — cerca de 1060 de 1080. Tipografia normal, de
-14 a 16 px. Não reduza fonte para caber: se um dia não couber, a lista de
-cheats é que rola, não o resto que encolhe.
+Cabe tudo sem apertar. A coluna tem 480 × 1080 px em Full HD. Tipografia
+normal, de 14 a 16 px. Não reduza fonte para caber: se um dia não couber, a
+lista de cheats é que rola, não o resto que encolhe.
 
 Anotações longas, senhas e dicas abrem na pausa, em layout de página
 dupla, que é quando existe atenção para ler e escrever.
@@ -128,12 +129,19 @@ alavanca de ejetar não se move com a chave ligada.
 
 | Comando | Efeito |
 |---|---|
-| Desligar | Salva estado. TV vai para sinal off, console apaga, cartucho continua no slot, trava libera. O app continua aberto. |
-| Ejetar | Só funciona com o console desligado. Cartucho sai, estante abre. |
+| Desligar | Salva estado. TV vai para sinal off, console apaga, trava libera. O app continua aberto. |
+| Ejetar | Só funciona com o console desligado. Volta pra tela inicial (TV off, botão "Inserir cartucho"). |
 | Reset | Reinicia o jogo, sem sair da tela. |
-| Sair | Menu ou fechar a janela. Sem cerimônia. |
+| Sair | Fechar a janela. Sem cerimônia. |
 
-Ritual completo: desliga, ejeta, escolhe outro, encaixa, liga.
+Ritual completo: desliga, ejeta, volta pra tela inicial, abre a estante,
+escolhe outro, liga.
+
+*Revisão: a tela inicial (TV off + "Inserir cartucho") é o estado raiz do
+app — é o que aparece ao abrir o app, depois de Ejetar, e ao dar Esc na
+estante (que antes encerrava o app direto). Só fechar a janela, ou dar Esc
+na própria tela inicial, encerra o app agora. Ver `docs/fase-3.md`/
+`docs/fase-4.md`.*
 
 **Console desligado é um estado, não um beco.** Com a TV em sinal off e o
 cartucho ainda dentro, o slot ganha um brilho discreto convidando ao
@@ -200,6 +208,14 @@ Devolve título canônico e região com certeza. Sem isso, rótulo, cheats e
 ficha erram juntos. Fallback por nome de arquivo para ROMs com header ou
 trimadas.
 
+*Revisão (2026-09-14): implementado como descrito, com um ajuste — o
+casamento usa só CRC32 (o campo que os DATs do No-Intro sempre trazem;
+`RomId` já calcula os três hashes, MD5/SHA1 ficam disponíveis se um DAT
+futuro precisar deles). "Região com certeza" sai de graça: o nome canônico
+do No-Intro já inclui a tag de região (`(USA)`, `(Europe)`, `(Japan)`),
+não é um campo separado. O DAT em si não vem com o app — é opcional,
+fornecido por quem roda (`nointro.dat` na raiz), ver §4.2.*
+
 ### 4.2 Catálogo e metadados
 
 - ScreenScraper via `jeuInfos.php`, casando por hash, tamanho e nome.
@@ -208,10 +224,31 @@ trimadas.
 - Campo para o usuário cadastrar as próprias credenciais. Conta própria
   tem cota maior e tira o gargalo do app.
 
+*Revisão (2026-09-14): esta seção inteira foi substituída — pedido do
+usuário pra tirar a dependência de rede/conta e virar um app portátil, sem
+banco. O catálogo hoje é uma varredura de `roms/` a cada abertura
+(`library::scan`, sem mudança) mais um `library.json` ao lado do
+executável, só com o que uma varredura não sabe por si (data de
+adição/último jogo/contagem de partidas, por hash). Nome canônico vem do
+DAT No-Intro (§4.1), não de uma API online — sem cota, sem credencial, sem
+scrape sob demanda. Ver `docs/fase-2.md`, seção "Revisão".*
+
 ### 4.3 Rótulo e logo
 
 Duas mídias do ScreenScraper: `texture` (rótulo do cartucho recortado,
 feito para aplicar em modelo 3D) e `wheel` (logo em PNG transparente).
+
+*Revisão (2026-09-14): o ScreenScraper saiu do projeto por completo — nem
+`texture` nem `wheel` são raspados mais. Logo (e a capa da estante, que
+este plano não tinha em §4.3 mas o `selector` sempre mostrou) agora são
+arte **local**: `assets/logo/<nome-do-arquivo-da-rom>.png` e
+`assets/cover/…`, que o próprio usuário coloca ali, casados pelo nome do
+arquivo. `assets/cartridge/` existe (mesma forma das três mídias que o
+ScreenScraper oferecia) mas não tem consumidor — o cartucho não aparece
+mais em lugar nenhum (decisão de uma sessão anterior). O restante desta
+seção (fallback de rótulo feio, baixar sob demanda) não se aplica mais:
+sem rótulo local, a estante cai na lista estilo multicart (§3.1); nunca há
+nada pra "baixar", é tudo arquivo que já está no disco.*
 
 Três detalhes que quebram na prática:
 
@@ -339,6 +376,14 @@ timing de áudio e vídeo, binário maior.
 
 Sem venda, não há necessidade de conta Apple paga nem de certificado de
 assinatura.
+
+*Revisão (2026-09-14): "portátil" passou a valer pros dados também, não só
+pro binário — `roms/`, `core/`, `assets/`, `saves/`, `notes/`,
+`xperience.cfg` e `library.json` ficam ao lado do executável (do `.app` no
+macOS, não dentro dele) em vez de `~/.local/share`/`~/.config`. O núcleo do
+snes9x, que este plano já previa nunca embarcar (§1), agora tem um botão no
+próprio app pra baixar do buildbot do libretro, em vez de só "solte o
+arquivo na pasta".*
 
 ### CI
 
