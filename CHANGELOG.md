@@ -7,7 +7,7 @@ versionamento segue [SemVer](https://semver.org/lang/pt-BR/). Enquanto a versão
 for `0.x`, a API das crates e a interface de linha de comando podem mudar sem
 aviso — só o incremento de _minor_ marca um conjunto de mudanças.
 
-## [Não lançado]
+## [0.4.0] — 2026-09-14
 
 ### Adicionado
 
@@ -29,6 +29,12 @@ aviso — só o incremento de _minor_ marca um conjunto de mudanças.
   botão "Inserir cartucho" — não dava pra abrir a estante de novo por
   clique. `Cabinet::clear_panel` (novo) limpa o painel ao entrar na tela
   inicial.
+- **Ligar de novo**: desligar o console (`Esc`/botão Power) era uma via de
+  mão única — só dava pra ejetar depois. `Esc`/Power agora alternam os dois
+  sentidos; ligar de novo retoma o jogo exatamente de onde parou (sem
+  recarregar), com um chuvisco espelhado (`power_on_burst`) subindo até um
+  pico breve. O botão do painel também troca a legenda pra "Ligar" e fica
+  aceso nesse estado, em vez de ficar preso em "Desligar" apagado.
 
 ### Alterado
 

@@ -61,8 +61,7 @@ jobs:
           DIR="dist/SNES Xperience"
           mkdir -p "$DIR"
           cp target/release/xperience.exe target/release/emu-run.exe \
-             target/release/selector.exe target/release/library.exe \
-             target/release/scrape-test.exe "$DIR/"
+             target/release/selector.exe "$DIR/"
           cp README.md CHANGELOG.md THIRD-PARTY-NOTICES.md "$DIR/"
           (cd dist && 7z a "../SNES-Xperience-$VERSION-windows-x86_64.zip" "SNES Xperience")
       - uses: actions/upload-artifact@v4
