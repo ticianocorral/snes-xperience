@@ -247,3 +247,18 @@ jogar.
 
 Ver também `docs/fase-3.md` (a moldura trava em 16:9 num monitor ultrawide,
 mesma revisão) e `docs/fase-4.md` (o resto do painel/botões).
+
+## Revisão (2026-09-14, patch 0.4.1): raiz do macOS vira `~/Documents`
+
+O `app_root()` descrito acima (subir do bundle até o `.app`) resolvia pra
+dentro de `/Aplicativos` depois de instalar pelo DMG — não é gravável/
+esperado nesse SO escrever dados de usuário ali. `dirs::app_root()` no
+macOS agora ignora a localização do executável por completo e usa sempre
+`~/Documents/SNES Xperience` (criada no primeiro uso); a detecção de
+bundle `.app`/`Contents/MacOS` saiu de `dirs.rs`. Windows/Linux não
+mudaram — continuam com a pasta ao lado do executável, que já é gravável e
+óbvia nesses dois SOs. `xperience.rs::migrate_old_data` ganhou uma segunda
+migração, só macOS: se a raiz antiga ao lado do `.app` (mesma detecção de
+bundle, agora só usada aqui) tiver `roms/`/`core/`/`assets/`/`saves/`/
+`notes/` e a nova em `~/Documents` ainda estiver vazia, copia uma vez —
+quem já tinha rodado o DMG 0.4.0 não perde ROMs/progresso.

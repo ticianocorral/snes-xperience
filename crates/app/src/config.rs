@@ -1,8 +1,9 @@
 //! `xperience.cfg`: run-ahead default, start-fullscreen, and keyboard binds —
 //! the same file the in-app settings screen (`O` on the shelf) edits and
 //! saves. TOML syntax under the hood (same as before); only the name and
-//! location changed — it now sits next to the executable, not under
-//! `~/.config` (plan: app portátil).
+//! location changed — it now sits in the app's root (`xperience_app::dirs`,
+//! next to the executable on Windows/Linux, `~/Documents/SNES Xperience` on
+//! macOS), not under `~/.config` (plan: app portátil).
 //!
 //! Lookup order: `--config PATH`, then `$XPERIENCE_CONFIG`, then
 //! `xperience_app::dirs::config_path()`. When the last one is used and is

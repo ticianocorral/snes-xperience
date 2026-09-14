@@ -7,6 +7,22 @@ versionamento segue [SemVer](https://semver.org/lang/pt-BR/). Enquanto a versão
 for `0.x`, a API das crates e a interface de linha de comando podem mudar sem
 aviso — só o incremento de _minor_ marca um conjunto de mudanças.
 
+## [0.4.1] — 2026-09-14
+
+### Corrigido
+
+- **Pastas no macOS**: a raiz portátil (`roms/`, `core/`, `assets/`,
+  `saves/`, `notes/`, `xperience.cfg`) ficava ao lado do `.app` — na
+  prática, dentro de `/Aplicativos` depois de instalar pelo DMG, o que não
+  é gravável/esperado nesse SO. No macOS a raiz agora é sempre
+  `~/Documents/SNES Xperience` (criada no primeiro uso), independente de
+  onde o `.app` foi parar; Windows/Linux continuam com a pasta ao lado do
+  executável. Uma migração automática (mesmo espírito da migração de
+  `saves`/`notes` do local antigo pré-portátil) copia o conteúdo da raiz
+  antiga ao lado do `.app` pra dentro de `~/Documents/SNES Xperience`, uma
+  vez, se esta ainda estiver vazia — quem já rodou o DMG 0.4.0 e colocou
+  ROMs lá não perde nada.
+
 ## [0.4.0] — 2026-09-14
 
 ### Adicionado

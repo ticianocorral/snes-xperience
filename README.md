@@ -7,8 +7,9 @@ desenho completo, e `docs/fase-0.md` … `docs/fase-4.md` para o que já foi fei
 Estado atual: **Fases 0–3 prontas, Fase 4 em andamento**, mais uma revisão
 grande fora da numeração original (ver `docs/fase-2.md`/`fase-3.md`/
 `fase-4.md`, seções "Revisão"): o app virou **portátil e autoexecutável** —
-sem SQLite, sem ScreenScraper, tudo em pastas ao lado do executável (`roms/`,
-`core/`, `assets/`, `saves/`, `notes/`), nomes de jogo resolvidos por um DAT
+sem SQLite, sem ScreenScraper, tudo em pastas numa raiz só (`roms/`, `core/`,
+`assets/`, `saves/`, `notes/`) — ao lado do executável no Windows/Linux,
+`~/Documents/SNES Xperience` no macOS —, nomes de jogo resolvidos por um DAT
 No-Intro local, capa/logo vêm de arte solta em `assets/` (sem mais raspagem
 online), o núcleo snes9x baixa/atualiza pelo próprio menu de configurações,
 e a moldura trava em 16:9 (com faixas pretas nas laterais num monitor
@@ -44,10 +45,12 @@ Linux) saem automático a cada tag `vX.Y.Z`, na aba
 [Releases](https://github.com/ticianocorral/snes-xperience/releases) — SDL3
 já vem embutido, não precisa instalar nada.
 
-**App portátil, sem instalação**: na primeira execução o `xperience` cria, ao
-lado do executável (ou ao lado do `.app` no macOS, não dentro dele), as
+**App portátil, sem instalação**: na primeira execução o `xperience` cria as
 pastas `roms/` (coloque seus arquivos aí), `core/`, `assets/{cover,logo,
-cartridge}/`, `saves/`, `notes/`, mais `xperience.cfg` e `library.json`. Sem
+cartridge}/`, `saves/`, `notes/`, mais `xperience.cfg` e `library.json` numa
+raiz só — ao lado do executável no Windows/Linux; no macOS, sempre
+`~/Documents/SNES Xperience` (o `.app` em si, tipicamente dentro de
+`/Aplicativos`, não é onde o macOS espera dados gravados pelo app). Sem
 `--core`/`$XPERIENCE_CORE`, o app procura `snes9x_libretro.{dylib,so,dll}`
 em `core/` — e o menu de configurações (`O` na estante) tem uma opção pra
 baixar/atualizar esse core sozinho, direto do buildbot do libretro. Nem o
@@ -102,10 +105,10 @@ aperta e pronto), núcleo snes9x (baixar/atualizar direto do buildbot do
 libretro) e run-ahead/tela cheia. Salva em `xperience.cfg` a cada mudança.
 
 Um `nointro.dat` (DAT XML do [No-Intro](https://datomatic.no-intro.org/),
-"Nintendo - Super Nintendo Entertainment System") ao lado do executável dá
-o nome canônico do jogo (casado pelo CRC32 do arquivo) em vez do nome
-interno do cabeçalho SNES ou do nome do arquivo — opcional, baixe você
-mesmo, o app não tem como buscar isso sozinho.
+"Nintendo - Super Nintendo Entertainment System") na raiz do app (ver
+"App portátil" acima) dá o nome canônico do jogo (casado pelo CRC32 do
+arquivo) em vez do nome interno do cabeçalho SNES ou do nome do arquivo —
+opcional, baixe você mesmo, o app não tem como buscar isso sozinho.
 
 ## Fase 0
 

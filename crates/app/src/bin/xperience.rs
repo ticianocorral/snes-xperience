@@ -1,7 +1,9 @@
 //! The whole thing: idle → selector → game → idle → …, in one process, no
 //! shell glue, no installation. Portable: `roms/`, `core/`, `assets/`,
-//! `saves/`, `notes/`, `xperience.cfg` and `library.json` all live next to
-//! the executable (see `xperience_app::dirs`) — drop ROMs in `roms/` and go.
+//! `saves/`, `notes/`, `xperience.cfg` and `library.json` all live in one
+//! root (see `xperience_app::dirs`) — next to the executable on
+//! Windows/Linux, `~/Documents/SNES Xperience` on macOS — drop ROMs in
+//! `roms/` and go.
 //!
 //! The idle screen (TV off, "Inserir cartucho" in place of the logo) is the
 //! app's home: it's what you see at startup, after Esc on the shelf, and
@@ -128,9 +130,10 @@ fullscreen) — saved straight to xperience.cfg.\n\
 Esc / window-close on the idle screen, or closing a game window, ends the\n\
 app — no ceremony there.\n\
 \n\
-Portable: everything lives next to this executable — roms/, core/, assets/\n\
-(cover/logo art, matched by ROM file name), saves/, notes/, xperience.cfg,\n\
-library.json. Drop ROMs into roms/ and go; no --core/$XPERIENCE_CORE? Use\n\
+Portable: roms/, core/, assets/ (cover/logo art, matched by ROM file name),\n\
+saves/, notes/, xperience.cfg, library.json all live in one root — next to\n\
+this executable on Windows/Linux, ~/Documents/SNES Xperience on macOS.\n\
+Drop ROMs into roms/ and go; no --core/$XPERIENCE_CORE? Use\n\
 the settings screen's \"Núcleo\" to download snes9x automatically, or drop\n\
 it into core/ by hand (not included — non-commercial license, see\n\
 THIRD-PARTY-NOTICES.md). An optional nointro.dat at the root gives games\n\
@@ -309,14 +312,59 @@ fn no_core_screen(plat: &mut Platform, cab: &mut Cabinet) -> Result<bool> {
 /// the app changed where it looks. macOS/Linux only (old installs on native
 /// Windows used `%APPDATA%`, not covered here — lower value to chase).
 fn migrate_old_data() {
-    let Some(home) = std::env::var_os("HOME") else {
+    if let Some(home) = std::env::var_os("HOME") {
+        let old_base = PathBuf::from(home).join(".local/share/snes-xperience");
+        migrate_pairs([
+            (old_base.join("saves"), xperience_app::dirs::saves_dir()),
+            (old_base.join("notes"), xperience_app::dirs::notes_dir()),
+        ]);
+    }
+    migrate_macos_bundle_sibling();
+}
+
+/// macOS only, and only relevant for the brief window before `dirs::app_root`
+/// moved to `~/Documents/SNES Xperience`: the very first 0.4.0 DMG builds
+/// created `roms/`/`core/`/`assets/`/`saves/`/`notes/` next to the `.app`
+/// (typically inside `/Applications`, not writable/expected for user data on
+/// this platform). If that old layout exists next to the running `.app` and
+/// the new Documents folders are still empty, copy it over once.
+#[cfg(target_os = "macos")]
+fn migrate_macos_bundle_sibling() {
+    use std::ffi::OsStr;
+    let Ok(exe) = std::env::current_exe() else {
         return;
     };
-    let old_base = PathBuf::from(home).join(".local/share/snes-xperience");
-    let pairs = [
-        (old_base.join("saves"), xperience_app::dirs::saves_dir()),
-        (old_base.join("notes"), xperience_app::dirs::notes_dir()),
-    ];
+    let dir = exe.parent().unwrap_or_else(|| Path::new("."));
+    let old_root = (|| {
+        if dir.file_name() != Some(OsStr::new("MacOS")) {
+            return None;
+        }
+        let contents = dir.parent()?;
+        if contents.file_name() != Some(OsStr::new("Contents")) {
+            return None;
+        }
+        let bundle = contents.parent()?;
+        if bundle.extension() != Some(OsStr::new("app")) {
+            return None;
+        }
+        bundle.parent().map(Path::to_path_buf)
+    })();
+    let Some(old_root) = old_root else {
+        return; // dev build, not a packaged .app — nothing to migrate
+    };
+    migrate_pairs([
+        (old_root.join("roms"), xperience_app::dirs::roms_dir()),
+        (old_root.join("core"), xperience_app::dirs::core_dir()),
+        (old_root.join("assets"), xperience_app::dirs::assets_dir()),
+        (old_root.join("saves"), xperience_app::dirs::saves_dir()),
+        (old_root.join("notes"), xperience_app::dirs::notes_dir()),
+    ]);
+}
+
+#[cfg(not(target_os = "macos"))]
+fn migrate_macos_bundle_sibling() {}
+
+fn migrate_pairs<const N: usize>(pairs: [(PathBuf, PathBuf); N]) {
     for (old_dir, new_dir) in pairs {
         if !old_dir.is_dir() {
             continue;
