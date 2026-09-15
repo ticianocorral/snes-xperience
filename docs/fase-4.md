@@ -334,3 +334,275 @@ mouse, que os testes atuais de `cabinet` não fazem para teclado/gamepad
 também) — a sequência ao vivo completa (abrir o app → Inserir cartucho →
 escolher jogo → clicar Ejetar/Power/Reset no painel → Esc na estante) ainda
 não foi jogada de verdade, vale conferir na próxima sessão.
+
+## Revisão (2026-09-14): nenhum comando por teclado — só mouse/gamepad
+
+Pedido do usuário: "remover navegação via teclado e ser tudo via mouse /
+controle", sem exceção — inclusive os comandos do console durante a
+partida (antes só Power/Ejetar/Reset eram clicáveis; Pausar, save/load
+state, slot, turbo, screenshot, nota e cheats ainda dependiam de tecla).
+Mudança grande, em várias camadas:
+
+- **`xperience-platform::input`**: `KeyMap` perdeu o campo `ui`/`bind_ui`/
+  `ui_for` inteiro — só sobrou `pad` (as 12 teclas de gameplay, D-pad/
+  botões, que continuam por padrão porque nem todo mundo tem gamepad
+  plugado pra *jogar*). `UiEvent` perdeu `ToggleFullscreen`/`CheatNext`/
+  `CheatPrev`/`FastForward` (o held-key) e ganhou `CheatToggle(usize)`
+  (clique endereça a linha direto, sem cursor) e `ToggleFastForward`
+  (clique liga/desliga, não é mais segurar tecla). `UiEvent::token()`/
+  `BINDABLE` sumiram — nada disso é mais rebindável.
+- **`Platform::poll_menu`**: o `KeyDown` de `MenuMode::Nav` inteiro saiu —
+  setas/Enter/Esc/PageUp/Home/`F`/`O`/digitação não navegam mais nada.
+  `MenuMode::TextEntry` (nunca chegou a ser usado por ninguém) foi
+  removido junto. Ganhou `Event::MouseWheel` → empurra `MenuNav::Up`/
+  `Down`, pra rolar lista sem gamepad. `MenuMode::CaptureKey` é a
+  **única** exceção de propósito — seu trabalho é literalmente gravar uma
+  tecla de teclado pra rebind de gameplay, então continua lendo `KeyDown`.
+- **`Platform::poll`** (dentro do jogo): o `Escape` fixo virando `Quit` e
+  o `keymap.ui_for(k)` inteiro saíram — só resta `keymap.pad_for(k)`
+  (D-pad/botões). Todo comando de console agora chega como `UiEvent::
+  Click`, resolvido pelo chamador via `Cabinet::hit_panel_button`/
+  `hit_pause_button`.
+- **Painel lateral, em jogo**: a lista de comandos deixou de ser fixa
+  (Power/Ejetar/Reset) — `runner::command_rows` monta `Vec<(PanelButton,
+  String)>` **a cada quadro** (`Cabinet::set_commands`, novo — `set_panel`
+  só define uma vez no início) porque os rótulos agora carregam estado
+  vivo ("Slot: 3", "Turbo: ligado"). Ganhou: Pausar, Screenshot, Nota,
+  Salvar/Carregar (slot atual), Slot (cicla), Turbo. As legendas "[Esc]"/
+  "[E]" etc. saíram — não tem mais tecla pra mostrar.
+- **Cheats**: cada linha virou seu próprio botão clicável
+  (`PanelButton::CheatRow(usize)`) — clicar liga/desliga direto, sem
+  cursor pra mover primeiro com `,`/`.` antes de apertar `/`.
+  `Cabinet::set_cheats` perdeu o parâmetro `selected`.
+- **Caderno de pausa** (`draw_pause_book`): deixou de ser só leitura —
+  ganhou dois botões próprios, "Continuar" (retoma) e "Avancar quadro"
+  (um frame só, pausado) — únicos ali porque o caderno troca a janela
+  inteira, sem painel lateral (por isso `Cabinet` ganhou uma segunda
+  lista de hit-test, `pause_buttons`/`hit_pause_button`, separada de
+  `panel_buttons`).
+- **Configurações** (`settings.rs`): ganhou clique de verdade — não tinha
+  nenhum antes (só `MenuNav` por gamepad). `row_at`/`back_band_hit`
+  convertem um clique em qual linha da lista foi tocada; a lista de
+  Controles idem, mais uma faixa clicável embaixo ("Voltar", já que ela
+  rola e não cabe como última linha fixa como a de Configurações cabe).
+  Ajustar Run-ahead por clique cicla (incrementa e volta a 0); Tela cheia
+  por clique alterna — o D-pad esquerda/direita do gamepad continua
+  funcionando do jeito fino de antes, em paralelo.
+- **Tela inicial**: ganhou o botão "Configuracoes" ao lado de "Inserir
+  cartucho" (`PanelButton::Settings`, `IdleExit::OpenSettings`) — antes
+  configurações só abria pela tecla oculta `O` na estante, sem nenhum
+  caminho por mouse/gamepad a partir da tela inicial.
+- **Estante**: a busca por digitação saiu inteira (não sobrou pra que
+  serviria sem teclado) — o rótulo virou só "N games". Ganhou dois botões
+  no rodapé da ficha, "Voltar" e "Configuracoes" (`Pick::Back`/
+  `Pick::Settings` por clique, além do gamepad Back que já existia).
+- **`config.rs`**: `[keyboard]` de um `xperience.cfg` antigo com uma ação
+  removida (`eject`, `pause`, ...) não trava mais o app — vira
+  `log::warn!` e segue (era `bail!`); só teclas de gameplay continuam
+  bindáveis.
+
+Build/clippy/test/fmt limpos no workspace inteiro. `emu-run --help` e a
+tabela de teclas do `docs/fase-0.md` foram atualizados pra não anunciar
+atalho nenhum que não existe mais.
+
+## Revisão (2026-09-14, continuação): cartucho no painel, cheats no caderno, paginação e anotação por texto
+
+Pedido do usuário, depois de testar a revisão acima: mover a lista de
+cheats pra "outra janela" (o painel precisa do espaço pra logo + arte de
+cartucho), e no caderno de pausa, paginação pros prints com botões, mais um
+campo pra escrever texto (com limite de caracteres) do outro lado.
+
+- **Arte de cartucho no painel** (`assets/cartridge/<rom>.*`, mesma
+  convenção de nome de `assets/logo/`/`assets/cover/`): `Pick::Play`/
+  `GameSpec` ganharam um segundo campo `cartridge: Option<PathBuf>`,
+  independente do `wheel`/logo — nenhum dos dois precisa do outro.
+  `Cabinet::set_panel` ganhou um parâmetro `cartridge`, `PanelInfo` um
+  `has_cartridge`, e `draw_panel` desenha essa arte logo abaixo do
+  logo/título, antes da seção "comandos".
+- **Cheats saíram do painel, foram pro caderno de pausa**: no painel
+  (visível o tempo todo, jogo rodando) viraram só texto informativo — só
+  os que estão *ligados*, sem clique, sob o título "cheats ativos" (some
+  inteiro se nenhum estiver ligado). O interruptor de verdade (clicar liga/
+  desliga, `PanelButton::CheatRow`) mudou pro caderno de pausa, que tem
+  espaço de sobra e já para o jogo de consumir input — sem essa disputa
+  por espaço com a lista de comandos, que cresceu bastante nesta fase.
+- **Painel ficou apertado**: com cartucho + 10 comandos, um título comprido
+  sem logo (2 linhas em escala 2) já não cabe tudo. `draw_panel` calcula
+  `limit` (o topo da faixa do relógio de sessão) e cada seção (comandos,
+  cheats informativos, notas) para de desenhar assim que a *próxima* linha
+  inteira não cabe mais — corte limpo, sem sobrepor o relógio, mas **sem
+  rolagem ainda** (um comando pode simplesmente não aparecer se não houver
+  espaço — registro do que falta, não aceito em silêncio).
+- **Paginação dos prints** (`Cabinet::set_pause_page`, novo, substituindo o
+  antigo terceiro parâmetro de `set_pause_note`): a página direita do
+  caderno mostra qualquer captura, não só a mais recente — contador "N/
+  total" e botões "< anterior"/"proxima >" (dim quando não há pra onde ir).
+  `runner::list_note_images` lista todas as capturas em ordem cronológica;
+  `note_page` (estado do laço) indexa nela, recalculado ao entrar na pausa
+  (começa na última) e a cada clique.
+- **Anotação por texto, com limite de caracteres** (`NOTE_CHAR_LIMIT` =
+  240): a página esquerda ganhou um botão "Escrever anotacao" que troca o
+  status por um editor ao vivo — contador "N/240", `Enter` ou o botão
+  "Salvar" grava um novo parágrafo no mesmo `.md` do notebook
+  (`runner::append_note_text`, intercalado cronologicamente com as
+  capturas de imagem), `Esc` ou "Cancelar" descarta. **Única exceção
+  deliberada ao "sem teclado"** desta revisão inteira — escrever texto
+  exige teclado por definição. Implementado com a API de composição de
+  texto de verdade da SDL (`VideoSubsystem::text_input()`/
+  `Event::TextInput`), não um mapeamento manual de tecla pra caractere (o
+  `char_for_key`/`shift_char` removidos na revisão anterior por estarem
+  mortos) — trata layout de teclado/IME direito, coisa que o hack antigo
+  não fazia. `Platform::poll_text_entry` (novo) só é chamado enquanto o
+  editor está aberto; o `poll()` de gameplay normal fica intocado o resto
+  do tempo. Continuar/Avancar quadro somem enquanto o editor está aberto —
+  evita perder o rascunho clicando neles sem querer.
+
+Verificado com exemplos headless descartáveis (arte de cartucho sintética,
+capturas de teste geradas com `--debug-note-capture`, e um preview direto
+do modo de escrita via `Cabinet::set_pause_draft`) — apagados depois de
+conferir, junto com as anotações de teste que geraram (não eram do
+usuário). Build/clippy/test/fmt limpos.
+
+## Revisão (2026-09-14, continuação 2): dois relatos reais + Screenshot removido, notas viram slots fixos
+
+Dois problemas reais encontrados testando a revisão acima (analisando o log
+da própria sessão do usuário, não só código): **"Nota" clicado 7 vezes**
+porque não dava feedback nenhum na tela (funcionava, silenciosamente), e
+**nenhum "paused" no log** — o usuário nunca achou o caminho pros cheats,
+porque o texto informativo no painel não apontava pra lá.
+
+- **Feedback "(feito!)"**: `runner::flash` (`HashMap<PanelButton, Instant>`,
+  `PanelButton` ganhou `Hash`) marca quando um botão silencioso (Nota,
+  Salvar, Carregar) disparou; `command_rows` troca o rótulo por
+  `"<label> (feito!)"` por `FLASH_DURATION` (900 ms). Sem estado por quadro
+  novo além do já existente — só mais uma entrada no mapa por clique.
+- **Dica nos cheats**: o texto informativo no painel virou "cheats ativos
+  (pausar pra editar)" — aponta pro caderno de pausa, onde o interruptor
+  mora de verdade.
+
+Pedido seguinte do usuário, depois de testar: tirar o "Screenshot" (o
+usuário achou que "ficava tirando constantemente" — na real eram os
+cliques repetidos por falta de feedback, já corrigido acima — mas decidiu
+que a funcionalidade em si não servia pra nada mesmo) e reestruturar as
+notas pra um modelo de **slots fixos**, não mais uma lista cronológica
+aberta:
+
+- **`PanelButton::Screenshot`/`UiEvent::Screenshot` removidos por
+  completo** — o botão, o evento, `shot_request` e as duas chamadas de
+  `Cabinet::capture_bmp`/`capture_pause_bmp` que ele disparava ao vivo.
+  `--shot`/`--debug-shot-pause` (headless, dev) continuam intactos — são
+  outro mecanismo, não relacionado ao botão.
+- **15 slots fixos de nota** (`NOTE_SLOTS`), não mais um arquivo por
+  captura com timestamp: `PanelButton::NoteSlot`/`UiEvent::NoteSlotNext`
+  cicla qual slot (1..=15) o botão "Nota" grava — mesmo modelo de
+  "escolher slot, sobrescreve o que tinha" que save state já usava.
+  `note_slot` (estado do laço) é compartilhado entre o painel (que slot
+  "Nota" grava) e o caderno de pausa (Prev/Next navegam o mesmo valor,
+  travados em 1/15 nas pontas em vez de dar a volta).
+- **Pasta por nome do jogo, não por hash**: `notes/<título>/01.png` ..
+  `15.png` (`runner::note_dir`/`note_slot_path`, título sanitizado contra
+  caracteres inválidos de caminho) — pedido explícito do usuário, prioriza
+  quem for abrir a pasta a mão sobre resistência a rename (motivo original
+  do hash). Textos livres foram para `notes/<título>/notas.txt`, separado
+  das imagens — `runner::append_note_text` só sabe desse arquivo agora,
+  nada mais de markdown misturando imagem e texto.
+- **`Cabinet::set_pause_note`/`PauseNote`** ganharam um campo `filled`
+  (quantos dos 15 slots têm imagem) separado de `captures` (sempre 15
+  agora, usado só pro limite da paginação) — o texto "N capturas salvas"
+  virou "N de 15 slots usados", e "Sem anotacoes ainda" precisou trocar de
+  gatilho (`captures == 0` nunca mais acontece) para `filled == 0`.
+
+Verificado ao vivo com o ROM/core reais do usuário: painel sem Screenshot,
+"Nota (slot N)"/"Nota slot: N" cabendo sem sobrepor o relógio de sessão,
+captura gravando em `notes/Street Fighter II Turbo/01.png`, e o caderno de
+pausa mostrando "1 de 15 slots usados" + paginação "1/15" corretamente
+desabilitada/habilitada nas pontas. Build/clippy/test/fmt limpos — os
+testes antigos de `append_note_image` foram substituídos por três novos
+(`note_slots_save_independently_and_count_correctly`,
+`note_text_appends_to_its_own_txt_file`,
+`note_dir_sanitizes_path_hostile_titles`).
+
+## Revisão (2026-09-14, continuação 3): fixar/nomear slots, capas e cartucho maiores, chaves gangorra, tela inicial = "cartucho ejetado"
+
+Sequência de pedidos pontuais do usuário, cada um testado ao vivo (com o
+ROM/core/arte reais dele, via `computer-use`) antes do próximo:
+
+- **Fixar e nomear slots de nota** (`NotesMeta`/`SlotMeta`, novo sidecar
+  `notes/<título>/slots.json` via `serde_json`): `PanelButton::PauseNotePin`/
+  `PauseNoteName` e os `UiEvent` correspondentes. Fixar não bloqueia a
+  captura — `UiEvent::NoteCapture` busca o próximo slot livre a partir do
+  atual, dando a volta (`(0..NOTE_SLOTS).map(|i| ((note_slot-1+i) %
+  NOTE_SLOTS)+1).find(|&s| !pinned)`); só quando **todos** os 15 estão
+  fixados é que não há pra onde redirecionar — em vez de um flash "sem
+  espaco" por 900ms (que somem e o problema volta a acontecer no próximo
+  clique), o rótulo do botão "Nota" fica permanentemente
+  "Nota: sem espaco (15 fixados)" enquanto essa condição for verdadeira
+  (`command_rows` ganhou um parâmetro `all_slots_pinned`, computado ao
+  vivo a cada quadro em vez de guardado como um `Instant` — mais simples e
+  sempre correto, sem janela de tempo pra acertar). Nomear reaproveita o
+  editor de texto livre da anotação (`NoteEdit::SlotName`, limite de 40
+  caracteres) — mesmo `poll_text_entry`, heading diferente.
+- **Capas da estante em paisagem** (`shelf.rs`, `TILE_W`/`TILE_H`
+  invertidos de 150×200 pra 200×150): a arte que o usuário realmente usa é
+  capa de frente horizontal, não retrato estilo lombada — `image_fit`
+  (mantém proporção, sem distorcer) estava encaixando a imagem larga numa
+  moldura alta, sobrando faixa vazia em cima/embaixo. Depois, a pedido,
+  aumentadas ~30% (`200×150` → `260×195`, mesma proporção 4:3).
+- **Arte de cartucho maior no painel** (`draw_panel`, 90px → 150px de
+  altura — `CARTRIDGE_H` virou uma constante nomeada em vez de um número
+  solto repetido em duas linhas).
+- **Power/Reset como chaves gangorra roxas** (`draw_rocker`, nova função
+  em `cabinet.rs`): um "track" recuado (retângulo escuro com borda) e um
+  "thumb" roxo preenchendo metade dele, no topo ou embaixo — sem primitivo
+  de retângulo arredondado na engine, então o efeito de chave física vem
+  só de posição + uma tira mais clara no topo do thumb como bisel barato.
+  Ejetar ficou no meio das duas, reaproveitando `draw_button` — mesmo
+  espaço que o slot de cartucho ocupa no console real. Comportamento:
+  Power é um alternador de verdade (posição = `panel.powered`, contínua
+  até o próximo clique); Reset é **momentâneo** — sobe no clique e desce
+  sozinho pouco depois (`runner::RESET_SPRING`, 220ms, mesmo mapa
+  `flash: HashMap<PanelButton, Instant>` do "(feito!)" mas com uma janela
+  mais curta e lida por `Cabinet::set_reset_pressed` em vez de mudar um
+  rótulo de texto). `PanelInfo` ganhou o campo `reset_pressed`; Power/
+  Ejetar/Reset saíram do laço genérico de `command_rows` (que ainda
+  desenha Pausar/Nota/Salvar/etc. como texto) e das próprias entradas que
+  `command_rows` gerava pra eles — o rótulo de texto que existia pra essas
+  três virou morto assim que a chave gangorra passou a ignorá-lo, então
+  foi removido de vez (`command_rows` perdeu o parâmetro `powered` que só
+  servia pra isso).
+- **Escolher um jogo só insere o cartucho, não liga sozinho**: `powered`
+  em `run_game` passou a nascer `false` (era `true`) — a tela mostra o
+  cartucho encaixado e estática de "desligado" até o jogador clicar Power,
+  igual ao console de verdade (`Cabinet::set_panel` também passou a
+  inicializar `powered: false`, consistente). Única exceção: uma captura
+  `emu-run --shot` sem `--shot-off`/`--debug-shot-pause` (dev, testa
+  gameplay ao vivo) nasce ligada — não existe "clicar Power" num teste
+  sem tela, e sem essa exceção o `--shot` simplesmente travaria pra
+  sempre no laço "desligado" (`let mut powered = spec.shot.is_some();`,
+  mais um `cab.set_powered(powered)` logo em seguida pra sincronizar o
+  painel com esse estado inicial).
+- **Tela inicial = tela de "cartucho ejetado"**: as duas já eram a mesma
+  tela por baixo (`idle.rs`, mostrada em startup/voltar da estante/ejetar
+  — sempre foi um só `idle::run`), só que sem nenhum aproveitamento visual
+  disso — agora o ramo `None` de `draw_panel` desenha a logo do console
+  (`assets/console.png`, novo — `Cabinet::set_console_logo`, chave de
+  textura reservada `PANEL_CONSOLE_LOGO_IMG`; sem o arquivo, cai pro texto
+  "SNES Xperience", mesma regra de fallback do logo por jogo) no lugar do
+  logo do jogo, "Inserir cartucho" (mesmo botão de sempre, só que agora do
+  tamanho do slot de cartucho, 150px) no lugar da arte de cartucho, e
+  "Configuracoes" foi realocado pro rodapé do painel (`rect.bottom() -
+  pad - btn_h`, mesma posição do relógio de sessão durante o jogo) em vez
+  de empilhado logo abaixo de "Inserir cartucho". Nenhum comando aparece
+  (o painel idle nunca teve `PanelInfo`, então nunca desenhou
+  Power/Ejetar/Reset/Pausar/etc. de qualquer forma — só ficou mais óbvio
+  agora que o resto do layout ficou parecido com o do jogo).
+
+Verificado ao vivo em `/Applications/SNES Xperience.app` (o binário `.app`
+empacotado registra janela de verdade nas ferramentas de automação; o
+binário cru de dev, rodado em background pelo shell, não — mesma limitação
+já documentada nesta revisão): fluxo completo inserir → ligar → desligar →
+ejetar, conferindo a chave Power subindo/descendo, Reset descendo sozinho,
+Ejetar acendendo só quando desligado, e a tela final batendo com a tela
+inicial original. Repetido com um `console.png` de teste (removido depois)
+pra confirmar o caminho de imagem, não só o de texto. Build/clippy/test/
+fmt limpos.

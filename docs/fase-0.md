@@ -44,6 +44,9 @@ Ou defina o core por ambiente: `export XPERIENCE_CORE=~/cores/snes9x_libretro.dy
 
 ### Teclas
 
+Só o joypad em si é teclado por padrão (o resto é mouse/gamepad — ver
+"Revisão" no fim deste documento):
+
 | Tecla        | Efeito                                          |
 |--------------|------------------------------------------------|
 | setas        | direcional                                     |
@@ -52,13 +55,10 @@ Ou defina o core por ambiente: `export XPERIENCE_CORE=~/cores/snes9x_libretro.dy
 | Q / W        | L / R                                          |
 | Enter        | Start                                          |
 | Shift dir.   | Select                                         |
-| F            | tela cheia                                     |
-| Backspace    | reset                                          |
-| P            | pausa                                          |
-| Esc          | sair                                           |
 
 Um gamepad conectado é detectado automaticamente e tem prioridade de uso
-(plano §3.1).
+(plano §3.1). Tela cheia, reset, pausa e sair do `emu-run` são botões
+clicáveis no painel/caderno de pausa, não teclas.
 
 ### Critério de aprovação
 
@@ -143,3 +143,14 @@ agora são arte local em `assets/`, nome vem de um DAT No-Intro local, ver
 `docs/fase-2.md`). `scrape-test` não tem mais nada pra testar e foi
 removido junto do `Client`/`GameInfo` do ScreenScraper. Fica como registro
 histórico de que a integração funcionou, não como binário vivo.
+
+## Revisão (2026-09-14): sem atalho de teclado pra comandos do console
+
+Pedido do usuário: nenhum comando do console (ligar/desligar, ejetar,
+reset, pausa, save/load state, slot, turbo, screenshot, nota, cheats) usa
+mais tecla nenhuma — viram só botão clicável no painel lateral (ou no
+caderno de pausa, uma vez pausado), com navegação por mouse ou gamepad em
+todo menu (estante, configurações, tela inicial). Ver `docs/fase-3.md`/
+`fase-4.md`, seções "Revisão", pelo detalhe de cada tela. O único teclado
+que sobrou por padrão é o joypad em si (tabela acima) — continua
+existindo porque nem todo mundo tem um gamepad plugado pra jogar.

@@ -262,3 +262,13 @@ migração, só macOS: se a raiz antiga ao lado do `.app` (mesma detecção de
 bundle, agora só usada aqui) tiver `roms/`/`core/`/`assets/`/`saves/`/
 `notes/` e a nova em `~/Documents` ainda estiver vazia, copia uma vez —
 quem já tinha rodado o DMG 0.4.0 não perde ROMs/progresso.
+
+## Revisão (2026-09-14): busca por digitação removida da estante
+
+Pedido do usuário: nenhum comando do app usa mais teclado (mouse/gamepad
+só, ver `docs/fase-4.md`) — sem teclado não sobra nada pra digitar, então
+a "Busca por digitação" descrita acima (`search`/`m.typed`/`m.backspace`
+em `shelf.rs`) saiu inteira, e o rótulo acima da grade virou só "N games".
+A estante ganhou em troca dois botões clicáveis no rodapé da ficha,
+"Voltar" e "Configuracoes" — ver `docs/fase-4.md`, mesma revisão, pelo
+resto do painel/comandos/configurações.

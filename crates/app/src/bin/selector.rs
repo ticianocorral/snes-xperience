@@ -1,6 +1,6 @@
 //! Standalone shelf preview: a scrollable grid of covers (or a multicart
-//! list, see `xperience_app::shelf`) with a details panel, gamepad-first
-//! navigation, mouse and type-to-search. On confirm it prints the chosen ROM
+//! list, see `xperience_app::shelf`) with a details panel, mouse and
+//! gamepad navigation only (no keyboard). On confirm it prints the chosen ROM
 //! path to stdout and exits 0; on cancel it exits 1. The shelf itself lives
 //! in `xperience_app::shelf`, shared with the unified `xperience` binary —
 //! this binary is just a dev/test harness for it, reading `roms/` next to

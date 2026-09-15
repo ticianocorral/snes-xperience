@@ -7,6 +7,95 @@ versionamento segue [SemVer](https://semver.org/lang/pt-BR/). Enquanto a versão
 for `0.x`, a API das crates e a interface de linha de comando podem mudar sem
 aviso — só o incremento de _minor_ marca um conjunto de mudanças.
 
+## [Não lançado]
+
+### Adicionado
+
+- **Botão "Configuracoes" na tela inicial**, ao lado de "Inserir cartucho"
+  — antes configurações só abria pela tecla `O` na estante, sem caminho
+  nenhum por mouse/gamepad a partir da tela inicial.
+- **Comandos novos no painel, em jogo**: Pausar, Nota, Nota slot,
+  Salvar/Carregar (slot atual), Slot (cicla) e Turbo — todos clicáveis, ao
+  lado dos já existentes Power/Ejetar/Reset.
+- **Caderno de pausa interativo**: botões "Continuar" e "Avancar quadro" —
+  antes era só leitura, exigia a tecla `P` pra sair.
+- **Botões "Voltar"/"Configuracoes" na estante**, no rodapé da ficha.
+- **Arte de cartucho no painel** (`assets/cartridge/<rom>.*`, mesma
+  convenção de nome do logo/capa) — mostrada abaixo do logo, independente
+  dele.
+- **15 slots fixos de captura por jogo** (`notes/<nome do jogo>/01.png` ..
+  `15.png`, botão "Nota slot" escolhe qual): o caderno de pausa pagina por
+  eles ("< anterior"/"proxima >", contador "N/15", "vazio" pros que não
+  têm nada ainda).
+- **Anotação por texto no caderno de pausa**: botão "Escrever anotacao" na
+  página esquerda abre um editor de texto livre (até 240 caracteres,
+  contador ao vivo), salvo à parte em `notes/<nome do jogo>/notas.txt`.
+- **Fixar e nomear slots de nota**: "Fixar" trava o slot mostrado contra
+  sobrescrita — "Nota" pula pro próximo slot livre em vez de gravar em
+  cima; com os 15 fixados, o próprio botão avisa "sem espaco" em vez de
+  falhar em silêncio. "Nomear print" dá um título curto (até 40
+  caracteres) ao slot, mostrado junto da imagem — mesmo editor de texto da
+  anotação livre, reaproveitado.
+- **Feedback "(feito!)"** nos botões Nota/Salvar/Carregar — clicar mostrava
+  zero indicação na tela antes (um usuário clicou Nota sete vezes achando
+  que não tinha funcionado — tinha, todas as vezes).
+- **Dica "(pausar pra editar)"** no texto informativo de cheats do painel —
+  sem ela não havia como saber que o interruptor de verdade mora no
+  caderno de pausa.
+- **Logo do console na tela inicial** (`assets/console.png`, opcional) —
+  mostrado no lugar do logo do jogo; sem o arquivo, cai pro nome
+  "SNES Xperience" em texto, mesmo comportamento do logo por jogo faltando.
+
+### Alterado
+
+- **Fonte maior e antisserrilhada** em todo o app (Noto Sans Mono, ~2.5×
+  maior que o bitmap 8×8 original) — também ganhou suporte a acentos
+  (á, ã, ç, é, õ...), que antes viravam `?`.
+- **Nenhum comando usa mais teclado** — Power/Ejetar/Reset/Pausar/save-load
+  state/slot/turbo/nota e toda navegação de menu (estante, configurações,
+  tela inicial, caderno de pausa) são só mouse/gamepad agora. A única
+  exceção deliberada é a anotação por texto (ver acima) — escrever texto
+  exige teclado por definição. O único OUTRO teclado que sobra por padrão
+  é o D-pad/botões do próprio SNES (nem todo mundo tem gamepad pra jogar).
+  A tela de configurações ganhou clique de verdade (não tinha nenhum
+  antes).
+- **Cheats saíram do painel, foram pro caderno de pausa**: no painel (jogo
+  rodando) agora são só texto informativo — os que estão ligados, sem
+  clique; o interruptor de verdade (clique liga/desliga) mudou pro caderno
+  de pausa, que tinha espaço de sobra e já parava o jogo de consumir
+  input. Abriu espaço no painel pra arte de cartucho e os comandos novos.
+- **Busca por digitação removida da estante** — não sobra pra que serviria
+  sem teclado.
+- **Capas da estante em paisagem, não retrato** (200×150, ~30% maiores) —
+  a arte que os jogadores realmente têm é capa de frente horizontal, não
+  retrato estilo lombada; o tile antigo (150×200) deixava a imagem
+  espremida numa moldura alta com sobra de espaço vazio.
+- **Arte de cartucho maior no painel** (90px → 150px de altura).
+- **Power e Reset viraram chaves gangorra roxas**, estilizadas como as do
+  console de verdade, no lugar de mais duas linhas de texto — Power é um
+  alternador de verdade (fica onde foi deixado), Reset é momentâneo (sobe
+  no clique, desce sozinho logo em seguida). Ejetar ficou entre as duas,
+  no mesmo espaço que o slot do cartucho ocupa no hardware real.
+- **Escolher um jogo só insere o cartucho, não liga o console sozinho** —
+  igual ao hardware de verdade: a tela mostra o cartucho encaixado e o TV
+  ainda apagado até o jogador clicar Power. (A captura headless de
+  desenvolvimento, `emu-run --shot` sem `--shot-off`/`--debug-shot-pause`,
+  seguiu ligando sozinha — não há como clicar Power num teste sem tela.)
+- **Tela inicial = tela de "cartucho ejetado"**, a mesma tela agora nos
+  três casos (abrir o app, voltar da estante, ejetar um jogo): logo do
+  console no lugar do logo do jogo, "Inserir cartucho" no lugar da arte
+  de cartucho, "Configuracoes" movido pro rodapé do painel (mesmo lugar
+  do relógio de sessão durante o jogo) em vez de empilhado com "Inserir
+  cartucho".
+
+### Removido
+
+- **Botão "Screenshot"** (BMP da janela inteira) — não sobrou uso real pra
+  ele depois que "Nota" passou a servir de registro do jogo.
+
+Ver `docs/fase-0.md`/`fase-2.md`/`fase-3.md`/`fase-4.md`, seções
+"Revisão (2026-09-14)", pelo detalhe completo desta leva.
+
 ## [0.4.1] — 2026-09-14
 
 ### Corrigido

@@ -1,7 +1,7 @@
 //! The one window: a static dark cabinet with the screen recessed into it. Both
 //! the running game and the selector draw into that screen area — the game as a
 //! frame through a barrel-distorted CRT mesh, the selector as flat 2D (rects,
-//! 8x8 bitmap text, letterboxed images). The cabinet furniture (the chamfer ring
+//! bitmap text, letterboxed images). The cabinet furniture (the chamfer ring
 //! from the window edge down to the glass) is redrawn every frame so nothing
 //! ever recreates the window. NTSC colour bleed is applied upstream
 //! (`xperience-ntsc`).
@@ -9,6 +9,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
+use noto_sans_mono_bitmap::{get_raster, FontWeight, RasterHeight};
 use sdl3::pixels::{Color, FColor, PixelFormat as SdlFormat};
 use sdl3::rect::Rect;
 use sdl3::render::{
@@ -41,6 +42,12 @@ const PANEL_LOGO_IMG: u64 = u64::MAX - 1;
 const PANEL_NOTE_IMG: u64 = u64::MAX - 2;
 /// Reserved image-cache key for the pause book's right-hand page.
 const PAUSE_THUMB_IMG: u64 = u64::MAX - 3;
+/// Reserved image-cache key for the side panel's cartridge art.
+const PANEL_CARTRIDGE_IMG: u64 = u64::MAX - 4;
+/// Reserved image-cache key for the idle screen's console-brand logo (plan
+/// revision — `assets/console.png`, set once via `Cabinet::set_console_logo`,
+/// not per-game).
+const PANEL_CONSOLE_LOGO_IMG: u64 = u64::MAX - 5;
 
 /// The pause book: two pages, not warped by the tube — a dedicated screen
 /// (plan §3.2/§3.4), not cabinet furniture, so it replaces the whole window
@@ -63,14 +70,49 @@ const PANEL_DIM: (u8, u8, u8) = (140, 134, 124);
 /// `PANEL_BG` so it reads as its own control, not flat background text.
 const PANEL_BTN_BG: (u8, u8, u8) = (34, 32, 29);
 
+/// Power/Reset rocker-switch colours (plan revision: styled after the real
+/// console's purple switches, see `draw_rocker`) — a mid violet with a
+/// lighter bevel sliver on the thumb's top edge and a dim grey stand-in for
+/// "not interactive right now" (Reset while powered off).
+const SWITCH_PURPLE: (u8, u8, u8) = (107, 70, 168);
+const SWITCH_PURPLE_HI: (u8, u8, u8) = (152, 112, 214);
+const SWITCH_DIM: (u8, u8, u8) = (58, 55, 62);
+const SWITCH_TRACK_BG: (u8, u8, u8) = (24, 22, 26);
+const SWITCH_TRACK_BORDER: (u8, u8, u8) = (60, 58, 64);
+
 /// The set's own nameplate: a small wordmark printed into the chin, left of
 /// the cartridge — a touch lighter than the cabinet plastic, like an embossed
 /// badge rather than a lit label.
 const BRAND: &str = "SNES Xperience";
 const BRAND_TEXT: (u8, u8, u8) = (92, 86, 78);
 
-/// 8x8 glyph cell, before scaling.
-const GLYPH: u32 = 8;
+/// Glyph cell (Noto Sans Mono, anti-aliased, rasterized once at boot into an
+/// atlas texture — see `build_font_atlas`), before scaling: 20px tall gives
+/// noticeably bigger, smoother UI text than the old 8x8 bitmap font while
+/// staying monospace, so every existing cell-based layout calculation below
+/// keeps working unchanged.
+const FONT_HEIGHT: RasterHeight = RasterHeight::Size20;
+const FONT_WEIGHT: FontWeight = FontWeight::Regular;
+/// Advance width and line height of one glyph cell, before scaling.
+const GLYPH_W: u32 = 9;
+const GLYPH_H: u32 = 20;
+/// Atlas covers one contiguous Unicode range: printable Basic Latin through
+/// Latin-1 Supplement (space through `ÿ`) — plain ASCII plus the accented
+/// letters Portuguese needs (á, ã, ç, é, õ, ...), in one indexable block.
+const GLYPH_FIRST: u32 = 0x20;
+const GLYPH_LAST: u32 = 0xFF;
+const GLYPH_COLS: u32 = GLYPH_LAST - GLYPH_FIRST + 1;
+
+/// Map a char to its column in the font atlas; anything outside the covered
+/// range (or with no glyph in the font) falls back to `?`.
+fn glyph_index(ch: char) -> u32 {
+    let c = ch as u32;
+    if (GLYPH_FIRST..=GLYPH_LAST).contains(&c) {
+        c - GLYPH_FIRST
+    } else {
+        '?' as u32 - GLYPH_FIRST
+    }
+}
 
 /// Pixel layout of a core framebuffer. Mirrors `xperience_emulation::PixelFormat`
 /// so the platform layer stays independent of the emulation crate.
@@ -141,6 +183,11 @@ pub struct Cabinet {
     /// — `hit_panel_button` scans this. Repopulated by `present_frame`/
     /// `present_static` right after `draw_panel`.
     panel_buttons: Vec<(PanelButton, Rect)>,
+    /// Clickable buttons on the pause book screen ("Continuar"/"Avancar
+    /// quadro") drawn last frame — `hit_pause_button` scans this. The pause
+    /// book replaces the whole window (no side panel drawn alongside it), so
+    /// it needs its own list rather than sharing `panel_buttons`.
+    pause_buttons: Vec<(PanelButton, Rect)>,
     /// Where the cabinet actually drew last frame, in real window/output
     /// pixels — always 16:9, letterboxed/pillarboxed to fit whatever the
     /// window's own shape is (plan: don't distort on an ultrawide monitor).
@@ -153,40 +200,110 @@ pub struct Cabinet {
 /// A clickable spot in the side panel: the idle screen's "Inserir cartucho"
 /// button, or one of the in-game console commands. `hit_panel_button` turns a
 /// click into one of these; the caller (idle screen / `run_game`) decides
-/// what each one does.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// what each one does. `Hash` is for `runner`'s brief "done!" flash on
+/// silent actions (screenshot, note capture, save/load) — keyed by button.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PanelButton {
     Insert,
+    Settings,
     Power,
     Eject,
     Reset,
+    Pause,
+    NoteCapture,
+    /// Cycle the note slot `NoteCapture` targets (plan revision: fixed
+    /// 1..=15 slots, not a screenshot feature — that's gone, it didn't earn
+    /// its keep next to a real notebook).
+    NoteSlot,
+    SaveState,
+    LoadState,
+    NextSlot,
+    Turbo,
+    /// One cheat row, addressed directly — a click both selects and toggles
+    /// it, no separate cursor step (plan revision: mouse/gamepad only).
+    /// Drawn on the pause book now, not the side panel (see `PanelInfo`'s
+    /// doc comment) — there's room there, and it isn't racing gameplay for
+    /// a slot in the always-visible panel.
+    CheatRow(usize),
+    /// Drawn only on the pause book screen (not the side panel): resume play.
+    PauseContinue,
+    /// Drawn only on the pause book screen: advance exactly one frame.
+    PauseStep,
+    /// Pause book: step the right page to an earlier/later capture.
+    PauseNotePrev,
+    PauseNoteNext,
+    /// Pause book: open the free-text note editor on the left page.
+    PauseWrite,
+    /// Pause book, while writing: commit the draft to the notebook.
+    PauseDraftSave,
+    /// Pause book, while writing: discard the draft, back to the status view.
+    PauseDraftCancel,
+    /// Pause book: toggle whether the currently-shown slot is protected from
+    /// being overwritten by a future "Nota" capture (plan revision).
+    PauseNotePin,
+    /// Pause book: open the editor for the currently-shown slot's caption
+    /// (plan revision) — same text-editor UI as "Escrever anotacao", a
+    /// shorter limit and a different destination.
+    PauseNoteName,
 }
 
-/// The pause book, read-only for now (writing is a later increment):
-/// `captures` is how many screenshots this ROM's notebook holds, `has_thumb`
-/// whether the most recent one decoded into an image.
+/// The pause book: `captures` is the fixed note-slot count (plan revision),
+/// `filled` how many actually hold an image, `has_thumb` whether the
+/// currently-shown slot (`page`) decoded into one.
 struct PauseNote {
     title: String,
+    /// Total note slots (plan revision: a fixed 1..=15, always this many,
+    /// unlike the open-ended list it used to be) — the pagination bound.
     captures: usize,
+    /// How many of those slots actually hold an image — for the left
+    /// page's status line, distinct from `captures` (the bound).
+    filled: usize,
+    /// 0-based index of the slot currently shown on the right page.
+    page: usize,
     has_thumb: bool,
+    /// Whether the shown slot is protected from a future "Nota" overwrite
+    /// (plan revision), and its caption if one was given — both empty/false
+    /// for a slot nobody's touched yet.
+    pinned: bool,
+    slot_label: String,
+    /// `Some(text)` while the player is editing something (plan revision:
+    /// either the free-text note or a slot's caption — `draft_heading`
+    /// says which): replaces the left page's status with a live, editable
+    /// draft. `draft_limit` is the max character count `text` may reach —
+    /// shown as a counter alongside it.
+    draft: Option<String>,
+    draft_limit: usize,
+    draft_heading: String,
 }
 
-/// What to draw at the top of the side panel: the `wheel` logo if we have it,
-/// else the ROM's title. `commands` is the button legend (plan §3.2, item 3):
-/// `(label, key)` pairs, in display order. `cheats` is the interruptor list
-/// (item 4, plan §4.4): `(description, on)` pairs, with `cheat_sel` marking
-/// which one the cursor is on.
+/// What to draw at the top of the side panel: the `wheel` logo if we have
+/// it, else the ROM's title, plus cartridge art right below when there's a
+/// local file for it (plan revision — both are optional, independent of
+/// each other). `commands` is the button legend (plan §3.2, item 3), one
+/// clickable row per entry, rebuilt every frame by the caller since several
+/// labels are live state (current slot, turbo on/off, ...) — see
+/// `Cabinet::set_commands`. `cheats` (item 4, plan §4.4) is
+/// informational-only here now — `(description, on)` pairs, only the ones
+/// that are on get drawn, plain text; toggling moved to the pause book
+/// (`draw_pause_book`), which isn't fighting the panel for vertical space.
 struct PanelInfo {
     has_logo: bool,
+    has_cartridge: bool,
     title: String,
-    commands: Vec<(String, String)>,
+    commands: Vec<(PanelButton, String)>,
     /// Whether the console is on right now — dims/brightens the command
-    /// buttons (Eject only clunks while powered, Reset only acts while
-    /// powered). Set via `Cabinet::set_powered`; starts `true` (a game is
-    /// always powered on when `set_panel` first runs).
+    /// buttons (Eject only clunks while powered, Reset and everything past
+    /// it only act while powered), and which way the Power rocker sits. Set
+    /// via `Cabinet::set_powered`; starts `false` (plan revision: picking a
+    /// game only inserts the cartridge, it doesn't start it — the player
+    /// presses Power themselves, same as the real console).
     powered: bool,
+    /// Reset's rocker is momentary (plan revision): true for a short spring
+    /// window right after a click, then the caller (`runner`) lets it lapse —
+    /// see `Cabinet::set_reset_pressed`. Power's rocker has no such flag; its
+    /// position is just `powered` itself (a real toggle, stays where left).
+    reset_pressed: bool,
     cheats: Vec<(String, bool)>,
-    cheat_sel: usize,
     /// Notebook block (item 5, plan §3.4): absent entirely when this is 0 —
     /// no "no notes" filler.
     note_count: usize,
@@ -267,6 +384,7 @@ impl Cabinet {
             pause: None,
             fullscreen: false,
             panel_buttons: Vec::new(),
+            pause_buttons: Vec::new(),
             canvas_rect,
         })
     }
@@ -274,6 +392,12 @@ impl Cabinet {
     pub fn toggle_fullscreen(&mut self) {
         self.fullscreen = !self.fullscreen;
         let _ = self.canvas.window_mut().set_fullscreen(self.fullscreen);
+    }
+
+    /// The underlying window — `Platform::start_text_input`/`stop_text_input`
+    /// need it (SDL's text-input API is per-window).
+    pub(crate) fn window(&self) -> &sdl3::video::Window {
+        self.canvas.window()
     }
 
     /// Convert a click's window coordinates (what SDL reports) into the
@@ -305,6 +429,16 @@ impl Cabinet {
             .map(|(b, _)| *b)
     }
 
+    /// Same as `hit_panel_button`, for the pause book's own buttons — a
+    /// separate list since the pause screen replaces the whole window
+    /// instead of sharing it with the side panel (see `pause_buttons`).
+    pub fn hit_pause_button(&self, out_x: i32, out_y: i32) -> Option<PanelButton> {
+        self.pause_buttons
+            .iter()
+            .find(|(_, r)| r.contains_point((out_x, out_y)))
+            .map(|(b, _)| *b)
+    }
+
     /// Map an output/canvas-space click into the 2D screen buffer's local
     /// coordinates — what `Screen::fill`/`text`/`image_fit` see, e.g. in the
     /// shelf's grid (plan §3.1). `None` outside the tube. Approximate: the
@@ -321,15 +455,19 @@ impl Cabinet {
     }
 
     /// Show the side panel during play: `logo` (width, height, RGBA) is the
-    /// scraped `wheel` art if there is one, else the panel falls back to
-    /// `title` in text (plan §3.2, item 1). `commands` is the button legend
-    /// (item 3) — `(label, key)` pairs, e.g. `("Reset", "Backspace")`. Call
-    /// once per game.
+    /// local art if there is one, else the panel falls back to `title` in
+    /// text (plan §3.2, item 1); `cartridge` is a second, independent local
+    /// image drawn right below it when present (plan revision — neither
+    /// needs the other). `commands` is the initial button legend (item 3,
+    /// plan revision: mouse-only) — see `set_commands` for the per-frame
+    /// updates that follow (labels like the current slot or turbo state
+    /// change live). Call once per game.
     pub fn set_panel(
         &mut self,
         logo: Option<(u32, u32, &[u8])>,
+        cartridge: Option<(u32, u32, &[u8])>,
         title: &str,
-        commands: &[(String, String)],
+        commands: &[(PanelButton, String)],
     ) {
         let has_logo = if let Some((w, h, rgba)) = logo {
             self.set_image(PANEL_LOGO_IMG, w, h, rgba);
@@ -337,16 +475,36 @@ impl Cabinet {
         } else {
             false
         };
+        let has_cartridge = if let Some((w, h, rgba)) = cartridge {
+            self.set_image(PANEL_CARTRIDGE_IMG, w, h, rgba);
+            true
+        } else {
+            false
+        };
         self.panel = Some(PanelInfo {
             has_logo,
+            has_cartridge,
             title: title.to_string(),
             commands: commands.to_vec(),
-            powered: true,
+            // A freshly inserted cartridge (plan revision): the console
+            // doesn't boot itself any more — see `run_game`'s initial
+            // `powered = false` — so the rocker starts down, not up.
+            powered: false,
+            reset_pressed: false,
             cheats: Vec::new(),
-            cheat_sel: 0,
             note_count: 0,
             has_note_thumb: false,
         });
+    }
+
+    /// Refresh the command legend's labels (plan revision: several are live
+    /// state now — the current save/load slot, whether turbo is on — so the
+    /// caller rebuilds and passes this every frame instead of once). A no-op
+    /// before `set_panel`.
+    pub fn set_commands(&mut self, commands: &[(PanelButton, String)]) {
+        if let Some(panel) = &mut self.panel {
+            panel.commands = commands.to_vec();
+        }
     }
 
     /// Dim/brighten the command buttons to match the console's power state
@@ -358,6 +516,16 @@ impl Cabinet {
         }
     }
 
+    /// Reset's rocker springs up for a short moment after a click, then back
+    /// down on its own (plan revision) — the caller (`runner`) recomputes
+    /// this every frame from its own click timestamp, same pattern as the
+    /// "(feito!)" flash on the other buttons.
+    pub fn set_reset_pressed(&mut self, pressed: bool) {
+        if let Some(panel) = &mut self.panel {
+            panel.reset_pressed = pressed;
+        }
+    }
+
     /// Drop the last game's panel (logo, commands, cheats, notes, clock) —
     /// call on the way back to the idle/root screen, so `draw_panel` shows
     /// the "Inserir cartucho" button instead of the previous game's stale
@@ -366,10 +534,24 @@ impl Cabinet {
         self.panel = None;
     }
 
-    /// Update the panel's notebook block (plan §3.4, item 5): `count` pages
-    /// captured so far for this ROM, `thumb` the most recent one (width,
-    /// height, RGBA) if there is one. Call once at game start and again
-    /// after every capture. A no-op before `set_panel`.
+    /// The idle screen's console-brand logo (plan revision: the idle/root
+    /// screen — startup, backing out of the shelf, or ejecting a game, all
+    /// the same screen — shows this where a game's own logo would go).
+    /// `assets/console.png`, decoded once by the caller (`idle::run`); a
+    /// no-op with `None` (the file doesn't exist) — `draw_panel`'s idle
+    /// branch falls back to plain text the same way a missing per-game logo
+    /// does.
+    pub fn set_console_logo(&mut self, logo: Option<(u32, u32, &[u8])>) {
+        if let Some((w, h, rgba)) = logo {
+            self.set_image(PANEL_CONSOLE_LOGO_IMG, w, h, rgba);
+        }
+    }
+
+    /// Update the panel's notebook block (plan §3.4, item 5): `count` of the
+    /// 15 note slots (plan revision) filled so far, `thumb` the
+    /// currently-selected slot's image (width, height, RGBA) if it has one.
+    /// Call once at game start and again after every capture or slot change.
+    /// A no-op before `set_panel`.
     pub fn set_notes(&mut self, count: usize, thumb: Option<(u32, u32, &[u8])>) {
         let has_thumb = if let Some((w, h, rgba)) = thumb {
             self.set_image(PANEL_NOTE_IMG, w, h, rgba);
@@ -384,13 +566,13 @@ impl Cabinet {
     }
 
     /// Update the side panel's cheat list (plan §4.4): `cheats` is
-    /// `(description, on)` pairs in the curated order, `selected` the index
-    /// the cursor is currently on. Call once at game start and again on every
-    /// navigate/toggle — the list is always tiny. A no-op before `set_panel`.
-    pub fn set_cheats(&mut self, cheats: &[(String, bool)], selected: usize) {
+    /// `(description, on)` pairs in the curated order — each becomes its own
+    /// clickable row (`PanelButton::CheatRow`), no cursor to move any more.
+    /// Call once at game start and again on every toggle — the list is
+    /// always tiny. A no-op before `set_panel`.
+    pub fn set_cheats(&mut self, cheats: &[(String, bool)]) {
         if let Some(panel) = &mut self.panel {
             panel.cheats = cheats.to_vec();
-            panel.cheat_sel = selected;
         }
     }
 
@@ -402,11 +584,33 @@ impl Cabinet {
 
     /// Load the pause book's content (plan §3.2/§3.4): call once when pause
     /// opens, not every frame — `present_pause` just redraws what's already
-    /// set. `thumb` is the notebook's most recent capture, if it has one.
-    pub fn set_pause_note(
+    /// set. `captures` is the fixed slot count (plan revision: always 15),
+    /// `filled` how many actually hold an image. No thumb loaded yet —
+    /// follow with `set_pause_page` to actually show one.
+    pub fn set_pause_note(&mut self, title: &str, captures: usize, filled: usize) {
+        self.pause = Some(PauseNote {
+            title: title.to_string(),
+            captures,
+            filled,
+            page: captures.saturating_sub(1),
+            has_thumb: false,
+            pinned: false,
+            slot_label: String::new(),
+            draft: None,
+            draft_limit: 0,
+            draft_heading: String::new(),
+        });
+    }
+
+    /// Show a different capture on the right page (pagination, plan
+    /// revision) — call on entering pause (page = the last one) and again on
+    /// every Prev/Next/pin/rename change. `pinned`/`label` are that slot's
+    /// current protection state and caption. A no-op before `set_pause_note`.
+    pub fn set_pause_page(
         &mut self,
-        title: &str,
-        captures: usize,
+        page: usize,
+        pinned: bool,
+        label: &str,
         thumb: Option<(u32, u32, &[u8])>,
     ) {
         let has_thumb = if let Some((w, h, rgba)) = thumb {
@@ -415,16 +619,33 @@ impl Cabinet {
         } else {
             false
         };
-        self.pause = Some(PauseNote {
-            title: title.to_string(),
-            captures,
-            has_thumb,
-        });
+        if let Some(p) = &mut self.pause {
+            p.page = page;
+            p.has_thumb = has_thumb;
+            p.pinned = pinned;
+            p.slot_label = label.to_string();
+        }
+    }
+
+    /// Enter/update/leave an editor on the left page (plan revision: either
+    /// the free-text note or a slot's caption — `heading` names which,
+    /// shown above the live text): `Some(text)` shows `text` in place of the
+    /// status view, with a `.../limit` counter; `None` leaves editing (any
+    /// `heading` passed alongside `None` is ignored). Call on every
+    /// keystroke while editing — cheap, at most a few hundred characters.
+    /// A no-op before `set_pause_note`.
+    pub fn set_pause_draft(&mut self, draft: Option<&str>, limit: usize, heading: &str) {
+        if let Some(p) = &mut self.pause {
+            p.draft = draft.map(str::to_string);
+            p.draft_limit = limit;
+            p.draft_heading = heading.to_string();
+        }
     }
 
     /// Draw the pause book to the window: two pages, not warped by the tube,
     /// replacing the whole window rather than sharing it with the cabinet
-    /// (plan §3.2/§3.4) — read-only for now, writing is a later increment.
+    /// (plan §3.2/§3.4), plus its own two clickable buttons ("Continuar",
+    /// "Avancar quadro" — plan revision: mouse/gamepad only, no keyboard).
     pub fn present_pause(&mut self) {
         let (real_w, real_h) = self.canvas.output_size().unwrap_or((1280, 720));
         let rect = cabinet_canvas_rect(real_w, real_h);
@@ -433,11 +654,17 @@ impl Cabinet {
             .set_draw_color(Color::RGB(RECESS.0, RECESS.1, RECESS.2));
         self.canvas.clear();
         self.canvas.set_viewport(Some(rect));
-        draw_pause_book(
+        let cheats = self
+            .panel
+            .as_ref()
+            .map(|p| p.cheats.as_slice())
+            .unwrap_or(&[]);
+        self.pause_buttons = draw_pause_book(
             &mut self.canvas,
             &mut self.font,
             &self.images,
             self.pause.as_ref(),
+            cheats,
             rect.width(),
             rect.height(),
         );
@@ -455,6 +682,11 @@ impl Cabinet {
             .create_texture_target(SdlFormat::RGBA32, real_w, real_h)
             .map_err(|e| PlatformError::Sdl(e.to_string()))?;
         let pause = self.pause.as_ref();
+        let cheats = self
+            .panel
+            .as_ref()
+            .map(|p| p.cheats.as_slice())
+            .unwrap_or(&[]);
         let font = &mut self.font;
         let images = &self.images;
         let mut saved: Result<(), PlatformError> = Ok(());
@@ -462,7 +694,7 @@ impl Cabinet {
             c.set_draw_color(Color::RGB(RECESS.0, RECESS.1, RECESS.2));
             c.clear();
             c.set_viewport(Some(rect));
-            draw_pause_book(c, font, images, pause, rect.width(), rect.height());
+            let _ = draw_pause_book(c, font, images, pause, cheats, rect.width(), rect.height());
             c.set_viewport(None);
             saved = c
                 .read_pixels(None::<Rect>)
@@ -1014,20 +1246,16 @@ impl Screen<'_> {
         self.fill(x + w as i32 - t, y, thick, h, c);
     }
 
-    /// Draw `s` at `(x, y)`, `scale`x the 8px cell. Returns the advance width.
+    /// Draw `s` at `(x, y)`, `scale`x the glyph cell. Returns the advance width.
     pub fn text(&mut self, x: i32, y: i32, scale: u32, c: (u8, u8, u8), s: &str) -> i32 {
         self.font.set_color_mod(c.0, c.1, c.2);
-        let cell = (GLYPH * scale) as i32;
+        let cell = (GLYPH_W * scale) as i32;
         let mut pen = x;
         for ch in s.chars() {
-            let idx = if (ch as u32) < 128 {
-                ch as u32
-            } else {
-                b'?' as u32
-            };
+            let idx = glyph_index(ch);
             if ch != ' ' {
-                let src = Rect::new(idx as i32 * GLYPH as i32, 0, GLYPH, GLYPH);
-                let dst = Rect::new(pen, y, GLYPH * scale, GLYPH * scale);
+                let src = Rect::new(idx as i32 * GLYPH_W as i32, 0, GLYPH_W, GLYPH_H);
+                let dst = Rect::new(pen, y, GLYPH_W * scale, GLYPH_H * scale);
                 let _ = self.canvas.copy(self.font, src, dst);
             }
             pen += cell;
@@ -1045,14 +1273,14 @@ impl Screen<'_> {
         c: (u8, u8, u8),
         s: &str,
     ) -> i32 {
-        let cell = (GLYPH * scale) as i32;
-        let cols = (max_w / (GLYPH * scale)).max(1) as usize;
+        let cols = (max_w / (GLYPH_W * scale)).max(1) as usize;
+        let row = (GLYPH_H * scale) as i32;
         let mut line = String::new();
         let mut cy = y;
         for word in s.split_whitespace() {
             if !line.is_empty() && line.len() + 1 + word.len() > cols {
                 self.text(x, cy, scale, c, &line);
-                cy += cell + 2;
+                cy += row + 2;
                 line.clear();
             }
             if !line.is_empty() {
@@ -1062,13 +1290,13 @@ impl Screen<'_> {
             while line.len() > cols {
                 let (head, tail) = line.split_at(cols);
                 self.text(x, cy, scale, c, head);
-                cy += cell + 2;
+                cy += row + 2;
                 line = tail.to_string();
             }
         }
         if !line.is_empty() {
             self.text(x, cy, scale, c, &line);
-            cy += cell + 2;
+            cy += row + 2;
         }
         cy
     }
@@ -1211,7 +1439,7 @@ fn draw_brand(canvas: &mut WindowCanvas, font: &mut Texture, screen: Rect, out_h
     if chin_h < 24 {
         return;
     }
-    let y = chin_top + (chin_h - GLYPH as i32) / 2;
+    let y = chin_top + (chin_h - GLYPH_H as i32) / 2;
     draw_text_absolute(
         canvas,
         font,
@@ -1278,17 +1506,13 @@ fn draw_text_absolute(
 ) {
     let (r, g, b) = style.color;
     font.set_color_mod(r, g, b);
-    let cell = (GLYPH * style.scale) as i32;
+    let cell = (GLYPH_W * style.scale) as i32;
     let mut pen = x;
     for ch in s.chars().take(max_chars) {
-        let idx = if (ch as u32) < 128 {
-            ch as u32
-        } else {
-            b'?' as u32
-        };
+        let idx = glyph_index(ch);
         if ch != ' ' {
-            let src = Rect::new(idx as i32 * GLYPH as i32, 0, GLYPH, GLYPH);
-            let dst = Rect::new(pen, y, GLYPH * style.scale, GLYPH * style.scale);
+            let src = Rect::new(idx as i32 * GLYPH_W as i32, 0, GLYPH_W, GLYPH_H);
+            let dst = Rect::new(pen, y, GLYPH_W * style.scale, GLYPH_H * style.scale);
             let _ = canvas.copy(font, src, dst);
         }
         pen += cell;
@@ -1306,14 +1530,14 @@ fn draw_text_wrapped_absolute(
     style: TextStyle,
     s: &str,
 ) -> i32 {
-    let cell = (GLYPH * style.scale) as i32;
-    let cols = (max_w / (GLYPH * style.scale)).max(1) as usize;
+    let cols = (max_w / (GLYPH_W * style.scale)).max(1) as usize;
+    let row = (GLYPH_H * style.scale) as i32;
     let mut line = String::new();
     let mut cy = y;
     for word in s.split_whitespace() {
         if !line.is_empty() && line.len() + 1 + word.len() > cols {
             draw_text_absolute(canvas, font, x, cy, style, &line, usize::MAX);
-            cy += cell + 2;
+            cy += row + 2;
             line.clear();
         }
         if !line.is_empty() {
@@ -1323,13 +1547,13 @@ fn draw_text_wrapped_absolute(
         while line.len() > cols {
             let (head, tail) = line.split_at(cols);
             draw_text_absolute(canvas, font, x, cy, style, head, usize::MAX);
-            cy += cell + 2;
+            cy += row + 2;
             line = tail.to_string();
         }
     }
     if !line.is_empty() {
         draw_text_absolute(canvas, font, x, cy, style, &line, usize::MAX);
-        cy += cell + 2;
+        cy += row + 2;
     }
     cy
 }
@@ -1370,14 +1594,42 @@ fn draw_panel(
     let y = rect.y() + pad;
 
     let Some(panel) = panel else {
-        // Idle/root screen (plan §3.2, item 1 — in place of the logo/title):
-        // a single button that opens the shelf. Nothing else in the panel
-        // makes sense with no game loaded.
-        let btn = Rect::new(x, y, inner_w, 56);
-        return vec![(
-            PanelButton::Insert,
-            draw_button(canvas, font, btn, "Inserir cartucho", true),
-        )];
+        // Idle/root screen == the "cartridge ejected" screen (plan revision:
+        // one screen, not two — startup, backing out of the shelf, and
+        // ejecting a game all land here). Same two slots a loaded game uses
+        // (logo, then cartridge art) with idle-appropriate stand-ins: the
+        // console's own brand logo where a game's logo would sit, "Inserir
+        // cartucho" where its cartridge art would sit. No command legend —
+        // there's nothing loaded to command — and Configuracoes moves to the
+        // footer, the same spot the session clock uses during play.
+        let mut cy = if images.contains_key(&PANEL_CONSOLE_LOGO_IMG) {
+            draw_image_absolute(canvas, images, PANEL_CONSOLE_LOGO_IMG, x, y, inner_w, 110);
+            y + 110
+        } else {
+            draw_text_wrapped_absolute(
+                canvas,
+                font,
+                x,
+                y,
+                inner_w,
+                TextStyle::new(2, PANEL_TEXT),
+                BRAND,
+            )
+        };
+        cy += 8;
+        const INSERT_H: u32 = 150;
+        let insert = Rect::new(x, cy, inner_w, INSERT_H);
+        let insert_drawn = draw_button(canvas, font, insert, "Inserir cartucho", true);
+
+        let btn_h = (GLYPH_H + 12) as i32;
+        let settings = Rect::new(x, rect.bottom() - pad - btn_h, inner_w, btn_h as u32);
+        return vec![
+            (PanelButton::Insert, insert_drawn),
+            (
+                PanelButton::Settings,
+                draw_button(canvas, font, settings, "Configuracoes", true),
+            ),
+        ];
     };
 
     // 1. Logo, or the title if there isn't one (plan §3.2, item 1).
@@ -1396,12 +1648,102 @@ fn draw_panel(
         )
     };
 
-    // 3. Commands — the console's own buttons, not the emulator's extras
-    // (plan §3.2, item 3), clickable. Power is "lit" while on; Eject/Reset
-    // dim when they wouldn't do anything right now (the lock still resists a
-    // clicked Eject with a clunk, same as the key).
+    // 1b. Cartridge art (plan revision) — independent of the logo, drawn
+    // right below whichever of the two just ran.
+    if panel.has_cartridge {
+        cy += 8;
+        const CARTRIDGE_H: u32 = 150;
+        draw_image_absolute(
+            canvas,
+            images,
+            PANEL_CARTRIDGE_IMG,
+            x,
+            cy,
+            inner_w,
+            CARTRIDGE_H,
+        );
+        cy += CARTRIDGE_H as i32;
+    }
+
+    // Below this y, stop — leave the session clock's own band (item 6)
+    // clear. There are a lot more command rows than there used to be (plan
+    // revision added six), so a long title plus a game with several curated
+    // cheats can genuinely run out of room; a clean cutoff beats spilling
+    // into the clock. No scrolling yet (a real gap, not silently accepted —
+    // see `docs/fase-4.md`'s revision note).
+    let limit = rect.bottom() - pad - (GLYPH_H as i32 + 12);
+
+    // 2. Power / Eject / Reset (plan revision): styled after the real
+    // console's own controls instead of three more text rows — Power and
+    // Reset are rocker switches (see `draw_rocker`), Eject sits between
+    // them the way the cartridge-slot label does on the actual hardware.
+    // Pulled out of the generic command loop below (which skips these three
+    // by kind) so they get this dedicated look instead of a plain button.
+    const SWITCH_TRACK_H: i32 = 64;
+    const SWITCH_GROUP_H: i32 = SWITCH_TRACK_H + 4 + GLYPH_H as i32;
     let mut buttons = Vec::new();
-    if !panel.commands.is_empty() {
+    if cy + SWITCH_GROUP_H <= limit {
+        cy += 14;
+        let gap = 10i32;
+        // Eject gets first claim on width (its "EJETAR" label doesn't
+        // shrink), the two switches split whatever's left evenly — on a
+        // narrow panel that leaves them tighter, not the label overflowing
+        // its box.
+        let eject_w = (GLYPH_W as i32) * "EJETAR".len() as i32 + 16;
+        let switch_w = ((inner_w as i32 - gap * 2 - eject_w) / 2).max(1);
+        let eject_w = (inner_w as i32 - gap * 2 - switch_w * 2).max(eject_w);
+        let power_track = Rect::new(x, cy, switch_w as u32, SWITCH_TRACK_H as u32);
+        let eject_rect = Rect::new(
+            x + switch_w + gap,
+            cy + SWITCH_TRACK_H - (GLYPH_H as i32 + 6),
+            eject_w as u32,
+            GLYPH_H + 6,
+        );
+        let reset_track = Rect::new(
+            x + switch_w + gap + eject_w + gap,
+            cy,
+            switch_w as u32,
+            SWITCH_TRACK_H as u32,
+        );
+        buttons.push((
+            PanelButton::Power,
+            draw_rocker(canvas, font, power_track, "POWER", panel.powered, true),
+        ));
+        buttons.push((
+            PanelButton::Eject,
+            draw_button(canvas, font, eject_rect, "EJETAR", !panel.powered),
+        ));
+        buttons.push((
+            PanelButton::Reset,
+            draw_rocker(
+                canvas,
+                font,
+                reset_track,
+                "RESET",
+                panel.reset_pressed,
+                panel.powered,
+            ),
+        ));
+        cy += SWITCH_TRACK_H + 4 + GLYPH_H as i32;
+    }
+
+    // 3. Commands — the console's own buttons, not the emulator's extras
+    // (plan §3.2, item 3), every one of them clickable (plan revision:
+    // mouse/gamepad only, no keyboard legend any more). Everything here
+    // only acts while powered — Power/Eject/Reset are drawn separately
+    // above (item 2) with their own dim rules, so they're filtered out of
+    // this list rather than drawn twice.
+    let other_commands: Vec<&(PanelButton, String)> = panel
+        .commands
+        .iter()
+        .filter(|(k, _)| {
+            !matches!(
+                k,
+                PanelButton::Power | PanelButton::Eject | PanelButton::Reset
+            )
+        })
+        .collect();
+    if !other_commands.is_empty() && cy < limit {
         cy += 16;
         draw_text_absolute(
             canvas,
@@ -1412,74 +1754,79 @@ fn draw_panel(
             "comandos",
             usize::MAX,
         );
-        cy += GLYPH as i32 + 6;
+        cy += GLYPH_H as i32 + 6;
     }
-    for (i, (label, key)) in panel.commands.iter().enumerate() {
-        let kind = match i {
-            0 => PanelButton::Power,
-            1 => PanelButton::Eject,
-            2 => PanelButton::Reset,
-            _ => break,
-        };
-        let lit = match kind {
-            // Power is always the live control — lit whichever way it's
-            // about to act (turn off while on, turn back on while off), not
-            // just while powered.
-            PanelButton::Power => true,
-            PanelButton::Eject => !panel.powered,
-            PanelButton::Reset => panel.powered,
-            PanelButton::Insert => true,
-        };
-        cy += 6;
-        // Power's label flips with the state it's about to leave — "Desligar"
-        // while on, "Ligar" while off — the other two keep their static copy.
-        let label = if kind == PanelButton::Power && !panel.powered {
-            "Ligar"
-        } else {
-            label.as_str()
-        };
-        let text = format!("{label}  [{key}]");
-        let btn = Rect::new(x, cy, inner_w, GLYPH + 12);
-        let drawn = draw_button(canvas, font, btn, &text, lit);
+    for (kind, label) in other_commands {
+        // Check the row's projected bottom, not just its top — otherwise
+        // the last row drawn can still poke into the session clock's band.
+        if cy + 4 + (GLYPH_H + 6) as i32 > limit {
+            break;
+        }
+        cy += 4;
+        // Tighter than a lone idle-screen button (plan revision: nine of
+        // these stack now, not three — every extra pixel per row adds up).
+        let btn = Rect::new(x, cy, inner_w, GLYPH_H + 6);
+        let drawn = draw_button(canvas, font, btn, label, panel.powered);
         cy = drawn.bottom();
-        buttons.push((kind, drawn));
+        buttons.push((*kind, drawn));
     }
 
-    // 4. Cheats — the interruptor list (plan §4.4), not the string of raw
-    // addresses: selected row gets a cursor and full brightness, the rest
-    // dim; on/off shown as `[x]`/`[ ]` since the font is ASCII-only.
-    if !panel.cheats.is_empty() {
+    // 4. Cheats — informational only here now (plan revision): plain text,
+    // only the ones actually on, no click (toggling moved to the pause book,
+    // `draw_pause_book`, which has the room and isn't racing the clock for
+    // space). Absent entirely with none on, not an empty "cheats" label.
+    let cheats_on: Vec<&str> = panel
+        .cheats
+        .iter()
+        .filter(|(_, on)| *on)
+        .map(|(desc, _)| desc.as_str())
+        .collect();
+    // Room for the header plus at least one line — otherwise skip the whole
+    // section instead of showing a "cheats" label with nothing under it.
+    // The header hint can wrap to 2 lines on a narrow panel — reserve for
+    // that plus one row's worth, rather than assuming a single line.
+    let cheats_fit = cy + 16 + (GLYPH_H as i32 + 2) * 2 + GLYPH_H as i32 <= limit;
+    if !cheats_on.is_empty() && cheats_fit {
         cy += 16;
-        draw_text_absolute(
+        // "Pausar pra editar" is the discoverability fix for a real report:
+        // with no hint here, a player who wants to turn a cheat off has no
+        // way to know the interruptor moved to the pause book.
+        cy = draw_text_wrapped_absolute(
             canvas,
             font,
             x,
             cy,
+            inner_w,
             TextStyle::new(1, PANEL_DIM),
-            "cheats",
-            usize::MAX,
+            "cheats ativos (pausar pra editar)",
         );
-        cy += GLYPH as i32 + 6;
-        for (i, (desc, on)) in panel.cheats.iter().enumerate() {
-            let selected = i == panel.cheat_sel;
-            let cursor = if selected { "> " } else { "  " };
-            let mark = if *on { "[x] " } else { "[ ] " };
-            let color = if selected { PANEL_TEXT } else { PANEL_DIM };
+        cy += 4;
+        for desc in cheats_on {
+            // Same projected-bottom check as the commands loop — a single
+            // line's worth; a long description that wraps to more may still
+            // poke past `limit`, but curated descriptions are short.
+            if cy + GLYPH_H as i32 + 2 > limit {
+                break;
+            }
             cy = draw_text_wrapped_absolute(
                 canvas,
                 font,
                 x,
                 cy,
                 inner_w,
-                TextStyle::new(1, color),
-                &format!("{cursor}{mark}{desc}"),
+                TextStyle::new(1, PANEL_TEXT),
+                desc,
             );
         }
     }
 
     // 5. Notes — most-recent capture + counter (plan §3.2, item 5; §3.4).
     // Absent entirely with nothing captured yet, not a "no notes" filler.
-    if panel.note_count > 0 {
+    // Same room-for-header-plus-content check as cheats, above — the
+    // thumbnail (when there is one) needs its own extra room accounted for.
+    let notes_h =
+        16 + (GLYPH_H as i32 + 6) + if panel.has_note_thumb { 70 + 6 } else { 0 } + GLYPH_H as i32;
+    if panel.note_count > 0 && cy + notes_h <= limit {
         cy += 16;
         draw_text_absolute(
             canvas,
@@ -1490,13 +1837,13 @@ fn draw_panel(
             "notas",
             usize::MAX,
         );
-        cy += GLYPH as i32 + 6;
+        cy += GLYPH_H as i32 + 6;
         if panel.has_note_thumb {
             draw_image_absolute(canvas, images, PANEL_NOTE_IMG, x, cy, inner_w, 70);
             cy += 70 + 6;
         }
         let label = format!(
-            "{} captura{}",
+            "{} slot{} usados",
             panel.note_count,
             if panel.note_count == 1 { "" } else { "s" }
         );
@@ -1518,7 +1865,7 @@ fn draw_panel(
     } else {
         format!("{:02}:{:02}", secs / 60, secs % 60)
     };
-    let ty = rect.bottom() - pad - GLYPH as i32;
+    let ty = rect.bottom() - pad - GLYPH_H as i32;
     draw_text_absolute(
         canvas,
         font,
@@ -1528,7 +1875,7 @@ fn draw_panel(
         "session",
         usize::MAX,
     );
-    let label_w = (GLYPH as i32) * "session ".len() as i32;
+    let label_w = (GLYPH_W as i32) * "session ".len() as i32;
     draw_text_absolute(
         canvas,
         font,
@@ -1568,9 +1915,9 @@ fn draw_button(
     canvas.set_draw_color(Color::RGB(bg.0, bg.1, bg.2));
     let _ = canvas.fill_rect(inset);
 
-    let text_w = (GLYPH as i32) * text.chars().count() as i32;
+    let text_w = (GLYPH_W as i32) * text.chars().count() as i32;
     let tx = rect.x() + (rect.width() as i32 - text_w).max(4) / 2;
-    let ty = rect.y() + (rect.height() as i32 - GLYPH as i32) / 2;
+    let ty = rect.y() + (rect.height() as i32 - GLYPH_H as i32) / 2;
     draw_text_absolute(
         canvas,
         font,
@@ -1581,6 +1928,82 @@ fn draw_button(
         usize::MAX,
     );
     rect
+}
+
+/// One Power/Reset rocker switch (plan revision — styled after the real
+/// console's own controls, not another text row): a recessed track with a
+/// purple thumb that sits at the top when `up` (Power: on; Reset: mid-press)
+/// or the bottom otherwise, plus a label underneath. `lit` dims the whole
+/// thing the same way `draw_button` does for a control that wouldn't do
+/// anything right now (Reset while the console is off). Returns `track` for
+/// hit-testing — the whole switch body is clickable, not just the thumb.
+fn draw_rocker(
+    canvas: &mut WindowCanvas,
+    font: &mut Texture,
+    track: Rect,
+    label: &str,
+    up: bool,
+    lit: bool,
+) -> Rect {
+    canvas.set_draw_color(Color::RGB(
+        SWITCH_TRACK_BORDER.0,
+        SWITCH_TRACK_BORDER.1,
+        SWITCH_TRACK_BORDER.2,
+    ));
+    let _ = canvas.fill_rect(track);
+    let inset = Rect::new(
+        track.x() + 2,
+        track.y() + 2,
+        track.width().saturating_sub(4),
+        track.height().saturating_sub(4),
+    );
+    canvas.set_draw_color(Color::RGB(
+        SWITCH_TRACK_BG.0,
+        SWITCH_TRACK_BG.1,
+        SWITCH_TRACK_BG.2,
+    ));
+    let _ = canvas.fill_rect(inset);
+
+    let thumb_h = (inset.height() / 2).saturating_sub(3).max(1);
+    let thumb_y = if up {
+        inset.y() + 2
+    } else {
+        inset.bottom() - thumb_h as i32 - 2
+    };
+    let thumb = Rect::new(
+        inset.x() + 2,
+        thumb_y,
+        inset.width().saturating_sub(4),
+        thumb_h,
+    );
+    let base = if lit { SWITCH_PURPLE } else { SWITCH_DIM };
+    canvas.set_draw_color(Color::RGB(base.0, base.1, base.2));
+    let _ = canvas.fill_rect(thumb);
+    if lit {
+        // A lighter sliver along the thumb's top edge — cheap stand-in for a
+        // bevel/highlight with only flat-fill rects to work with.
+        let hi = Rect::new(thumb.x(), thumb.y(), thumb.width(), thumb.height().min(3));
+        canvas.set_draw_color(Color::RGB(
+            SWITCH_PURPLE_HI.0,
+            SWITCH_PURPLE_HI.1,
+            SWITCH_PURPLE_HI.2,
+        ));
+        let _ = canvas.fill_rect(hi);
+    }
+
+    let text_w = (GLYPH_W as i32) * label.chars().count() as i32;
+    let tx = track.x() + (track.width() as i32 - text_w).max(0) / 2;
+    let ty = track.bottom() + 4;
+    draw_text_absolute(
+        canvas,
+        font,
+        tx,
+        ty,
+        TextStyle::new(1, if lit { PANEL_TEXT } else { PANEL_DIM }),
+        label,
+        usize::MAX,
+    );
+    track
 }
 
 /// Where the pause book's two pages sit: a symmetric spread with a spine gap
@@ -1599,19 +2022,25 @@ fn pause_pages(out_w: u32, out_h: u32) -> (Rect, Rect) {
 
 /// Draw the pause book: left page is the notebook's status (how many pages
 /// captured so far, or a hint if there are none), right page is the most
-/// recent capture, full-size. `None` (shouldn't happen — always set before
-/// `present_pause`/`capture_pause_bmp` are called) draws nothing.
+/// recent capture, full-size, plus two clickable buttons below the pages —
+/// "Continuar" (resume) and "Avancar quadro" (step one frame, plan revision:
+/// mouse/gamepad only, no keyboard). `None` (shouldn't happen — always set
+/// before `present_pause`/`capture_pause_bmp` are called) draws nothing and
+/// returns no buttons.
 fn draw_pause_book(
     canvas: &mut WindowCanvas,
     font: &mut Texture,
     images: &HashMap<u64, ImgTex>,
     pause: Option<&PauseNote>,
+    cheats: &[(String, bool)],
     out_w: u32,
     out_h: u32,
-) {
+) -> Vec<(PanelButton, Rect)> {
     canvas.set_draw_color(Color::RGB(CABINET.0, CABINET.1, CABINET.2));
     let _ = canvas.fill_rect(Rect::new(0, 0, out_w, out_h));
-    let Some(pause) = pause else { return };
+    let Some(pause) = pause else {
+        return Vec::new();
+    };
 
     let (left, right) = pause_pages(out_w, out_h);
     for page in [left, right] {
@@ -1623,6 +2052,9 @@ fn draw_pause_book(
     let lx = left.x() + pad;
     let ly = left.y() + pad;
     let lw = left.width().saturating_sub(pad as u32 * 2);
+    let btn_h = (GLYPH_H + 10) as i32;
+    let mut buttons = Vec::new();
+
     let mut cy = draw_text_wrapped_absolute(
         canvas,
         font,
@@ -1633,39 +2065,135 @@ fn draw_pause_book(
         &pause.title,
     );
     cy += 16;
-    draw_text_absolute(
-        canvas,
-        font,
-        lx,
-        cy,
-        TextStyle::new(1, PANEL_DIM),
-        "anotacoes",
-        usize::MAX,
-    );
-    cy += GLYPH as i32 + 8;
-    let status = if pause.captures == 0 {
-        "Sem anotacoes ainda. Aperte N pra capturar a tela.".to_string()
-    } else if pause.captures == 1 {
-        "1 captura salva.".to_string()
-    } else {
-        format!("{} capturas salvas.", pause.captures)
-    };
-    draw_text_wrapped_absolute(
-        canvas,
-        font,
-        lx,
-        cy,
-        lw,
-        TextStyle::new(1, PANEL_TEXT),
-        &status,
-    );
 
+    if let Some(draft) = &pause.draft {
+        // Editing mode (plan revision: either the free-text note or a
+        // slot's caption, `draft_heading` says which): the rest of the left
+        // page becomes a live text editor — Continuar/Avancar quadro (below
+        // both pages) and the cheats list are hidden until the draft is
+        // saved/cancelled, so there's nothing to accidentally lose by
+        // clicking.
+        draw_text_absolute(
+            canvas,
+            font,
+            lx,
+            cy,
+            TextStyle::new(1, PANEL_DIM),
+            &pause.draft_heading,
+            usize::MAX,
+        );
+        cy += GLYPH_H as i32 + 8;
+        cy = draw_text_wrapped_absolute(
+            canvas,
+            font,
+            lx,
+            cy,
+            lw,
+            TextStyle::new(1, PANEL_TEXT),
+            &format!("{draft}_"),
+        );
+        cy += 8;
+        draw_text_absolute(
+            canvas,
+            font,
+            lx,
+            cy,
+            TextStyle::new(1, PANEL_DIM),
+            &format!("{}/{}", draft.chars().count(), pause.draft_limit),
+            usize::MAX,
+        );
+
+        let cancel_y = left.bottom() - pad - btn_h;
+        let save_y = cancel_y - btn_h - 6;
+        let save_btn = Rect::new(lx, save_y, lw, btn_h as u32);
+        let cancel_btn = Rect::new(lx, cancel_y, lw, btn_h as u32);
+        buttons.push((
+            PanelButton::PauseDraftSave,
+            draw_button(canvas, font, save_btn, "Salvar", true),
+        ));
+        buttons.push((
+            PanelButton::PauseDraftCancel,
+            draw_button(canvas, font, cancel_btn, "Cancelar", true),
+        ));
+    } else {
+        draw_text_absolute(
+            canvas,
+            font,
+            lx,
+            cy,
+            TextStyle::new(1, PANEL_DIM),
+            "anotacoes",
+            usize::MAX,
+        );
+        cy += GLYPH_H as i32 + 8;
+        let status = if pause.filled == 0 {
+            format!("Nenhum slot usado ainda (de {}).", pause.captures)
+        } else {
+            format!("{} de {} slots usados.", pause.filled, pause.captures)
+        };
+        cy = draw_text_wrapped_absolute(
+            canvas,
+            font,
+            lx,
+            cy,
+            lw,
+            TextStyle::new(1, PANEL_TEXT),
+            &status,
+        );
+
+        // Cheats — moved here from the side panel (plan revision): plenty of
+        // room, and pausing already stopped the game from consuming input,
+        // so gamepad-menu-nav could reach these too (not wired up yet).
+        let write_y = left.bottom() - pad - btn_h;
+        if !cheats.is_empty() {
+            cy += 16;
+            draw_text_absolute(
+                canvas,
+                font,
+                lx,
+                cy,
+                TextStyle::new(1, PANEL_DIM),
+                "cheats",
+                usize::MAX,
+            );
+            cy += GLYPH_H as i32 + 6;
+            let cheats_limit = write_y - 10;
+            for (i, (desc, on)) in cheats.iter().enumerate() {
+                if cy >= cheats_limit {
+                    break;
+                }
+                let mark = if *on { "[x] " } else { "[ ] " };
+                let btn = Rect::new(lx, cy, lw, GLYPH_H + 8);
+                let drawn = draw_button(canvas, font, btn, &format!("{mark}{desc}"), true);
+                cy = drawn.bottom() + 4;
+                buttons.push((PanelButton::CheatRow(i), drawn));
+            }
+        }
+
+        let write_btn = Rect::new(lx, write_y, lw, btn_h as u32);
+        buttons.push((
+            PanelButton::PauseWrite,
+            draw_button(canvas, font, write_btn, "Escrever anotacao", true),
+        ));
+    }
+
+    // Right page: the selected slot's image, a pin/caption row, and
+    // pagination through all 15 (plan revision — used to always show just
+    // the latest, no pinning or naming).
     let rx = right.x() + pad;
     let ry = right.y() + pad;
     let rw = right.width().saturating_sub(pad as u32 * 2);
-    let rh = right.height().saturating_sub(pad as u32 * 2);
+    // Bottom-up: pin/rename row, then Prev/Next, then the info line(s) —
+    // always reserved (whether or not there's a caption) so the image's
+    // height doesn't jump around as captions come and go.
+    let pin_y = right.bottom() - pad - btn_h;
+    let nav_y = pin_y - 6 - btn_h;
+    let label_y = nav_y - 6 - (GLYPH_H as i32 + 4);
+    let info_y = label_y - (GLYPH_H as i32 + 6);
+    let img_h = (info_y - ry).max(0) as u32;
+
     if pause.has_thumb {
-        draw_image_absolute(canvas, images, PAUSE_THUMB_IMG, rx, ry, rw, rh);
+        draw_image_absolute(canvas, images, PAUSE_THUMB_IMG, rx, ry, rw, img_h);
     } else {
         draw_text_absolute(
             canvas,
@@ -1673,10 +2201,109 @@ fn draw_pause_book(
             rx,
             ry,
             TextStyle::new(1, PANEL_DIM),
-            "pagina em branco",
+            "slot vazio",
             usize::MAX,
         );
     }
+
+    let info = format!(
+        "{}/{}{}",
+        pause.page + 1,
+        pause.captures,
+        if pause.pinned { " (fixado)" } else { "" }
+    );
+    draw_text_absolute(
+        canvas,
+        font,
+        rx,
+        info_y,
+        TextStyle::new(1, PANEL_DIM),
+        &info,
+        usize::MAX,
+    );
+    if !pause.slot_label.is_empty() {
+        draw_text_absolute(
+            canvas,
+            font,
+            rx,
+            label_y,
+            TextStyle::new(1, PANEL_TEXT),
+            &pause.slot_label,
+            usize::MAX,
+        );
+    }
+
+    let half = (rw / 2).saturating_sub(4);
+    let prev_btn = Rect::new(rx, nav_y, half, btn_h as u32);
+    let next_btn = Rect::new(rx + half as i32 + 8, nav_y, half, btn_h as u32);
+    buttons.push((
+        PanelButton::PauseNotePrev,
+        draw_button(canvas, font, prev_btn, "< anterior", pause.page > 0),
+    ));
+    buttons.push((
+        PanelButton::PauseNoteNext,
+        draw_button(
+            canvas,
+            font,
+            next_btn,
+            "proxima >",
+            pause.page + 1 < pause.captures,
+        ),
+    ));
+
+    let pin_btn = Rect::new(rx, pin_y, half, btn_h as u32);
+    let name_btn = Rect::new(rx + half as i32 + 8, pin_y, half, btn_h as u32);
+    buttons.push((
+        PanelButton::PauseNotePin,
+        draw_button(
+            canvas,
+            font,
+            pin_btn,
+            if pause.pinned { "Fixado" } else { "Fixar" },
+            true,
+        ),
+    ));
+    buttons.push((
+        PanelButton::PauseNoteName,
+        draw_button(
+            canvas,
+            font,
+            name_btn,
+            if pause.slot_label.is_empty() {
+                "Nomear print"
+            } else {
+                "Renomear"
+            },
+            true,
+        ),
+    ));
+
+    // Buttons below both pages, in the same margin band above them
+    // (`pause_pages` leaves a symmetric top/bottom gap of `PAUSE_TOP`) —
+    // hidden while writing (commit/cancel the draft first).
+    if pause.draft.is_none() {
+        let band = (out_h as f32 * PAUSE_TOP) as i32;
+        let bottom_btn_h = (GLYPH_H + 12) as i32;
+        let btn_y = out_h as i32 - band + (band - bottom_btn_h).max(0) / 2;
+        let gap = (out_w as f32 * PAUSE_GAP) as i32;
+        let continue_btn = Rect::new(left.x(), btn_y, left.width(), bottom_btn_h as u32);
+        let step_btn = Rect::new(
+            left.x() + left.width() as i32 + gap,
+            btn_y,
+            right.width(),
+            bottom_btn_h as u32,
+        );
+        buttons.push((
+            PanelButton::PauseContinue,
+            draw_button(canvas, font, continue_btn, "Continuar", true),
+        ));
+        buttons.push((
+            PanelButton::PauseStep,
+            draw_button(canvas, font, step_btn, "Avancar quadro", true),
+        ));
+    }
+
+    buttons
 }
 
 /// Build a textured grid over `dst` whose vertex positions are barrel-distorted
@@ -1738,8 +2365,8 @@ fn build_crt_mesh(dst: Rect, alpha: f32) -> CrtMesh {
 /// [`Cabinet::wrapped_height`]. Mirrors the wrap loop: greedy word packing into
 /// `cols` chars, hard-splitting any word longer than a line.
 fn wrapped_height(max_w: u32, scale: u32, s: &str) -> i32 {
-    let cell = (GLYPH * scale) as i32;
-    let cols = (max_w / (GLYPH * scale)).max(1) as usize;
+    let cols = (max_w / (GLYPH_W * scale)).max(1) as usize;
+    let row = (GLYPH_H * scale) as i32;
     let mut lines = 0i32;
     let mut len = 0usize;
     let mut open = false;
@@ -1762,22 +2389,34 @@ fn wrapped_height(max_w: u32, scale: u32, s: &str) -> i32 {
     if open {
         lines += 1;
     }
-    lines * (cell + 2)
+    lines * (row + 2)
 }
 
+/// Rasterize the covered Unicode range once into one wide texture strip —
+/// each cell holds one anti-aliased glyph (alpha = the crate's per-pixel
+/// intensity, RGB left white so every draw call tints it via
+/// `set_color_mod`), left-aligned in its `GLYPH_W`-wide cell exactly like
+/// the atlas the old bitmap font used, just with grayscale edges instead of
+/// hard 1-bit ones.
 fn build_font_atlas(canvas: &mut WindowCanvas) -> Result<Texture, PlatformError> {
-    let cols = 128u32;
-    let w = cols * GLYPH;
-    let h = GLYPH;
+    let w = GLYPH_COLS * GLYPH_W;
+    let h = GLYPH_H;
     let mut rgba = vec![0u8; (w * h * 4) as usize];
-    for (i, glyph) in font8x8::legacy::BASIC_LEGACY.iter().enumerate() {
-        for (row, bits) in glyph.iter().enumerate() {
-            for col in 0..8u32 {
-                if bits & (1 << col) != 0 {
-                    let px = i as u32 * GLYPH + col;
-                    let o = ((row as u32 * w + px) * 4) as usize;
-                    rgba[o..o + 4].copy_from_slice(&[255, 255, 255, 255]);
+    for i in 0..GLYPH_COLS {
+        let Some(ch) = char::from_u32(GLYPH_FIRST + i) else {
+            continue;
+        };
+        let Some(glyph) = get_raster(ch, FONT_WEIGHT, FONT_HEIGHT) else {
+            continue;
+        };
+        for (row, line) in glyph.raster().iter().enumerate().take(h as usize) {
+            for (col, &v) in line.iter().enumerate().take(GLYPH_W as usize) {
+                if v == 0 {
+                    continue;
                 }
+                let px = i * GLYPH_W + col as u32;
+                let o = ((row as u32 * w + px) * 4) as usize;
+                rgba[o..o + 4].copy_from_slice(&[255, 255, 255, v]);
             }
         }
     }
@@ -1793,7 +2432,7 @@ fn build_font_atlas(canvas: &mut WindowCanvas) -> Result<Texture, PlatformError>
 
 #[cfg(test)]
 mod tests {
-    use super::{fit_aspect_in, screen_area, wrapped_height, GLYPH};
+    use super::{fit_aspect_in, screen_area, wrapped_height, GLYPH_H};
     use sdl3::rect::Rect;
 
     #[test]
@@ -1824,14 +2463,14 @@ mod tests {
 
     #[test]
     fn wrapped_height_counts_lines() {
-        let row = GLYPH as i32 + 2; // one line's advance at scale 1
-        assert_eq!(wrapped_height(80, 1, ""), 0);
-        // 80px / 8px = 10 cols. "hello world" -> "hello" + " world" = 11 > 10,
-        // so two lines.
-        assert_eq!(wrapped_height(80, 1, "hello world"), 2 * row);
+        let row = GLYPH_H as i32 + 2; // one line's advance at scale 1
+        assert_eq!(wrapped_height(90, 1, ""), 0);
+        // 90px / 9px advance = 10 cols. "hello world" -> "hello" + " world"
+        // = 11 > 10, so two lines.
+        assert_eq!(wrapped_height(90, 1, "hello world"), 2 * row);
         // Fits on one line.
-        assert_eq!(wrapped_height(80, 1, "hello you"), row);
+        assert_eq!(wrapped_height(90, 1, "hello you"), row);
         // A single word longer than the line is hard-split.
-        assert_eq!(wrapped_height(80, 1, &"x".repeat(25)), 3 * row);
+        assert_eq!(wrapped_height(90, 1, &"x".repeat(25)), 3 * row);
     }
 }

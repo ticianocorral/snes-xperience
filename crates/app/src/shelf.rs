@@ -1,8 +1,9 @@
 //! The selector shelf, factored out of the `selector` binary so `xperience` can
 //! show it between games: a scrollable grid of covers (or a multicart-style
-//! list when no cover art is around) with a details panel, gamepad-first
-//! navigation, mouse, and type-to-search. Cover/logo art is local — dropped
-//! by hand into `assets/cover/`/`assets/logo/` (plan §4.3, no more
+//! list when no cover art is around) with a details panel, mouse and gamepad
+//! navigation only (plan revision: no keyboard shortcuts, so type-to-search
+//! is gone too — nothing left to type with). Cover/logo art is local —
+//! dropped by hand into `assets/cover/`/`assets/logo/` (plan §4.3, no more
 //! ScreenScraper) — matched by the ROM's file name and decoded lazily as
 //! tiles scroll into view.
 
@@ -16,8 +17,14 @@ use xperience_platform::{Cabinet, MenuMode, MenuNav, Platform, Screen};
 
 use crate::idle;
 
-const TILE_W: u32 = 150;
-const TILE_H: u32 = 200;
+// Landscape, not portrait: the cover art dropped into `assets/cover/` is
+// horizontal (box-front scans, not spine-style portrait covers), so the tile
+// itself is wide-short rather than tall-narrow — `image_fit` would otherwise
+// letterbox a landscape image down to a sliver inside a portrait frame. Sized
+// up from the original 200x150 (same 4:3 tile shape, ~30% larger) so covers
+// read clearly on the shelf.
+const TILE_W: u32 = 260;
+const TILE_H: u32 = 195;
 const GAP: u32 = 18;
 const MARGIN: i32 = 28;
 const PANEL_W: u32 = 380;
@@ -49,13 +56,17 @@ pub enum Pick {
         /// Local logo art (`assets/logo/<rom stem>.*`), if one exists — for
         /// the side panel during play (plan §3.2).
         wheel: Option<PathBuf>,
+        /// Local cartridge art (`assets/cartridge/<rom stem>.*`), if one
+        /// exists — shown in the panel alongside the logo (plan revision).
+        cartridge: Option<PathBuf>,
     },
-    /// Esc with an empty search box — back out to the idle/root screen.
-    /// The app keeps running.
+    /// Clicked "Voltar", or a gamepad's Back button — back out to the
+    /// idle/root screen. The app keeps running.
     Back,
     /// Window closed / Cmd-Q — tear the app down.
     Quit,
-    /// `O` — open the settings screen, then come back to the shelf.
+    /// Clicked "Configuracoes" — open the settings screen, then come back to
+    /// the shelf.
     Settings,
 }
 
@@ -105,12 +116,19 @@ fn find_local_art(dir: &Path, rom_path: &str) -> Option<PathBuf> {
 
 /// Mark `entry` played and build its launch — shared by Enter/A confirm and
 /// clicking the already-selected tile.
-fn pick_play(catalog: &Catalog, logo_dir: &Path, entry: &CatalogEntry) -> Pick {
+fn pick_play(
+    catalog: &Catalog,
+    logo_dir: &Path,
+    cartridge_dir: &Path,
+    entry: &CatalogEntry,
+) -> Pick {
     let _ = catalog.mark_played(&entry.rom.sha1);
     let wheel = find_local_art(logo_dir, &entry.rom.path);
+    let cartridge = find_local_art(cartridge_dir, &entry.rom.path);
     Pick::Play {
         rom: PathBuf::from(&entry.rom.path),
         wheel,
+        cartridge,
     }
 }
 
@@ -204,18 +222,28 @@ fn empty_roms_screen(plat: &mut Platform, cab: &mut Cabinet) -> Result<Pick> {
         if m.nav.contains(&MenuNav::Back) {
             return Ok(Pick::Back);
         }
+        let (scr_w, scr_h) = cab.screen_size();
+        let back_rect = (MARGIN, scr_h as i32 - MARGIN - 36, 160u32, 32u32);
+        if let Some((x, y)) = m.click {
+            let (ox, oy) = cab.window_to_output(x, y);
+            if let Some((lx, ly)) = cab.hit_screen_point(ox, oy) {
+                if in_rect(lx, ly, back_rect) {
+                    return Ok(Pick::Back);
+                }
+            }
+        }
         let render = |d: &mut Screen| {
             d.text(MARGIN, MARGIN, 2, TEXT, "nenhuma rom encontrada");
             d.text_wrapped(
                 MARGIN,
                 MARGIN + 40,
-                600,
+                scr_w.saturating_sub(MARGIN as u32 * 2),
                 1,
                 DIM,
                 "copie seus arquivos .sfc/.smc para a pasta roms/, ao lado do \
                  executavel, e volte para esta tela.",
             );
-            d.text(MARGIN, d.size().1 as i32 - MARGIN, 1, DIM, "esc: voltar");
+            draw_panel_button(d, back_rect, "Voltar");
         };
         cab.frame_2d(BG, render);
         std::thread::sleep(frame);
@@ -238,6 +266,7 @@ pub fn run(
 
     let cover_dir = crate::dirs::assets_dir().join("cover");
     let logo_dir = crate::dirs::assets_dir().join("logo");
+    let cartridge_dir = crate::dirs::assets_dir().join("cartridge");
     // Never re-stat a game's art more than once per shelf visit — most games
     // won't have any, and disk isn't free even if it's cheap.
     let mut tried_cover: HashSet<String> = HashSet::new();
@@ -245,7 +274,6 @@ pub fn run(
 
     let mut sel: usize = 0;
     let mut top_row: usize = 0;
-    let mut search = String::new();
     let frame = Duration::from_millis(16);
     let mut frame_no = 0u64;
 
@@ -260,15 +288,7 @@ pub fn run(
             return Ok(Pick::Quit);
         }
 
-        // Current (filtered) view.
-        let view: Vec<&CatalogEntry> = if search.is_empty() {
-            all.iter().collect()
-        } else {
-            let q = search.to_lowercase();
-            all.iter()
-                .filter(|e| e.title().to_lowercase().contains(&q))
-                .collect()
-        };
+        let view: Vec<&CatalogEntry> = all.iter().collect();
         if sel >= view.len() {
             sel = view.len().saturating_sub(1);
         }
@@ -285,20 +305,6 @@ pub fn run(
         if m.quit {
             return Ok(Pick::Quit);
         }
-        if m.toggle_fullscreen {
-            cab.toggle_fullscreen();
-        }
-        if m.open_settings {
-            return Ok(Pick::Settings);
-        }
-        if m.backspace {
-            search.pop();
-            sel = 0;
-        }
-        if !m.typed.is_empty() {
-            search.push_str(&m.typed);
-            sel = 0;
-        }
         for nav in m.nav {
             match nav {
                 MenuNav::Left => sel = sel.saturating_sub(1),
@@ -311,16 +317,10 @@ pub fn run(
                 }
                 MenuNav::Home => sel = 0,
                 MenuNav::End => sel = view.len().saturating_sub(1),
-                MenuNav::Back => {
-                    if search.is_empty() {
-                        return Ok(Pick::Back);
-                    }
-                    search.clear();
-                    sel = 0;
-                }
+                MenuNav::Back => return Ok(Pick::Back),
                 MenuNav::Confirm => {
                     if let Some(e) = view.get(sel) {
-                        return Ok(pick_play(catalog, &logo_dir, e));
+                        return Ok(pick_play(catalog, &logo_dir, &cartridge_dir, e));
                     }
                 }
                 _ => {}
@@ -329,17 +329,23 @@ pub fn run(
 
         // Mouse: click a tile to select it, click the already-selected one
         // to launch — the same two-step a controller does (move, then A).
+        // The panel's "Configuracoes"/"Voltar" buttons are the only way into
+        // either without a gamepad now (plan revision: no keyboard).
         if let Some((x, y)) = m.click {
             let (ox, oy) = cab.window_to_output(x, y);
             if let Some((lx, ly)) = cab.hit_screen_point(ox, oy) {
                 if let Some(i) = grid.tile_at(lx, ly, top_row, view.len()) {
                     if i == sel {
                         if let Some(e) = view.get(i) {
-                            return Ok(pick_play(catalog, &logo_dir, e));
+                            return Ok(pick_play(catalog, &logo_dir, &cartridge_dir, e));
                         }
                     } else {
                         sel = i;
                     }
+                } else if in_rect(lx, ly, settings_btn_rect(scr_w, scr_h)) {
+                    return Ok(Pick::Settings);
+                } else if in_rect(lx, ly, back_btn_rect(scr_w, scr_h)) {
+                    return Ok(Pick::Back);
                 }
             }
         }
@@ -381,12 +387,13 @@ pub fn run(
 
         // --- draw (into a screen-sized buffer, then warped through the tube) --
         let render = |d: &mut Screen| {
-            let label = if search.is_empty() {
-                format!("{} games — type to search", view.len())
-            } else {
-                format!("search: {search}_   ({} match)", view.len())
-            };
-            d.text(MARGIN, MARGIN - 12, 2, DIM, &label);
+            d.text(
+                MARGIN,
+                MARGIN - 12,
+                2,
+                DIM,
+                &format!("{} games", view.len()),
+            );
 
             if grid.list_mode {
                 // Multicart menu: a plain numbered list, selection as an
@@ -451,13 +458,12 @@ pub fn run(
                     d.text(ix + 90, iy, 1, TEXT, &e.rom.play_count.to_string());
                 }
             }
-            d.text(
-                px + 22,
-                scr_h as i32 - 30,
-                1,
-                DIM,
-                "A / Enter / clique de novo: play   B / Esc: voltar",
-            );
+
+            // Buttons — mouse's only way into either without a gamepad (plan
+            // revision: no keyboard). A gamepad still confirms/backs out
+            // with South/East anywhere on this screen, tile grid included.
+            draw_panel_button(d, back_btn_rect(scr_w, scr_h), "Voltar");
+            draw_panel_button(d, settings_btn_rect(scr_w, scr_h), "Configuracoes");
         };
 
         if let (Some(path), true) = (&opts.shot, opts.max_frames == Some(frame_no)) {
@@ -485,8 +491,31 @@ pub fn run(
     }
 }
 
+/// Bottom of the details panel: two stacked buttons, "Voltar" above
+/// "Configuracoes" — the shelf's only mouse path into either (plan revision:
+/// no keyboard shortcuts left to reach them by).
+fn back_btn_rect(scr_w: u32, scr_h: u32) -> (i32, i32, u32, u32) {
+    let px = (scr_w - PANEL_W) as i32;
+    (px + 22, scr_h as i32 - MARGIN - 74, PANEL_W - 44, 32)
+}
+
+fn settings_btn_rect(scr_w: u32, scr_h: u32) -> (i32, i32, u32, u32) {
+    let px = (scr_w - PANEL_W) as i32;
+    (px + 22, scr_h as i32 - MARGIN - 36, PANEL_W - 44, 32)
+}
+
+fn in_rect(x: i32, y: i32, (rx, ry, rw, rh): (i32, i32, u32, u32)) -> bool {
+    x >= rx && y >= ry && x < rx + rw as i32 && y < ry + rh as i32
+}
+
+fn draw_panel_button(d: &mut Screen, (x, y, w, h): (i32, i32, u32, u32), label: &str) {
+    d.outline(x, y, w, h, 1, (150, 150, 158, 255));
+    d.fill(x + 1, y + 1, w - 2, h - 2, (34, 34, 40, 255));
+    d.text(x + 10, y + (h as i32 - 16) / 2, 1, TEXT, label);
+}
+
 /// Decode a cover or logo PNG/JPEG to tightly-packed RGBA, downscaled for
-/// memory (covers feed 150px tiles, logos a ~340px panel slot — 512 covers
+/// memory (covers feed 200x150 tiles, logos a ~340px panel slot — 512 covers
 /// both at >2x and keeps alpha for transparent logos).
 fn decode_art(path: &Path) -> Result<(u32, u32, Vec<u8>)> {
     let img = image::open(path)?.thumbnail(512, 512).to_rgba8();

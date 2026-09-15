@@ -74,13 +74,16 @@ impl FromStr for PadButton {
 pub const MAX_PORTS: usize = 2;
 
 /// High-level events the app acts on. Meaning (e.g. "power off") is decided a
-/// layer up; the platform only reports the intent.
+/// layer up; the platform only reports the intent. None of these are
+/// keyboard-bindable any more (plan revision: mouse/gamepad only for every
+/// console/UI command) — they're only ever produced by a panel-button
+/// `Click` being resolved by the caller, or (`CloseRequested`) the OS.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UiEvent {
-    /// "Leave this screen" — Esc. The run-loop decides what that means: the
-    /// bare `emu-run` just ends; `xperience` treats it as **desligar** — save,
-    /// signal off, console dark, cartridge still in the slot (plan §3.3). A
-    /// second press while already off does nothing (only `Eject` moves on).
+    /// Power toggle — off saves/signals-off (console dark, cartridge still in
+    /// the slot, plan §3.3), on again resumes exactly where it was. Always
+    /// mouse-driven now (the panel's Power button); a click while already
+    /// mid-transition does nothing new.
     Quit,
     /// The OS asked the window to close (red button, Cmd-Q, `SIGTERM`). Always
     /// means "tear the whole app down", never "go back".
@@ -88,84 +91,56 @@ pub enum UiEvent {
     /// **Ejetar** — only takes effect once the console is off; while it's
     /// still on the lock resists (plan §3.3).
     Eject,
-    ToggleFullscreen,
     Reset,
     TogglePause,
     SaveState,
     LoadState,
-    Screenshot,
     NextSlot,
-    PrevSlot,
-    /// Move the panel's cheat cursor (plan §4.4).
-    CheatNext,
-    CheatPrev,
-    /// Flip the cheat under the cursor — the interruptor itself.
-    CheatToggle,
-    /// Screenshot straight into this game's notebook (plan §3.4) — not a
-    /// keepsake of the cabinet, a page for the password/map/progress screen
-    /// on-screen right now.
+    /// Flip cheat `usize` on/off directly — a panel click addresses its row,
+    /// so there's no separate cursor-move step any more.
+    CheatToggle(usize),
+    /// Capture straight into the current note slot (plan §3.4, plan
+    /// revision: a fixed 1..=15 slot, not an open-ended timestamped list) —
+    /// not a keepsake of the cabinet, a page for the password/map/progress
+    /// screen on-screen right now.
     NoteCapture,
-    /// Advance a single frame (only acted on while paused).
+    /// Cycle which of the 15 note slots `NoteCapture` targets (plan
+    /// revision) — the same slot the pause book's right page shows.
+    NoteSlotNext,
+    /// Advance a single frame — only offered (and only acts) while paused,
+    /// via the pause book's own "Avancar quadro" button.
     FrameStep,
-    /// Held state, not an edge — `FastForward` is filtered out of the event
-    /// stream and surfaced via [`Input::fast_forward`].
-    FastForward,
+    /// Turbo toggle — click-driven, not held: on until clicked again.
+    ToggleFastForward,
+    /// Pause book: step the right page to an earlier/later note slot.
+    NotePrev,
+    NoteNext,
+    /// Pause book: open the free-text note editor (the one deliberate
+    /// keyboard-typing exception — see `Platform::poll_text_entry`).
+    NoteWriteStart,
+    /// Pause book: toggle whether the shown slot resists a future "Nota"
+    /// overwrite (plan revision).
+    NotePinToggle,
+    /// Pause book: open the editor for the shown slot's caption (plan
+    /// revision) — same keyboard-typing exception as `NoteWriteStart`.
+    NoteNameStart,
     /// Left mouse button went down, in **window** coordinates — the caller
     /// (which owns the `Cabinet`) converts to output/canvas space via
-    /// `Cabinet::window_to_output` before hit-testing anything. Not a
-    /// rebindable key, so it stays out of `BINDABLE`/`token()`.
+    /// `Cabinet::window_to_output` before hit-testing anything.
     Click(i32, i32),
 }
 
-impl UiEvent {
-    /// Config token for bindable events (`Quit` is fixed to Esc, not listed).
-    pub fn token(self) -> Option<&'static str> {
-        Some(match self {
-            UiEvent::Eject => "eject",
-            UiEvent::ToggleFullscreen => "fullscreen",
-            UiEvent::Reset => "reset",
-            UiEvent::TogglePause => "pause",
-            UiEvent::SaveState => "save_state",
-            UiEvent::LoadState => "load_state",
-            UiEvent::Screenshot => "screenshot",
-            UiEvent::NextSlot => "slot_next",
-            UiEvent::PrevSlot => "slot_prev",
-            UiEvent::CheatNext => "cheat_next",
-            UiEvent::CheatPrev => "cheat_prev",
-            UiEvent::CheatToggle => "cheat_toggle",
-            UiEvent::NoteCapture => "note_capture",
-            UiEvent::FrameStep => "frame_step",
-            UiEvent::FastForward => "fast_forward",
-            UiEvent::Quit | UiEvent::CloseRequested | UiEvent::Click(..) => return None,
-        })
-    }
-
-    pub const BINDABLE: [UiEvent; 15] = [
-        UiEvent::Eject,
-        UiEvent::ToggleFullscreen,
-        UiEvent::Reset,
-        UiEvent::TogglePause,
-        UiEvent::SaveState,
-        UiEvent::LoadState,
-        UiEvent::Screenshot,
-        UiEvent::NextSlot,
-        UiEvent::PrevSlot,
-        UiEvent::CheatNext,
-        UiEvent::CheatPrev,
-        UiEvent::CheatToggle,
-        UiEvent::NoteCapture,
-        UiEvent::FrameStep,
-        UiEvent::FastForward,
-    ];
-}
-
-/// Keyboard bindings. Built from [`KeyMap::default`] then overridden per the
-/// app's config. Gamepad bindings stay fixed (SDL's controller DB already
-/// normalises devices).
+/// Keyboard bindings for actual SNES gameplay input (D-pad/face buttons) —
+/// the one thing that's still keyboard by default, since a gamepad isn't
+/// guaranteed to be plugged in. Built from [`KeyMap::default`] then
+/// overridden per the app's config. Gamepad bindings stay fixed (SDL's
+/// controller DB already normalises devices). Every console/UI command
+/// (eject, reset, pause, save state, ...) used to have a rebindable key here
+/// too; it doesn't any more — those are mouse/gamepad-menu only (plan
+/// revision), so there's nothing left to bind for them.
 #[derive(Debug, Clone, Default)]
 pub struct KeyMap {
     pad: Vec<(Keycode, PadButton)>,
-    ui: Vec<(Keycode, UiEvent)>,
 }
 
 impl KeyMap {
@@ -185,29 +160,9 @@ impl KeyMap {
             ("Return", PadButton::Start),
             ("Right Shift", PadButton::Select),
         ];
-        let ui = [
-            ("E", UiEvent::Eject),
-            ("F", UiEvent::ToggleFullscreen),
-            ("Backspace", UiEvent::Reset),
-            ("P", UiEvent::TogglePause),
-            ("F2", UiEvent::SaveState),
-            ("F4", UiEvent::LoadState),
-            ("F12", UiEvent::Screenshot),
-            ("]", UiEvent::NextSlot),
-            ("[", UiEvent::PrevSlot),
-            (".", UiEvent::CheatNext),
-            (",", UiEvent::CheatPrev),
-            ("/", UiEvent::CheatToggle),
-            ("N", UiEvent::NoteCapture),
-            ("\\", UiEvent::FrameStep),
-            ("Tab", UiEvent::FastForward),
-        ];
         let mut m = KeyMap::default();
         for (name, b) in pad {
             m.bind_pad(name, b).expect("valid default key name");
-        }
-        for (name, e) in ui {
-            m.bind_ui(name, e).expect("valid default key name");
         }
         m
     }
@@ -226,15 +181,8 @@ impl KeyMap {
         Ok(())
     }
 
-    pub fn bind_ui(&mut self, key_name: &str, event: UiEvent) -> Result<(), String> {
-        let k = Self::parse_key(key_name).ok_or_else(|| format!("unknown key {key_name:?}"))?;
-        self.ui.retain(|&(kk, ee)| kk != k && ee != event);
-        self.ui.push((k, event));
-        Ok(())
-    }
-
-    /// `(action token, SDL key name)` for every current bind, pad first — for
-    /// writing out a config file.
+    /// `(action token, SDL key name)` for every current bind — for writing
+    /// out a config file.
     pub fn describe(&self) -> Vec<(String, String)> {
         let mut v = Vec::new();
         for b in PadButton::ALL {
@@ -242,21 +190,11 @@ impl KeyMap {
                 v.push((b.token().to_string(), k.name()));
             }
         }
-        for e in UiEvent::BINDABLE {
-            if let (Some(t), Some(&(k, _))) = (e.token(), self.ui.iter().find(|&&(_, ee)| ee == e))
-            {
-                v.push((t.to_string(), k.name()));
-            }
-        }
         v
     }
 
     pub(crate) fn pad_for(&self, k: Keycode) -> Option<PadButton> {
         self.pad.iter().find(|&&(kk, _)| kk == k).map(|&(_, b)| b)
-    }
-
-    pub(crate) fn ui_for(&self, k: Keycode) -> Option<UiEvent> {
-        self.ui.iter().find(|&&(kk, _)| kk == k).map(|&(_, e)| e)
     }
 }
 
@@ -295,8 +233,10 @@ impl Input {
         }
     }
 
-    pub(crate) fn set_fast_forward(&mut self, down: bool) {
-        self.fast_forward = down;
+    /// Turbo is a click-to-toggle now (no held key) — the caller (`runner`)
+    /// owns the on/off state and just tells `Input` about it each frame.
+    pub fn set_fast_forward(&mut self, on: bool) {
+        self.fast_forward = on;
     }
 
     pub(crate) fn clear_pads(&mut self) {

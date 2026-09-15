@@ -15,6 +15,11 @@ vendored-sdl = ["sdl3/build-from-source-static"]
 
 [dependencies]
 sdl3 = { version = "0.20", features = ["unsafe_textures"] }
-font8x8 = "0.3"
+noto-sans-mono-bitmap = { version = "0.3", default-features = false, features = [
+    "regular",
+    "size_20",
+    "unicode-basic-latin",
+    "unicode-latin-1-supplement",
+] }
 log.workspace = true
 thiserror.workspace = true
