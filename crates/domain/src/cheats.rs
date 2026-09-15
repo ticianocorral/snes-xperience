@@ -37,10 +37,10 @@ macro_rules! cheats {
 
 type Row = (&'static str, &'static [CheatDef]);
 
-// Descriptions are plain ASCII on purpose: the panel's bitmap font
-// (`font8x8::legacy`) only covers 0-127, so an accented letter would render
-// as `?` — see `cabinet::draw_text_absolute`. Same reason the rest of the
-// in-game PT-BR copy ("Desligar", "Ejetar", "comandos"...) never needed one.
+// Descriptions are plain ASCII, left over from when the panel's bitmap font
+// only covered 0-127 (an accented letter rendered as `?`). The font atlas
+// (`cabinet::build_font_atlas`) now covers Latin-1 Supplement too, so
+// accents would render fine — nobody's gone back to add them to this table.
 const TABLE: &[Row] = &[
     (
         "ALADDIN",

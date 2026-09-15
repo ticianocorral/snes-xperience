@@ -177,6 +177,21 @@ Três cuidados obrigatórios:
 precisam ser focáveis no painel ou ter atalho de controle. Clique no
 console é o caminho para mouse, não o único.
 
+*Revisão (2026-09-14): o atalho de teclado que existia pra cada comando
+saiu por completo — Desligar/Ligar, Ejetar, Reset, Pausar, save/load
+state, slot, turbo, screenshot, nota e cheats são clicáveis no painel (ou
+no caderno de pausa) e não têm mais tecla nenhuma. O "caminho duplo" que
+este parágrafo pedia pro gamepad — focar o mesmo botão clicável sem
+clicar — **não foi implementado durante o jogo**: os 12 botões do gamepad
+já estão todos ocupados pelo mapeamento do próprio SNES (`GAMEPAD_MAP`)
+nesse momento, e inventar uma combinação/modificador pra liberar um "modo
+painel" ficou de fora desta revisão — mouse cobre 100% dos comandos, mas
+quem só tem gamepad plugado (sem mouse) fica sem alcançá-los enquanto o
+jogo roda. Gamepad continua funcionando plenamente em todo *menu*
+(estante, configurações, tela inicial, caderno de pausa) via
+`MENU_PAD_MAP`, que não competia com nada. Ver `docs/fase-4.md`, seção
+"Revisão (2026-09-14): nenhum comando por teclado", pelo detalhe completo.*
+
 ### 3.4 Anotações por jogo
 
 Referência de comportamento: as notas por jogo do Steam Deck.

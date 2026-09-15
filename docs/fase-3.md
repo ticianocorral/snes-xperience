@@ -173,3 +173,39 @@ uma janela redimensionada pra uma forma esquisita ganha as faixas. Testado
 com um exemplo headless descartável, `Cabinet` a 3840×1080 (bem além de
 21:9): o gabinete ficou centralizado, do tamanho certo, com faixa preta
 igual dos dois lados — apagado depois de conferir.
+
+## Revisão (2026-09-14): fonte maior e antisserrilhada
+
+Pedido do usuário: "aumentar fontes do sistema e mudar para uma fonte que
+seja mais bonita". O texto de todo o app (painel, estante, configurações,
+caderno de pausa) vinha de um atlas gerado a partir de `font8x8` — um
+glifo 8×8 **1-bit** (liga/desliga por pixel), ASCII puro (`0..128`),
+ampliado por *nearest-neighbor* via `TextStyle.scale`. Trocado por
+`noto-sans-mono-bitmap` (crate MIT, glifos da Noto Sans Mono
+pré-rasterizados, **por pixel em escala de cinza** — cada byte é uma
+intensidade 0-255, não um bit) — `build_font_atlas` (`cabinet.rs`) agora
+rasteriza uma vez, no boot, um atlas monoespaçado maior: `GLYPH_W`/
+`GLYPH_H` (9×20, contra os 8×8 antigos) substituem a antiga constante
+única `GLYPH` — todo lugar que fazia matemática de layout em cima de um
+glifo quadrado (avanço horizontal, altura de linha, cálculo de colunas do
+`text_wrapped`) foi auditado e dividido corretamente entre largura e
+altura, já que o glifo novo não é mais quadrado. O atlas também passou a
+cobrir Latin-1 Supplement além do Basic Latin (`GLYPH_FIRST`..`GLYPH_LAST`
+= `0x20..=0xFF`, um bloco contíguo), então acentos (`á ã ç é õ ...`) agora
+renderizam — antes viravam `?` (por isso o app evitava acento em toda
+cópia PT-BR até aqui, ver `xperience_domain::cheats`).
+
+Escolha de fonte: `noto-sans-mono-bitmap` em vez de rasterizar um TTF na
+hora (ex.: `fontdue`) ou depender de `SDL_ttf`/FreeType (dependência C
+nova, risco pros três runners de CI) — é pura Rust, sem alocação, os
+glifos já vêm prontos como constantes em bytes (sem baixar/vendorizar um
+arquivo de fonte à parte), e continua **monoespaçada** (largura de glifo
+fixa), o que preserva toda a matemática de layout em células que já
+existia (colunas de `text_wrapped`, botões de largura fixa) — só trocando
+a fonte por uma antisserrilhada e ~2.5× maior, sem precisar reescrever
+nada para largura variável.
+
+Verificado ao vivo, headless (`--debug-settings main|controls --shot`) e
+com um exemplo descartável do painel/estante: fonte nitidamente maior e
+mais lisa nas bordas (em vez de blocos duros), sem nenhum corte/overlap de
+texto nas telas existentes.

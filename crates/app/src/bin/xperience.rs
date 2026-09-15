@@ -5,13 +5,15 @@
 //! Windows/Linux, `~/Documents/SNES Xperience` on macOS — drop ROMs in
 //! `roms/` and go.
 //!
-//! The idle screen (TV off, "Inserir cartucho" in place of the logo) is the
-//! app's home: it's what you see at startup, after Esc on the shelf, and
-//! after ejecting a game — only closing the window (or Esc on the idle
-//! screen itself) ends the app. In a game, Esc powers off (state, saves, TV
-//! to snow) and E ejects once off, landing back on the idle screen
-//! (plan §3.3). `O` on the shelf opens settings (controls, run-ahead,
-//! fullscreen, snes9x core download/update) — see `xperience_app::settings`.
+//! The idle screen (TV off, "Inserir cartucho"/"Configuracoes" in place of
+//! the logo) is the app's home: it's what you see at startup, after backing
+//! out of the shelf, and after ejecting a game — only closing the window
+//! ends the app. Nothing here uses the keyboard (plan revision:
+//! mouse/gamepad only) — in a game, the panel's Power button powers off
+//! (state, saves, TV to snow) and back on again, and Eject only takes once
+//! off, landing back on the idle screen (plan §3.3). "Configuracoes" (idle
+//! screen or shelf) opens settings (controls, run-ahead, fullscreen, snes9x
+//! core download/update) — see `xperience_app::settings`.
 //!
 //! Usage:
 //!   xperience [--core path/to/snes9x_libretro.{dylib,so,dll}]
@@ -121,13 +123,15 @@ const HELP: &str = "xperience [--core <lib>] [--config xperience.cfg]\n\
        [--order shelf|name] [--runahead N]\n\
        [--debug-settings main|controls --shot out.bmp]\n\
 \n\
-Idle (TV off) → selector → game → idle, one process. The idle screen's\n\
-\"Inserir cartucho\" opens the shelf; it's what you land on at startup, after\n\
-Esc on the shelf, and after ejecting a game. In a game: Esc powers off\n\
-(saves, TV to snow), E ejects once off, back to idle.\n\
-O on the shelf opens settings (controls, núcleo snes9x, run-ahead,\n\
-fullscreen) — saved straight to xperience.cfg.\n\
-Esc / window-close on the idle screen, or closing a game window, ends the\n\
+Idle (TV off) → selector → game → idle, one process. Mouse/gamepad only —\n\
+no keyboard shortcut for anything but gameplay input (D-pad/buttons). The\n\
+idle screen's \"Inserir cartucho\" opens the shelf; it's what you land on at\n\
+startup, after backing out of the shelf, and after ejecting a game. In a\n\
+game, the panel's Power button powers off (saves, TV to snow) and back on\n\
+again; Eject only takes once off, back to idle.\n\
+\"Configuracoes\" (idle screen or shelf) opens settings (controls, núcleo\n\
+snes9x, run-ahead, fullscreen) — saved straight to xperience.cfg.\n\
+Window-close on the idle screen, or closing a game window, ends the\n\
 app — no ceremony there.\n\
 \n\
 Portable: roms/, core/, assets/ (cover/logo art, matched by ROM file name),\n\
@@ -205,26 +209,39 @@ fn main() -> Result<()> {
         match idle::run(&mut plat, &mut cab, idle_static)? {
             IdleExit::Quit => break 'app,
             IdleExit::OpenShelf => shelf_opts.fade_in = Some(idle_static),
+            IdleExit::OpenSettings => {
+                if settings::run(&mut plat, &mut cab, &mut cfg)? {
+                    break 'app;
+                }
+                // A core download may have just finished.
+                core_path = args.core.clone().or_else(default_core_path);
+                continue 'app;
+            }
         }
 
         'shelf: loop {
-            let (rom, logo) = match shelf::run(&mut plat, &mut cab, &catalog, &shelf_opts)? {
-                Pick::Quit => break 'app,
-                Pick::Back => {
-                    idle_static = idle::RESTING_STATIC;
-                    break 'shelf;
-                }
-                Pick::Settings => {
-                    let quit = settings::run(&mut plat, &mut cab, &mut cfg)?;
-                    if quit {
-                        break 'app;
+            let (rom, logo, cartridge) =
+                match shelf::run(&mut plat, &mut cab, &catalog, &shelf_opts)? {
+                    Pick::Quit => break 'app,
+                    Pick::Back => {
+                        idle_static = idle::RESTING_STATIC;
+                        break 'shelf;
                     }
-                    // A core download may have just finished.
-                    core_path = args.core.clone().or_else(default_core_path);
-                    continue;
-                }
-                Pick::Play { rom, wheel } => (rom, wheel),
-            };
+                    Pick::Settings => {
+                        let quit = settings::run(&mut plat, &mut cab, &mut cfg)?;
+                        if quit {
+                            break 'app;
+                        }
+                        // A core download may have just finished.
+                        core_path = args.core.clone().or_else(default_core_path);
+                        continue;
+                    }
+                    Pick::Play {
+                        rom,
+                        wheel,
+                        cartridge,
+                    } => (rom, wheel, cartridge),
+                };
             shelf_opts.fade_in = None; // consumed
 
             let Some(core) = &core_path else {
@@ -242,6 +259,7 @@ fn main() -> Result<()> {
                 runahead: args.runahead,
                 shot: None,
                 logo,
+                cartridge,
                 shot_off: false,
                 debug_note_capture: false,
                 debug_shot_pause: false,

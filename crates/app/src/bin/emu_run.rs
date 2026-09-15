@@ -31,6 +31,8 @@ struct Args {
     shot_frame: u32,
     /// Logo art for the side panel (dev/testing).
     logo: Option<PathBuf>,
+    /// Cartridge art for the side panel (dev/testing).
+    cartridge: Option<PathBuf>,
     /// Headless: preview the idle "console off" screen instead of gameplay.
     shot_off: bool,
     /// Headless: force one note capture on the first frame (dev/testing).
@@ -50,6 +52,7 @@ fn parse_args() -> Result<Args> {
     let mut shot = None;
     let mut shot_frame = 180u32;
     let mut logo = None;
+    let mut cartridge = None;
     let mut shot_off = false;
     let mut debug_note_capture = false;
     let mut debug_shot_pause = false;
@@ -121,6 +124,13 @@ fn parse_args() -> Result<Args> {
                         .into(),
                 )
             }
+            "--cartridge" => {
+                cartridge = Some(
+                    it.next()
+                        .ok_or_else(|| anyhow!("--cartridge needs a path (image)"))?
+                        .into(),
+                )
+            }
             "--shot-off" => shot_off = true,
             "--notes-dir" => {
                 notes_dir = Some(
@@ -155,6 +165,7 @@ fn parse_args() -> Result<Args> {
         shot,
         shot_frame,
         logo,
+        cartridge,
         shot_off,
         debug_note_capture,
         debug_shot_pause,
@@ -165,6 +176,7 @@ const HELP: &str = "emu-run --core <lib> --rom <game.sfc> [--system-dir D] [--sa
        [--config config.toml] [--runahead N]\n\
        [--shot out.bmp [--shot-frame N]]   headless: run N frames, dump one, exit\n\
        [--logo img.png]                    show a logo atop the side panel\n\
+       [--cartridge img.png]               show cartridge art below the logo\n\
        [--shot-off]                        with --shot, preview the idle off screen\n\
        [--notes-dir DIR]                   per-ROM notebooks (default: <save-dir>/notes)\n\
        [--debug-note-capture]              force one note capture at --shot-frame (dev/testing)\n\
@@ -173,16 +185,19 @@ const HELP: &str = "emu-run --core <lib> --rom <game.sfc> [--system-dir D] [--sa
 Presentation is fixed: RF NTSC + CRT-tube warp (knobs are consts in the source).\n\
 Battery SRAM and 10 save-state slots live next to --save-dir, keyed by ROM hash.\n\
 Player 1 = keyboard or gamepad 1; player 2 = gamepad 2.\n\
-Keyboard binds and the run-ahead default come from config.toml (see docs/fase-1).\n\
+Keyboard binds (gameplay only, see below) and the run-ahead default come from\n\
+config.toml (see docs/fase-1).\n\
 \n\
-default keys: arrows=dpad  Z=B X=A A=Y S=X Q=L W=R  Enter=Start RShift=Select\n\
-      F2=save  F4=load  ] / [ =slot  Tab=fast-forward  \\=frame-step (paused)\n\
-      F12=screenshot  F=fullscreen  Backspace=reset  P=pause\n\
-      Esc=power off (desligar)  E=eject (only once off)\n\
-      , / . =cheat cursor  /=toggle cheat (panel, curated games only)\n\
-      N=capture into notebook (saved next to --notes-dir, plan §3.4)\n\
-      P=pause: opens the notebook's pages instead of freezing the frame\n\
-      Closing the window always quits, on or off — no ceremony.";
+default keys (gameplay only): arrows=dpad  Z=B X=A A=Y S=X Q=L W=R\n\
+      Enter=Start  RShift=Select\n\
+\n\
+Everything else — power, eject, reset, pause, save/load state, slot, turbo,\n\
+notebook capture (a fixed 15-slot photo album per game, plus a free-text\n\
+page), cheats — is a clickable button in the side panel (or the pause\n\
+book's own buttons once paused); none of it is keyboard-bindable any more\n\
+(plan revision: mouse/gamepad only for console commands, config.toml's\n\
+[keyboard] section only ever holds gameplay binds).\n\
+Closing the window always quits, on or off — no ceremony.";
 
 fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
@@ -209,6 +224,7 @@ fn main() -> Result<()> {
         runahead: args.runahead,
         shot: args.shot.map(|p| (p, args.shot_frame)),
         logo: args.logo,
+        cartridge: args.cartridge,
         shot_off: args.shot_off,
         debug_note_capture: args.debug_note_capture,
         debug_shot_pause: args.debug_shot_pause,

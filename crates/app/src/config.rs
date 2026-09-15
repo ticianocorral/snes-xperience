@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
-use xperience_platform::{KeyMap, PadButton, UiEvent};
+use xperience_platform::{KeyMap, PadButton};
 
 pub struct Config {
     pub runahead: u32,
@@ -86,14 +86,19 @@ impl Config {
             self.fullscreen = f;
         }
         for (action, key) in &raw.keyboard {
-            let res = if let Ok(b) = action.parse::<PadButton>() {
-                self.keymap.bind_pad(key, b)
-            } else if let Some(e) = ui_from_token(action) {
-                self.keymap.bind_ui(key, e)
-            } else {
-                bail!("[keyboard] unknown action {action:?}");
+            let Ok(b) = action.parse::<PadButton>() else {
+                // Not a gameplay button — either a typo, or (most likely for
+                // anyone upgrading) one of the console/UI commands this
+                // section used to rebind (eject, pause, save_state, ...)
+                // before those became mouse/gamepad-only. Either way,
+                // nothing left to bind it to; warn and move on rather than
+                // refusing to start over a stale config line.
+                log::warn!("[keyboard] {action}: not a bindable action any more, ignoring");
+                continue;
             };
-            res.map_err(anyhow::Error::msg)
+            self.keymap
+                .bind_pad(key, b)
+                .map_err(anyhow::Error::msg)
                 .with_context(|| format!("[keyboard] {action}"))?;
         }
         Ok(())
@@ -132,10 +137,6 @@ impl Config {
     }
 }
 
-fn ui_from_token(t: &str) -> Option<UiEvent> {
-    UiEvent::BINDABLE.into_iter().find(|e| e.token() == Some(t))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -160,6 +161,8 @@ mod tests {
     #[test]
     fn overrides_and_rebinds_apply() {
         let mut cfg = defaults();
+        // "pause" is a pre-revision console-command binding — ignored now,
+        // not an error (see `unknown_action_is_ignored`).
         let raw: Raw = toml::from_str(
             "runahead = 3\nfullscreen = true\n[keyboard]\nb = \"Space\"\npause = \"Escape\"",
         )
@@ -173,10 +176,18 @@ mod tests {
     }
 
     #[test]
-    fn unknown_action_is_an_error() {
+    fn unknown_action_is_ignored() {
+        // Not an error: a typo, or (more likely) a pre-revision config with a
+        // now-removed console-command binding (eject, pause, ...) — either
+        // way there's nothing to bind it to, so `apply` warns and moves on
+        // rather than refusing to start over one stale line.
         let mut cfg = defaults();
-        let raw: Raw = toml::from_str("[keyboard]\nwarp = \"W\"").unwrap();
-        assert!(cfg.apply(raw).is_err());
+        let raw: Raw = toml::from_str("[keyboard]\nwarp = \"W\"\nb = \"Space\"").unwrap();
+        cfg.apply(raw).unwrap();
+        assert!(cfg
+            .keymap
+            .describe()
+            .contains(&("b".to_string(), "Space".to_string())));
     }
 
     #[test]

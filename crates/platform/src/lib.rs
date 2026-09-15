@@ -29,15 +29,16 @@ fn left_click_at(event: &Event) -> Option<(i32, i32)> {
     }
 }
 
-/// What `poll_menu` should do with keydowns this call.
+/// What `poll_menu` should do with keydowns this call. Mouse click + gamepad
+/// nav (`MENU_PAD_MAP`) drive `Nav` regardless — no keyboard shortcuts left
+/// for navigation itself. `CaptureKey` is the one deliberate exception: its
+/// whole job is recording a keyboard key to bind for gameplay input, so it's
+/// the only mode `poll_menu` still reads keydowns for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MenuMode {
-    /// Grid/list browsing: arrows and paging are nav, `F`/`O` are hotkeys,
-    /// anything else printable is `typed` (the shelf's search box).
+    /// Grid/list browsing: mouse click, gamepad d-pad/buttons, and the mouse
+    /// wheel (mapped to `Up`/`Down`) are the only inputs.
     Nav,
-    /// Editing one text field: every printable key types (including `f`/`o`
-    /// — no hotkeys), Return commits (`Confirm`), Escape cancels (`Back`).
-    TextEntry,
     /// Rebinding a control: the next key pressed comes back raw in
     /// `captured_key`; Escape cancels instead of being captured.
     CaptureKey,
@@ -63,13 +64,6 @@ pub enum MenuNav {
 pub struct MenuInput {
     pub quit: bool,
     pub nav: Vec<MenuNav>,
-    /// Characters typed this frame (search box, or a settings text field).
-    pub typed: String,
-    pub backspace: bool,
-    pub clear_search: bool,
-    pub toggle_fullscreen: bool,
-    /// `O` on the shelf — opens the settings screen.
-    pub open_settings: bool,
     /// Set only when `poll_menu` was called with `capture_key: true` and a
     /// key went down this frame: its raw SDL name, for rebinding a control.
     pub captured_key: Option<String>,
@@ -77,6 +71,25 @@ pub struct MenuInput {
     /// captured as the new binding.
     pub capture_cancelled: bool,
     /// Left click this frame, in window coordinates (see `UiEvent::Click`).
+    pub click: Option<(i32, i32)>,
+}
+
+/// One frame's worth of input while writing a free-text note (`Platform::
+/// poll_text_entry`) — the pause book's note editor, the one deliberate
+/// keyboard-typing exception (plan revision: everything else is
+/// mouse/gamepad only).
+#[derive(Default)]
+pub struct TextEntryInput {
+    pub quit: bool,
+    /// Composed text typed this frame — usually one character, sometimes
+    /// more (IME, paste-like input methods), sometimes empty.
+    pub typed: String,
+    pub backspace: bool,
+    /// Return/Enter — commit the draft.
+    pub commit: bool,
+    /// Escape — discard the draft.
+    pub cancel: bool,
+    /// Left click this frame, in window coordinates.
     pub click: Option<(i32, i32)>,
 }
 
@@ -173,9 +186,10 @@ impl Platform {
         Cabinet::new(&self.video_subsystem, title, width, height)
     }
 
-    /// Drain events for a menu screen. See [`MenuMode`] for what each mode
-    /// does with a keydown; gamepad d-pad/buttons (rising edge only) always
-    /// feed `nav` regardless of mode.
+    /// Drain events for a menu screen: mouse click, mouse wheel (-> `Up`/
+    /// `Down`), and gamepad d-pad/buttons (rising edge only, `MENU_PAD_MAP`)
+    /// always feed `nav`. In `CaptureKey` mode only, a keydown is captured
+    /// raw instead — see [`MenuMode`].
     pub fn poll_menu(&mut self, mode: MenuMode) -> MenuInput {
         use sdl3::keyboard::Keycode;
         let mut out = MenuInput::default();
@@ -188,53 +202,27 @@ impl Platform {
             match event {
                 Event::Quit { .. } => out.quit = true,
                 Event::GamepadAdded { .. } | Event::GamepadRemoved { .. } => devices_changed = true,
+                Event::MouseWheel { y, .. } => {
+                    if y > 0.0 {
+                        out.nav.push(MenuNav::Up);
+                    } else if y < 0.0 {
+                        out.nav.push(MenuNav::Down);
+                    }
+                }
                 Event::KeyDown {
                     keycode: Some(k),
-                    keymod,
                     repeat,
                     ..
-                } => match mode {
-                    MenuMode::CaptureKey => {
-                        if repeat {
-                            continue;
-                        }
-                        if k == Keycode::Escape {
-                            out.capture_cancelled = true;
-                        } else if out.captured_key.is_none() {
-                            out.captured_key = Some(k.name());
-                        }
+                } if mode == MenuMode::CaptureKey => {
+                    if repeat {
+                        continue;
                     }
-                    MenuMode::Nav => match k {
-                        Keycode::Up => out.nav.push(MenuNav::Up),
-                        Keycode::Down => out.nav.push(MenuNav::Down),
-                        Keycode::Left => out.nav.push(MenuNav::Left),
-                        Keycode::Right => out.nav.push(MenuNav::Right),
-                        Keycode::Return | Keycode::KpEnter => out.nav.push(MenuNav::Confirm),
-                        Keycode::Escape => out.nav.push(MenuNav::Back),
-                        Keycode::PageUp => out.nav.push(MenuNav::PageUp),
-                        Keycode::PageDown => out.nav.push(MenuNav::PageDown),
-                        Keycode::Home => out.nav.push(MenuNav::Home),
-                        Keycode::End => out.nav.push(MenuNav::End),
-                        Keycode::Backspace => out.backspace = true,
-                        Keycode::F if !repeat => out.toggle_fullscreen = true,
-                        Keycode::O if !repeat => out.open_settings = true,
-                        _ => {
-                            if let Some(c) = char_for_key(k, keymod) {
-                                out.typed.push(c);
-                            }
-                        }
-                    },
-                    MenuMode::TextEntry => match k {
-                        Keycode::Return | Keycode::KpEnter => out.nav.push(MenuNav::Confirm),
-                        Keycode::Escape => out.nav.push(MenuNav::Back),
-                        Keycode::Backspace => out.backspace = true,
-                        _ => {
-                            if let Some(c) = char_for_key(k, keymod) {
-                                out.typed.push(c);
-                            }
-                        }
-                    },
-                },
+                    if k == Keycode::Escape {
+                        out.capture_cancelled = true;
+                    } else if out.captured_key.is_none() {
+                        out.captured_key = Some(k.name());
+                    }
+                }
                 _ => {}
             }
         }
@@ -253,6 +241,52 @@ impl Platform {
         out
     }
 
+    /// Turn on OS text composition (IME, dead keys, the works) for `cab`'s
+    /// window — call before the first `poll_text_entry` of a writing session
+    /// (plan revision: the pause book's free-text note is the one deliberate
+    /// keyboard-typing exception to "mouse/gamepad only").
+    pub fn start_text_input(&self, cab: &Cabinet) {
+        self.video_subsystem.text_input().start(cab.window());
+    }
+
+    /// Turn text composition back off — call once the draft is saved or
+    /// cancelled, so a stray keypress elsewhere doesn't get eaten as text.
+    pub fn stop_text_input(&self, cab: &Cabinet) {
+        self.video_subsystem.text_input().stop(cab.window());
+    }
+
+    /// Drain events while writing free text: composed text (`Event::
+    /// TextInput`, which handles layout/IME properly — no hand-rolled
+    /// shift/keycode mapping), Backspace, Return (commit), Escape (cancel),
+    /// and a click (to hit "Salvar"/"Cancelar" or click away). Nothing else
+    /// is read — gameplay input stays untouched while a note is open.
+    pub fn poll_text_entry(&mut self) -> TextEntryInput {
+        use sdl3::keyboard::Keycode;
+        let mut out = TextEntryInput::default();
+        for event in self.event_pump.poll_iter() {
+            if let Some(pos) = left_click_at(&event) {
+                out.click = Some(pos);
+                continue;
+            }
+            match event {
+                Event::Quit { .. } => out.quit = true,
+                Event::TextInput { text, .. } => out.typed.push_str(&text),
+                Event::KeyDown {
+                    keycode: Some(k),
+                    repeat,
+                    ..
+                } => match k {
+                    Keycode::Backspace => out.backspace = true,
+                    Keycode::Return | Keycode::KpEnter if !repeat => out.commit = true,
+                    Keycode::Escape if !repeat => out.cancel = true,
+                    _ => {}
+                },
+                _ => {}
+            }
+        }
+        out
+    }
+
     pub fn open_audio(&self, sample_rate: u32) -> Result<AudioOut, PlatformError> {
         AudioOut::new(&self.audio_subsystem, sample_rate)
     }
@@ -261,11 +295,12 @@ impl Platform {
         Input::new()
     }
 
-    /// Drain the event queue, update `input` via `keymap`, and return the UI
-    /// intents that fired this frame. Esc emits [`UiEvent::Quit`] ("leave this
-    /// screen"); an OS close request emits [`UiEvent::CloseRequested`].
+    /// Drain the event queue, update `input` via `keymap` (gameplay D-pad/
+    /// buttons only — every console/UI command is mouse-only now, reported
+    /// as [`UiEvent::Click`] for the caller to resolve via
+    /// `Cabinet::hit_panel_button`), and return the click plus an OS close
+    /// request ([`UiEvent::CloseRequested`]), if either happened this frame.
     pub fn poll(&mut self, input: &mut Input, keymap: &KeyMap) -> Vec<UiEvent> {
-        use sdl3::keyboard::Keycode;
         let mut out = Vec::new();
         let mut devices_changed = false;
         for event in self.event_pump.poll_iter() {
@@ -284,24 +319,12 @@ impl Platform {
                     if let Some(b) = keymap.pad_for(k) {
                         input.set_key(b, true);
                     }
-                    if k == Keycode::Escape {
-                        out.push(UiEvent::Quit);
-                    } else if let Some(e) = keymap.ui_for(k) {
-                        match e {
-                            // Held state, not an edge.
-                            UiEvent::FastForward => input.set_fast_forward(true),
-                            _ => out.push(e),
-                        }
-                    }
                 }
                 Event::KeyUp {
                     keycode: Some(k), ..
                 } => {
                     if let Some(b) = keymap.pad_for(k) {
                         input.set_key(b, false);
-                    }
-                    if keymap.ui_for(k) == Some(UiEvent::FastForward) {
-                        input.set_fast_forward(false);
                     }
                 }
                 _ => {}
@@ -323,62 +346,6 @@ impl Platform {
                 }
             }
         }
-    }
-}
-
-/// A key's printable character, respecting Shift — for search boxes and
-/// settings text fields (credentials need more than the old lowercase-only
-/// search alphabet). `Keycode` names the *unshifted* glyph (SDL's own
-/// convention), so shifting is done here, not trusted from the OS.
-fn char_for_key(k: sdl3::keyboard::Keycode, keymod: sdl3::keyboard::Mod) -> Option<char> {
-    use sdl3::keyboard::Mod;
-    let shift = keymod.intersects(Mod::LSHIFTMOD | Mod::RSHIFTMOD);
-    let name = k.name();
-    if name == "Space" {
-        return Some(' ');
-    }
-    let mut chars = name.chars();
-    let c = chars.next()?;
-    if chars.next().is_some() {
-        return None; // multi-char name ("Backspace", "F1", ...): not printable
-    }
-    Some(shift_char(c, shift))
-}
-
-fn shift_char(c: char, shift: bool) -> char {
-    if c.is_ascii_alphabetic() {
-        return if shift {
-            c.to_ascii_uppercase()
-        } else {
-            c.to_ascii_lowercase()
-        };
-    }
-    if !shift {
-        return c;
-    }
-    match c {
-        '1' => '!',
-        '2' => '@',
-        '3' => '#',
-        '4' => '$',
-        '5' => '%',
-        '6' => '^',
-        '7' => '&',
-        '8' => '*',
-        '9' => '(',
-        '0' => ')',
-        '-' => '_',
-        '=' => '+',
-        '[' => '{',
-        ']' => '}',
-        '\\' => '|',
-        ';' => ':',
-        '\'' => '"',
-        ',' => '<',
-        '.' => '>',
-        '/' => '?',
-        '`' => '~',
-        other => other,
     }
 }
 

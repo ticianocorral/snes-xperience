@@ -1,13 +1,14 @@
-//! The settings screen — `O` on the shelf. Two flat lists (main, controls),
-//! no nesting deeper than that: pick a row, `Confirm` acts on it, `Back` goes
-//! up a level. Edits save to `xperience.cfg` immediately, not on some later
+//! The settings screen — the idle screen's "Configuracoes" button. Two flat
+//! lists (main, controls), no nesting deeper than that: click a row to act
+//! on it (or gamepad nav + Confirm/Back — plan revision: no keyboard
+//! shortcuts). Edits save to `xperience.cfg` immediately, not on some later
 //! "apply" step — there's nothing to lose by backing out.
 
 use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
-use xperience_platform::{Cabinet, MenuMode, MenuNav, PadButton, Platform, Screen, UiEvent};
+use xperience_platform::{Cabinet, MenuMode, MenuNav, PadButton, Platform, Screen};
 
 use crate::config::Config;
 use crate::core_update::{self, CoreUpdateMsg};
@@ -18,8 +19,31 @@ const DIM: (u8, u8, u8) = (150, 150, 158);
 const HINT: (u8, u8, u8) = (120, 116, 108);
 
 const MARGIN: i32 = 40;
-const ROW_H: i32 = 22;
+const ROW_H: i32 = 30;
+/// Where the row list starts, vertically — right under the title (drawn at
+/// scale 2, so `2 * GLYPH_H` tall) plus a little breathing room. Shared by
+/// the draw functions and the click hit-test so they can't drift apart.
+const LIST_TOP: i32 = MARGIN + 50;
 const RUNAHEAD_MAX: u32 = 4;
+
+/// Which row (if any) a screen-local click y lands in, given how many rows
+/// are actually on screen right now — settings rows span the full width, so
+/// only y matters. Shared by `draw_main`/`draw_controls`'s layout and the
+/// click handling in `run`, so they can't drift apart.
+fn row_at(y: i32, count: usize) -> Option<usize> {
+    if y < LIST_TOP {
+        return None;
+    }
+    let i = ((y - LIST_TOP) / ROW_H) as usize;
+    (i < count).then_some(i)
+}
+
+/// Whether a screen-local click y lands in the bottom hint band — the one
+/// place `draw_controls` offers a way back without a scrollable row list of
+/// its own to put "Voltar" in (`draw_main`'s does, as its last row).
+fn back_band_hit(y: i32, screen_h: i32) -> bool {
+    y >= screen_h - MARGIN - ROW_H
+}
 
 #[derive(PartialEq, Eq)]
 enum Mode {
@@ -81,9 +105,6 @@ pub fn run(plat: &mut Platform, cab: &mut Cabinet, cfg: &mut Config) -> Result<b
         if m.quit {
             return Ok(true);
         }
-        if m.toggle_fullscreen {
-            cab.toggle_fullscreen();
-        }
 
         if let Some(row) = awaiting_key {
             if let Some(name) = m.captured_key {
@@ -94,6 +115,49 @@ pub fn run(plat: &mut Platform, cab: &mut Cabinet, cfg: &mut Config) -> Result<b
                 awaiting_key = None;
             }
         } else {
+            // Mouse click — every action here also has a gamepad-nav path
+            // below (`m.nav`, fed by d-pad/buttons regardless of keyboard),
+            // this just adds the click-driven one (plan revision: no
+            // keyboard shortcuts left for either screen).
+            if let Some((cx, cy)) = m.click {
+                let (ox, oy) = cab.window_to_output(cx, cy);
+                if let Some((_, ly)) = cab.hit_screen_point(ox, oy) {
+                    match mode {
+                        Mode::Main => {
+                            if let Some(i) = row_at(ly, MAIN_ROWS) {
+                                main_sel = i;
+                                match i {
+                                    0 => mode = Mode::Controls,
+                                    1 => start_core_download(&mut core_status, &mut core_worker),
+                                    2 => {
+                                        cfg.runahead = (cfg.runahead + 1) % (RUNAHEAD_MAX + 1);
+                                        let _ = cfg.save();
+                                    }
+                                    3 => {
+                                        cfg.fullscreen = !cfg.fullscreen;
+                                        cab.toggle_fullscreen();
+                                        let _ = cfg.save();
+                                    }
+                                    4 => return Ok(false),
+                                    _ => {}
+                                }
+                            }
+                        }
+                        Mode::Controls => {
+                            let rows = cfg.keymap.describe().len();
+                            let visible = ((cab.screen_size().1 as i32 - MARGIN * 2 - 60) / ROW_H)
+                                .max(1) as usize;
+                            let shown = visible.min(rows.saturating_sub(controls_top));
+                            if let Some(i) = row_at(ly, shown) {
+                                controls_sel = controls_top + i;
+                                awaiting_key = Some(controls_sel);
+                            } else if back_band_hit(ly, cab.screen_size().1 as i32) {
+                                mode = Mode::Main;
+                            }
+                        }
+                    }
+                }
+            }
             match mode {
                 Mode::Main => {
                     for nav in &m.nav {
@@ -228,26 +292,20 @@ fn bind_row(cfg: &mut Config, row: usize, key_name: &str) {
     let Some((action, _)) = cfg.keymap.describe().into_iter().nth(row) else {
         return;
     };
-    let result = if let Ok(b) = action.parse::<PadButton>() {
-        cfg.keymap.bind_pad(key_name, b)
-    } else if let Some(e) = UiEvent::BINDABLE
-        .into_iter()
-        .find(|e| e.token() == Some(action.as_str()))
-    {
-        cfg.keymap.bind_ui(key_name, e)
-    } else {
+    // Every row here is a gameplay button now — console/UI commands aren't
+    // rebindable any more (plan revision: mouse/gamepad only).
+    let Ok(b) = action.parse::<PadButton>() else {
         return;
     };
-    if let Err(e) = result {
+    if let Err(e) = cfg.keymap.bind_pad(key_name, b) {
         log::warn!("rebind {action} -> {key_name}: {e}");
     }
 }
 
 fn draw_main(d: &mut Screen, cfg: &Config, sel: usize, core_status: &CoreStatus) {
     let x = MARGIN;
-    let mut y = MARGIN;
-    d.text(x, y, 2, TEXT, "configuracoes");
-    y += 40;
+    d.text(x, MARGIN, 2, TEXT, "configuracoes");
+    let mut y = LIST_TOP;
 
     let rows = [
         "Controles".to_string(),
@@ -273,15 +331,14 @@ fn draw_main(d: &mut Screen, cfg: &Config, sel: usize, core_status: &CoreStatus)
         d.size().1 as i32 - MARGIN,
         1,
         HINT,
-        "cima/baixo: navega  esquerda/direita: muda  enter: abre/liga  esc: volta pra estante",
+        "clique numa opcao (role a lista com o mouse ou d-pad, botao/gamepad confirma)",
     );
 }
 
 fn draw_controls(d: &mut Screen, cfg: &Config, sel: usize, top: usize, awaiting: Option<usize>) {
     let x = MARGIN;
-    let mut y = MARGIN;
-    d.text(x, y, 2, TEXT, "controles");
-    y += 40;
+    d.text(x, MARGIN, 2, TEXT, "controles");
+    let mut y = LIST_TOP;
 
     let binds = cfg.keymap.describe();
     let visible = ((d.size().1 as i32 - MARGIN * 2 - 60) / ROW_H).max(1) as usize;
@@ -300,7 +357,7 @@ fn draw_controls(d: &mut Screen, cfg: &Config, sel: usize, top: usize, awaiting:
         d.size().1 as i32 - MARGIN,
         1,
         HINT,
-        "enter: rebind  esc: volta",
+        "clique numa acao pra trocar a tecla -- clique aqui embaixo pra voltar",
     );
 }
 
