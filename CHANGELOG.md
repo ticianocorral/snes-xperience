@@ -7,7 +7,7 @@ versionamento segue [SemVer](https://semver.org/lang/pt-BR/). Enquanto a versão
 for `0.x`, a API das crates e a interface de linha de comando podem mudar sem
 aviso — só o incremento de _minor_ marca um conjunto de mudanças.
 
-## [Não lançado]
+## [0.5.0] — 2026-09-15
 
 ### Adicionado
 
