@@ -27,6 +27,7 @@ overflow in this app's snes9x-libretro core build's retro_cheat_set,
 reproduced during development with a 602-char, 67-address combo code —
 see cheats.rs's own test `no_cheat_code_is_long_enough_to_crash_the_core`.
 """
+import html
 import os
 import re
 import sys
@@ -45,7 +46,13 @@ MAX_CODE_LEN = 96
 
 
 def clean(s: str) -> str:
-    # Keep the data file strictly line-based: no tabs/newlines inside a field.
+    # A description occasionally comes HTML-escaped in the source (some
+    # entries wrap a quoted phrase as `&quot;...&quot;` instead of a literal
+    # `"` — the font this app renders with has no glyph for the entity
+    # itself, so a game description would show up as literal "&quot;" on
+    # screen otherwise). Unescape first, then keep the data file strictly
+    # line-based: no tabs/newlines inside a field.
+    s = html.unescape(s)
     return s.replace("\t", " ").replace("\n", " ").replace("\r", " ").strip()
 
 

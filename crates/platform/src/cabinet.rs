@@ -6,6 +6,7 @@
 //! ever recreates the window. NTSC colour bleed is applied upstream
 //! (`xperience-ntsc`).
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -249,48 +250,77 @@ pub enum PanelButton {
     /// so only clickable) once the row count overflows the card.
     ModalScrollUp,
     ModalScrollDown,
+    /// Click the search box on a searchable modal (plan revision — today
+    /// only Cheats) to start typing a filter.
+    ModalSearchStart,
     /// Drawn only on the pause book screen (not the side panel): resume play.
     PauseContinue,
-    /// Pause book: step the right page to an earlier/later capture.
+    /// Pause book: step the right page (the photo album) to an earlier/
+    /// later print slot.
     PauseNotePrev,
     PauseNoteNext,
-    /// Pause book: open the free-text note editor on the left page.
+    /// Pause book: open the editor for the left page's currently-shown
+    /// text-note slot (plan revision — used to always append a new, blank
+    /// free-text page; now edits whichever of the 15 slots is showing,
+    /// pre-filled with its saved content).
     PauseWrite,
     /// Pause book, while writing: commit the draft to the notebook.
     PauseDraftSave,
     /// Pause book, while writing: discard the draft, back to the status view.
     PauseDraftCancel,
-    /// Pause book: toggle whether the currently-shown slot is protected from
-    /// being overwritten by a future "Nota" capture (plan revision).
+    /// Pause book: toggle whether the right page's shown print slot is
+    /// protected from being overwritten by a future Printscreen capture.
     PauseNotePin,
-    /// Pause book: open the editor for the currently-shown slot's caption
-    /// (plan revision) — same text-editor UI as "Escrever anotacao", a
+    /// Pause book: open the editor for the shown print slot's caption
+    /// (plan revision) — same text-editor UI as the text-note slots, a
     /// shorter limit and a different destination.
     PauseNoteName,
+    /// Pause book: step the left page (the 15 text-note slots, plan
+    /// revision) to an earlier/later one.
+    PauseTextPrev,
+    PauseTextNext,
+    /// Pause book: toggle whether the left page's shown text-note slot is
+    /// protected from a future overwrite *or delete* (plan revision).
+    PauseTextPin,
+    /// Pause book: clear the left page's shown text-note slot (plan
+    /// revision) — dimmed/unclickable while it's pinned.
+    PauseTextDelete,
 }
 
-/// The pause book: `captures` is the fixed note-slot count (plan revision),
-/// `filled` how many actually hold an image, `has_thumb` whether the
-/// currently-shown slot (`page`) decoded into one.
+/// The pause book: `captures` is the fixed slot count (plan revision, 15),
+/// shared by both pages — the right page's photo album and the left page's
+/// text notes (plan revision: the left page used to be a status line plus
+/// an always-blank "write a new page" button over an unbounded, unreadable
+/// append log; now it's a slot viewer just like the right page, since
+/// "I wrote something and can't see it again" was a real complaint).
 struct PauseNote {
     title: String,
-    /// Total note slots (plan revision: a fixed 1..=15, always this many,
-    /// unlike the open-ended list it used to be) — the pagination bound.
+    /// Total slots per page (plan revision: a fixed 1..=15 for both the
+    /// photo album and the text notes) — the pagination bound both share.
     captures: usize,
-    /// How many of those slots actually hold an image — for the left
-    /// page's status line, distinct from `captures` (the bound).
-    filled: usize,
-    /// 0-based index of the slot currently shown on the right page.
+    /// 0-based index of the print slot currently shown on the right page.
     page: usize,
     has_thumb: bool,
-    /// Whether the shown slot is protected from a future "Nota" overwrite
-    /// (plan revision), and its caption if one was given — both empty/false
-    /// for a slot nobody's touched yet.
+    /// Whether the shown print slot is protected from a future
+    /// Printscreen overwrite (plan revision), and its caption if one was
+    /// given — both empty/false for a slot nobody's touched yet.
     pinned: bool,
     slot_label: String,
+    /// 0-based index of the text-note slot currently shown on the left
+    /// page (plan revision) — independent of `page`, the right page's own
+    /// cursor.
+    text_page: usize,
+    /// Whether the shown text-note slot is protected from a future
+    /// overwrite *or delete* (plan revision) — same meaning `pinned` has
+    /// for a print slot.
+    text_pinned: bool,
+    /// The shown text-note slot's saved content, or `None` for an empty
+    /// one (plan revision) — this is the whole point of the left page now:
+    /// showing back what was actually written there.
+    text_content: Option<String>,
     /// `Some(text)` while the player is editing something (plan revision:
-    /// either the free-text note or a slot's caption — `draft_heading`
-    /// says which): replaces the left page's status with a live, editable
+    /// either a text-note slot or a print's caption — `draft_heading`
+    /// says which): replaces the left page's content with a live, editable
     /// draft. `draft_limit` is the max character count `text` may reach —
     /// shown as a counter alongside it.
     draft: Option<String>,
@@ -322,8 +352,18 @@ struct ModalInfo {
     /// across a `set_modal` call that keeps the dialog open (Cheats
     /// refreshing its own checkmarks after a toggle) so a click deep in a
     /// long list doesn't jump the view back to the top; reset to 0 only on
-    /// a fresh open (see `Cabinet::set_modal`).
+    /// a fresh open (see `Cabinet::set_modal`) or a new search filter (see
+    /// `Cabinet::set_modal_search`).
     scroll: usize,
+    /// Whether this modal offers a search box at all (plan revision — only
+    /// Cheats does; Save/Load/Print's lists are always small enough that
+    /// hunting for one by eye is fine). Set once by whoever opens the
+    /// modal, alongside `set_modal`.
+    searchable: bool,
+    /// Current filter text (plan revision) — empty means "show every row".
+    /// A row matches when its label contains this, case-insensitively.
+    /// Preserved across `set_modal` the same way `scroll` is.
+    search_query: String,
     draft: Option<String>,
     draft_limit: usize,
     draft_heading: String,
@@ -641,18 +681,20 @@ impl Cabinet {
 
     /// Load the pause book's content (plan §3.2/§3.4): call once when pause
     /// opens, not every frame — `present_pause` just redraws what's already
-    /// set. `captures` is the fixed slot count (plan revision: always 15),
-    /// `filled` how many actually hold an image. No thumb loaded yet —
-    /// follow with `set_pause_page` to actually show one.
-    pub fn set_pause_note(&mut self, title: &str, captures: usize, filled: usize) {
+    /// set. `captures` is the fixed slot count shared by both pages (plan
+    /// revision: always 15). Neither page has anything to show yet — follow
+    /// with `set_pause_page` and `set_pause_text_page`.
+    pub fn set_pause_note(&mut self, title: &str, captures: usize) {
         self.pause = Some(PauseNote {
             title: title.to_string(),
             captures,
-            filled,
             page: captures.saturating_sub(1),
             has_thumb: false,
             pinned: false,
             slot_label: String::new(),
+            text_page: captures.saturating_sub(1),
+            text_pinned: false,
+            text_content: None,
             draft: None,
             draft_limit: 0,
             draft_heading: String::new(),
@@ -684,6 +726,19 @@ impl Cabinet {
         }
     }
 
+    /// Show a different text-note slot on the left page (plan revision —
+    /// mirrors `set_pause_page`, the right page's own pagination): call on
+    /// entering pause and again on every Prev/Next/pin/write/delete change.
+    /// `content` is `None` for an empty slot. A no-op before
+    /// `set_pause_note`.
+    pub fn set_pause_text_page(&mut self, page: usize, pinned: bool, content: Option<&str>) {
+        if let Some(p) = &mut self.pause {
+            p.text_page = page;
+            p.text_pinned = pinned;
+            p.text_content = content.map(str::to_string);
+        }
+    }
+
     /// Enter/update/leave an editor on the left page (plan revision: either
     /// the free-text note or a slot's caption — `heading` names which,
     /// shown above the live text): `Some(text)` shows `text` in place of the
@@ -703,13 +758,21 @@ impl Cabinet {
     /// (plan revision): `title` names the dialog, `rows` is one `(label,
     /// enabled)` pair per slot in order — a disabled row (e.g. "Carregar"
     /// on an empty slot, or a pinned print slot) still shows, just dimmed
-    /// and unclickable. Scroll position carries over from whatever modal
-    /// was already open (Cheats calls this again after every toggle, to
-    /// redraw its checkmarks, without wanting the view to jump back to the
-    /// top) — only a genuinely fresh open (no modal was showing) starts
-    /// scrolled to the top.
+    /// and unclickable. Scroll position, `searchable`, and any active
+    /// search filter all carry over from whatever modal was already open
+    /// (Cheats calls this again after every toggle, to redraw its
+    /// checkmarks, without wanting the view to jump back to the top or
+    /// forget the filter) — only a genuinely fresh open (no modal was
+    /// showing) starts scrolled to the top with no filter and not
+    /// searchable; call `set_modal_searchable` right after opening one that
+    /// should be.
     pub fn set_modal(&mut self, title: &str, rows: &[(String, bool)]) {
         let scroll = self.modal.as_ref().map_or(0, |m| m.scroll);
+        let searchable = self.modal.as_ref().is_some_and(|m| m.searchable);
+        let search_query = self
+            .modal
+            .as_ref()
+            .map_or_else(String::new, |m| m.search_query.clone());
         self.modal = Some(ModalInfo {
             title: title.to_string(),
             rows: rows
@@ -720,10 +783,41 @@ impl Cabinet {
                 })
                 .collect(),
             scroll,
+            searchable,
+            search_query,
             draft: None,
             draft_limit: 0,
             draft_heading: String::new(),
         });
+    }
+
+    /// Mark whether the open modal offers a search box (plan revision —
+    /// today only the Cheats modal does). Call once, right after opening
+    /// it — `set_modal`'s own refreshes (Cheats redrawing its checkmarks
+    /// after each toggle) carry this forward on their own.
+    pub fn set_modal_searchable(&mut self, searchable: bool) {
+        if let Some(m) = &mut self.modal {
+            m.searchable = searchable;
+        }
+    }
+
+    /// Set the modal's search filter (plan revision): empty clears it. A
+    /// new filter resets `scroll` to 0 — whatever page was showing under
+    /// the old filter is unlikely to mean anything under the new one. A
+    /// no-op before `set_modal`.
+    pub fn set_modal_search(&mut self, query: &str) {
+        if let Some(m) = &mut self.modal {
+            m.search_query = query.to_string();
+            m.scroll = 0;
+        }
+    }
+
+    /// The modal's current search filter, e.g. to pre-fill the search
+    /// box's text field when the player reopens it to refine a query.
+    /// Empty (not `None`) before `set_modal` — same "nothing to filter" as
+    /// an explicitly cleared search.
+    pub fn modal_search_query(&self) -> &str {
+        self.modal.as_ref().map_or("", |m| m.search_query.as_str())
     }
 
     /// Scroll the modal's row grid by `delta` visual rows (negative = up) —
@@ -2054,7 +2148,12 @@ fn draw_panel(
 
 /// Draw one clickable panel button: a filled box (brighter/bordered when
 /// `lit`, flush with the panel background otherwise) with `text` centered
-/// inside. Returns the box's rect for hit-testing.
+/// inside — clipped to fit the box, with a trailing `...` if it doesn't
+/// (plan revision: `text` used to just draw past the box's edge unclipped
+/// when too long for it, visually merging into whatever sat next to it —
+/// harmless while every label here was short, a real problem once the
+/// Cheats modal started passing database-length descriptions through).
+/// Returns the box's rect for hit-testing.
 fn draw_button(
     canvas: &mut WindowCanvas,
     font: &mut Texture,
@@ -2078,7 +2177,10 @@ fn draw_button(
     canvas.set_draw_color(Color::RGB(bg.0, bg.1, bg.2));
     let _ = canvas.fill_rect(inset);
 
-    let text_w = (GLYPH_W as i32) * text.chars().count() as i32;
+    let side_pad = 6i32;
+    let max_chars = (((rect.width() as i32 - side_pad * 2) / GLYPH_W as i32).max(1)) as usize;
+    let shown = clip_label(text, max_chars);
+    let text_w = (GLYPH_W as i32) * shown.chars().count() as i32;
     let tx = rect.x() + (rect.width() as i32 - text_w).max(4) / 2;
     let ty = rect.y() + (rect.height() as i32 - GLYPH_H as i32) / 2;
     draw_text_absolute(
@@ -2087,10 +2189,28 @@ fn draw_button(
         tx,
         ty,
         TextStyle::new(1, fg),
-        text,
+        &shown,
         usize::MAX,
     );
     rect
+}
+
+/// Truncate `text` to at most `max_chars`, replacing the last one with an
+/// ellipsis when it doesn't fit — plain `...` rather than `…` since the
+/// font atlas only covers Basic Latin through Latin-1 Supplement (see
+/// `GLYPH_FIRST`/`GLYPH_LAST`), which that single-character ellipsis falls
+/// outside of. A no-op (returns `text` unchanged, borrowed) when it
+/// already fits.
+fn clip_label(text: &str, max_chars: usize) -> Cow<'_, str> {
+    if text.chars().count() <= max_chars {
+        return Cow::Borrowed(text);
+    }
+    if max_chars <= 3 {
+        // No room for both content and "...": just hard-crop.
+        return Cow::Owned(text.chars().take(max_chars).collect());
+    }
+    let keep: String = text.chars().take(max_chars - 3).collect();
+    Cow::Owned(format!("{keep}..."))
 }
 
 /// One Power/Reset rocker switch (plan revision — styled after the real
@@ -2278,6 +2398,10 @@ fn draw_pause_book(
             draw_button(canvas, font, cancel_btn, "Cancelar", true),
         ));
     } else {
+        // Left page: a text-note slot viewer (plan revision — mirrors the
+        // right page's photo album layout almost exactly, bottom-up: pin/
+        // delete row, write row, nav row, then the info line, then
+        // whatever's left for the content itself).
         draw_text_absolute(
             canvas,
             font,
@@ -2288,26 +2412,108 @@ fn draw_pause_book(
             usize::MAX,
         );
         cy += GLYPH_H as i32 + 8;
-        let status = if pause.filled == 0 {
-            format!("Nenhum slot usado ainda (de {}).", pause.captures)
-        } else {
-            format!("{} de {} slots usados.", pause.filled, pause.captures)
-        };
-        draw_text_wrapped_absolute(
+
+        let pin_del_y = left.bottom() - pad - btn_h;
+        let write_y = pin_del_y - 6 - btn_h;
+        let nav_y = write_y - 6 - btn_h;
+        let info_y = nav_y - 6 - (GLYPH_H as i32 + 6);
+
+        match &pause.text_content {
+            Some(text) => {
+                draw_text_wrapped_absolute(
+                    canvas,
+                    font,
+                    lx,
+                    cy,
+                    lw,
+                    TextStyle::new(1, PANEL_TEXT),
+                    text,
+                );
+            }
+            None => {
+                draw_text_absolute(
+                    canvas,
+                    font,
+                    lx,
+                    cy,
+                    TextStyle::new(1, PANEL_DIM),
+                    "slot vazio",
+                    usize::MAX,
+                );
+            }
+        }
+
+        let info = format!(
+            "{}/{}{}",
+            pause.text_page + 1,
+            pause.captures,
+            if pause.text_pinned { " (fixado)" } else { "" }
+        );
+        draw_text_absolute(
             canvas,
             font,
             lx,
-            cy,
-            lw,
-            TextStyle::new(1, PANEL_TEXT),
-            &status,
+            info_y,
+            TextStyle::new(1, PANEL_DIM),
+            &info,
+            usize::MAX,
         );
 
-        let write_y = left.bottom() - pad - btn_h;
+        let half = (lw / 2).saturating_sub(4);
+        let prev_btn = Rect::new(lx, nav_y, half, btn_h as u32);
+        let next_btn = Rect::new(lx + half as i32 + 8, nav_y, half, btn_h as u32);
+        buttons.push((
+            PanelButton::PauseTextPrev,
+            draw_button(canvas, font, prev_btn, "< anterior", pause.text_page > 0),
+        ));
+        buttons.push((
+            PanelButton::PauseTextNext,
+            draw_button(
+                canvas,
+                font,
+                next_btn,
+                "proxima >",
+                pause.text_page + 1 < pause.captures,
+            ),
+        ));
+
         let write_btn = Rect::new(lx, write_y, lw, btn_h as u32);
         buttons.push((
             PanelButton::PauseWrite,
-            draw_button(canvas, font, write_btn, "Escrever anotacao", true),
+            draw_button(
+                canvas,
+                font,
+                write_btn,
+                if pause.text_content.is_some() {
+                    "Editar"
+                } else {
+                    "Escrever"
+                },
+                !pause.text_pinned,
+            ),
+        ));
+
+        let pin_btn = Rect::new(lx, pin_del_y, half, btn_h as u32);
+        let del_btn = Rect::new(lx + half as i32 + 8, pin_del_y, half, btn_h as u32);
+        buttons.push((
+            PanelButton::PauseTextPin,
+            draw_button(
+                canvas,
+                font,
+                pin_btn,
+                if pause.text_pinned { "Fixado" } else { "Fixar" },
+                true,
+            ),
+        ));
+        buttons.push((
+            PanelButton::PauseTextDelete,
+            draw_button(
+                canvas,
+                font,
+                del_btn,
+                "Apagar",
+                pause.text_content.is_some() && !pause.text_pinned,
+            ),
         ));
     }
 
@@ -2523,24 +2729,63 @@ fn draw_modal(
         return buttons;
     }
 
-    // Row-picking step.
-    let cols = if modal.rows.len() > 8 { 2usize } else { 1usize };
-    let rows_per_col = modal.rows.len().div_ceil(cols);
+    // Row-picking step. A search filter (plan revision — only Cheats sets
+    // `searchable`) narrows which of `modal.rows` take part below; each
+    // survivor keeps its *original* index (`ModalSlot(i)` has to, since
+    // that index is what the click handler uses to look the row back up
+    // in `cheat_defs`/`cheat_state`) — same "iterate everything, skip what
+    // doesn't apply this frame" shape the scroll clipping below already
+    // uses, just one more skip condition.
+    let query = modal.search_query.trim();
+    let visible: Vec<usize> = modal
+        .rows
+        .iter()
+        .enumerate()
+        .filter(|(_, row)| query.is_empty() || contains_ignore_ascii_case(&row.label, query))
+        .map(|(i, _)| i)
+        .collect();
+
+    let cols = if visible.len() > 8 { 2usize } else { 1usize };
+    let rows_per_col = visible.len().div_ceil(cols).max(1);
     let col_gap = 16i32;
-    let col_w = 200u32;
+    // Wide enough for the longest label in the *unfiltered* list (so
+    // narrowing a search doesn't make the card leap wider/narrower every
+    // keystroke), but never so wide it'd spill past the window — whatever
+    // doesn't fit even then still clips with an ellipsis (`draw_button`),
+    // this is just about not truncating the common case. Floors at 200 to
+    // keep Save/Load/Print (short "Slot N" labels) exactly as wide as
+    // before this revision.
+    let longest_label = modal
+        .rows
+        .iter()
+        .map(|r| r.label.chars().count())
+        .max()
+        .unwrap_or(0) as u32;
+    let desired_col_w = (longest_label + 2) * GLYPH_W + 12;
+    let max_col_w = ((out_w.saturating_sub(160))
+        .saturating_sub(col_gap as u32 * (cols as u32 - 1))
+        / cols as u32)
+        .max(120);
+    let col_w = desired_col_w.max(200).min(max_col_w);
     let card_w =
         card_w.max(pad as u32 * 2 + col_w * cols as u32 + col_gap as u32 * (cols as u32 - 1));
+    let card_w = card_w.min(out_w.saturating_sub(40));
 
     // How many rows fit without any scroll UI eating into the budget —
     // matches every dialog that's had room to just show everything so far
     // (save/load's 10, print's 15). Only once a list (the Cheats modal, for
     // a database-heavy game) overflows even a generous card does scrolling
     // — and the two extra rows it costs — enter the picture at all.
+    let search_h = if modal.searchable {
+        (btn_h + 8) as u32
+    } else {
+        0
+    };
     let max_card_h = out_h.saturating_sub(40);
-    let fixed_overhead = pad as u32 * 2 + GLYPH_H + 16 + 12 + btn_h as u32;
+    let fixed_overhead = pad as u32 * 2 + GLYPH_H + 16 + search_h + 12 + btn_h as u32;
     let budget_no_scroll = max_card_h.saturating_sub(fixed_overhead) as i32;
     let rows_that_fit = (budget_no_scroll / row_h).max(1) as usize;
-    let scrollable = rows_per_col > rows_that_fit;
+    let scrollable = !visible.is_empty() && rows_per_col > rows_that_fit;
     let visible_rows = if scrollable {
         let scroll_ui_h = (btn_h + 8) * 2;
         let budget = budget_no_scroll - scroll_ui_h;
@@ -2576,16 +2821,23 @@ fn draw_modal(
         &modal.title,
         usize::MAX,
     );
-    if scrollable {
+    if scrollable || (modal.searchable && !query.is_empty()) {
         // Same "counter next to a scale-2 heading" placement the naming
         // step's char counter already uses, just against the title instead
-        // of a draft's text — no extra row spent on it.
-        let counter = format!(
-            "{}-{}/{}",
-            scroll + 1,
-            (scroll + visible_rows).min(rows_per_col),
-            rows_per_col
-        );
+        // of a draft's text — no extra row spent on it. Reflects the
+        // *filtered* count when a search is active, so "3/1209" (say)
+        // reads as "these 3 are what matched", not a bound on the game's
+        // real cheat count.
+        let counter = if visible.is_empty() {
+            "0".to_string()
+        } else {
+            format!(
+                "{}-{}/{}",
+                scroll + 1,
+                (scroll + visible_rows).min(rows_per_col),
+                rows_per_col
+            )
+        };
         let counter_w = (GLYPH_W as i32) * counter.chars().count() as i32;
         draw_text_absolute(
             canvas,
@@ -2599,45 +2851,75 @@ fn draw_modal(
     }
     cy += GLYPH_H as i32 + 16;
 
-    if scrollable {
-        let up = Rect::new(x, cy, inner_w, btn_h as u32);
+    if modal.searchable {
+        let label = if modal.search_query.is_empty() {
+            "Buscar...".to_string()
+        } else {
+            format!("Buscar: \"{}\"", modal.search_query)
+        };
+        let search_box = Rect::new(x, cy, inner_w, btn_h as u32);
         buttons.push((
-            PanelButton::ModalScrollUp,
-            draw_button(canvas, font, up, "^ Cima", scroll > 0),
+            PanelButton::ModalSearchStart,
+            draw_button(canvas, font, search_box, &label, true),
         ));
         cy += btn_h + 8;
     }
 
-    let rows_top = cy;
-    for (i, row) in modal.rows.iter().enumerate() {
-        let col = i / rows_per_col;
-        let row_in_col = i % rows_per_col;
-        if row_in_col < scroll || row_in_col >= scroll + visible_rows {
-            continue; // scrolled out of view this frame
+    if visible.is_empty() {
+        // Only reachable with a search active and nothing typed matching —
+        // opening the modal at all already requires a non-empty row list.
+        draw_text_absolute(
+            canvas,
+            font,
+            x,
+            cy,
+            TextStyle::new(1, PANEL_DIM),
+            "nenhum cheat encontrado",
+            usize::MAX,
+        );
+        cy += GLYPH_H as i32 + 12;
+    } else {
+        if scrollable {
+            let up = Rect::new(x, cy, inner_w, btn_h as u32);
+            buttons.push((
+                PanelButton::ModalScrollUp,
+                draw_button(canvas, font, up, "^ Cima", scroll > 0),
+            ));
+            cy += btn_h + 8;
         }
-        let rx = x + col as i32 * (col_w as i32 + col_gap);
-        let ry = rows_top + (row_in_col - scroll) as i32 * row_h;
-        let rect = Rect::new(rx, ry, col_w, (row_h - 4) as u32);
-        buttons.push((
-            PanelButton::ModalSlot(i as u16),
-            draw_button(canvas, font, rect, &row.label, row.enabled),
-        ));
-    }
-    cy = rows_top + visible_rows as i32 * row_h;
 
-    if scrollable {
-        let down = Rect::new(x, cy, inner_w, btn_h as u32);
-        buttons.push((
-            PanelButton::ModalScrollDown,
-            draw_button(
-                canvas,
-                font,
-                down,
-                "v Baixo",
-                scroll + visible_rows < rows_per_col,
-            ),
-        ));
-        cy += btn_h + 8;
+        let rows_top = cy;
+        for (pos, &i) in visible.iter().enumerate() {
+            let col = pos / rows_per_col;
+            let row_in_col = pos % rows_per_col;
+            if row_in_col < scroll || row_in_col >= scroll + visible_rows {
+                continue; // scrolled out of view this frame
+            }
+            let row = &modal.rows[i];
+            let rx = x + col as i32 * (col_w as i32 + col_gap);
+            let ry = rows_top + (row_in_col - scroll) as i32 * row_h;
+            let rect = Rect::new(rx, ry, col_w, (row_h - 4) as u32);
+            buttons.push((
+                PanelButton::ModalSlot(i as u16),
+                draw_button(canvas, font, rect, &row.label, row.enabled),
+            ));
+        }
+        cy = rows_top + visible_rows as i32 * row_h;
+
+        if scrollable {
+            let down = Rect::new(x, cy, inner_w, btn_h as u32);
+            buttons.push((
+                PanelButton::ModalScrollDown,
+                draw_button(
+                    canvas,
+                    font,
+                    down,
+                    "v Baixo",
+                    scroll + visible_rows < rows_per_col,
+                ),
+            ));
+            cy += btn_h + 8;
+        }
     }
     cy += 12;
 
@@ -2648,6 +2930,17 @@ fn draw_modal(
     ));
 
     buttons
+}
+
+/// Case-insensitive ASCII substring search — used to filter the Cheats
+/// modal's rows by the player's typed query. Byte-level, no allocation
+/// (contrast `str::to_lowercase`, which would allocate a fresh copy of
+/// every row's label on every frame the modal is open): fine for this
+/// database's plain-ASCII descriptions, same as `RomId`'s own comparisons
+/// elsewhere in the app.
+fn contains_ignore_ascii_case(haystack: &str, needle: &str) -> bool {
+    let (h, n) = (haystack.as_bytes(), needle.as_bytes());
+    n.is_empty() || h.len() >= n.len() && h.windows(n.len()).any(|w| w.eq_ignore_ascii_case(n))
 }
 
 /// Build a textured grid over `dst` whose vertex positions are barrel-distorted

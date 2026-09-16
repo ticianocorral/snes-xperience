@@ -875,3 +875,188 @@ corretamente, sem o crash (re-testado depois da correção, confirmando
 que o mesmo cenário exato que travava antes agora sai limpo). `cargo
 test --workspace` (12 suítes no domain agora, +1 sobre a revisão
 anterior), clippy (`-D warnings`) e fmt limpos.
+
+## Revisão (2026-09-16, continuação): texto quebrado na modal de Cheats corrigido, busca adicionada
+
+Relato direto do usuário depois de usar a modal nova: "a tela de cheats
+ta com os textos quebrados. melhorar visibilidade e adicionar busca para
+achar truques".
+
+**O bug de verdade.** `draw_button` centralizava o texto calculando sua
+largura total e nunca cortava nada — pra um rótulo mais largo que a
+caixa, `(largura_da_caixa - largura_do_texto)` dava negativo, o `.max(4)`
+defensivo virava só "comece 2px pra dentro", e dali o texto desenhava
+até o fim, sem clipping nenhum contra o retângulo da caixa (nem o SDL
+faz isso sozinho — `canvas.copy` não recorta). Com rótulos curtos
+("Slot 3", "Salvar") isso nunca aparecia; a modal de Cheats, com
+descrições de dezenas de caracteres vindas direto da base do
+libretro-database, tornou o bug visível pela primeira vez — o texto de
+uma linha invadia visualmente a caixa vizinha (ou a coluna do lado, no
+grid de 2 colunas). Corrigido com uma função nova, `clip_label`: corta
+pra caber e acrescenta `"..."` (não o caractere único `…`, que fica fora
+da faixa que a fonte bitmap cobre — só Basic Latin até Latin-1
+Supplement, `GLYPH_FIRST`/`GLYPH_LAST`) quando precisa. `draw_button`
+passou a usar isso sempre — corrige a mesma classe de bug em qualquer
+botão do app, não só nos da modal, ainda que só a modal de Cheats
+alcançasse o cenário na prática.
+
+**Visibilidade além do corte.** Cortar era necessário mas não suficiente
+pra "melhorar visibilidade" — cortar toda hora deixaria a lista ilegível
+de qualquer jeito. A largura da coluna (`col_w`), fixa em 200px desde a
+primeira versão da modal, virou calculada a partir do rótulo mais
+comprido *da lista inteira* (não da página visível — pra não mudar de
+tamanho a cada rolagem/filtro), com piso de 200 (mantém Save/Load/Print,
+rótulos curtos, do jeito que já estavam) e teto no que a janela
+realmente comporta (`out_w - 160`, dividido pelas colunas, com folga pro
+`col_gap`) — o que sobrar de rótulo além disso ainda corta com `...`,
+mas na prática a maioria das descrições de cheat (na faixa de 20-40
+caracteres) já cabe inteira numa janela de tamanho normal (1280×800),
+onde antes cabiam uns 20 caracteres só.
+
+**Busca.** Só a modal de Cheats marca `searchable` (`Cabinet::
+set_modal_searchable`, chamado uma vez ao abrir — `set_modal` carrega
+esse flag adiante sozinho nos refreshes seguintes, do mesmo jeito que já
+fazia com `scroll`) — Save/Load/Print continuam sem a caixa de busca,
+suas listas nunca precisaram disso. Reaproveita a mesma máquina de
+digitação por trás de "Escrever anotacao"/"Nomear print"
+(`Platform::poll_text_entry`, o único desvio deliberado de teclado do
+app): `NoteEdit` ganhou uma variante `CheatSearch`, tratada quase igual
+a `PrintName` (mesmo `in_modal = true`, mesmo card cheio de campo de
+texto) com uma diferença de propósito — ao confirmar, em vez de gravar
+algo em disco e fechar a modal, só chama `cab.set_modal_search(...)` e
+*volta* pro grid da própria modal de Cheats (o fechamento genérico de
+"salvar ou cancelar" ganhou um `if matches!(note_edit, NoteEdit::
+CheatSearch)` pra pular o `modal = Modal::None` que toda outra edição em
+modal dispara). O filtro em si (`contains_ignore_ascii_case`, sem
+alocação — compara bytes direto, adequado pras descrições em ASCII da
+base) roda dentro de `draw_modal`: cada linha guarda seu índice
+*original* (o mesmo que `ModalSlot(i)` usa pra achar o cheat certo em
+`cheat_defs`/`cheat_state` no clique), só que agora um passo de filtro
+decide quais índices participam da conta de colunas/rolagem antes de
+desenhar — mesmo padrão "itera tudo, pula o que não se aplica" que a
+rolagem já usava, com mais uma condição de pular. Card mostra "nenhum
+cheat encontrado" no lugar do grid quando o filtro não bate com nada, e
+o contador (`"1-7/7"`) passa a refletir o total *filtrado*, não o total
+do jogo. Trocar de filtro reseta a rolagem pra 0 — a página em que
+alguém estava sob a lista inteira não significa nada sob a filtrada.
+
+**Achado de refinamento, não bug**: enquanto testava a busca, ~460
+linhas da base tinham entidades HTML escapadas na descrição
+(`&quot;USE ITEMS INFINITELY&quot;` em vez de aspas de verdade) —
+sobrevivência do HTML original de onde o `libretro-database` tirou
+algumas descrições. `scripts/gen_cheats_data.py` ganhou um
+`html.unescape()` na função `clean()`; a base já commitada
+(`cheats_data.txt`) recebeu a mesma limpeza direto (sem precisar re-clonar
+os 15 MB do libretro-database de novo), preservando a contagem de linhas
+e a estrutura `G`/`C` intacta (conferido com `awk` antes de aceitar o
+resultado).
+
+Verificado com `--debug-shot-modal cheats`/`cheats-search` (novo, kind
+de debug fixo pra pré-aplicar um filtro sem precisar de clique — abre
+"Cheats" já filtrado por `"infinit"`, dev/testing only) pro jogo grande
+(renomeado pra "Final Fantasy III", 2418 cheats): sem filtro, larguras
+maiores e sem sobreposição, um rótulo genuinamente longo cortando com
+`...`; com filtro, `"1-7/7"` e as 7 linhas batendo todas com "infinit"
+em algum lugar da descrição, aspas de verdade em vez de `&quot;`. Também
+re-testado o caso pequeno (Street Fighter II Turbo de verdade — dessa
+vez casou com uma entrada de 126 cheats, não os 2 de antes, já que o
+fallback "mais cheats vence" da revisão anterior prefere a lista mais
+rica quando existe mais de uma pro mesmo nome) — mesmo layout limpo,
+caixa de busca presente mesmo numa lista que cabe numa página só. Build/
+test (13 app + 12 domain)/clippy (`-D warnings`)/fmt limpos.
+
+## Revisão (2026-09-16, continuação 2): anotações de texto viram 15 slots visíveis (pin, editar, apagar)
+
+Relato direto do usuário: "as anotações em texto eu escrevo mas nao
+consigo ver o que eu salvei. faça igual as screenshots. 15 anotações,
+podendo deletar, fixar ou editar".
+
+**O que existia até aqui.** A página esquerda do caderno era só um
+botão "Escrever anotacao" que sempre abria um campo em branco e, ao
+salvar, *acrescentava* o texto a `notas.txt` (`append_note_text`) —
+um log sem limite, sem numeração, sem qualquer forma de reabrir e ver o
+que já estava lá. O status acima do botão ("N de 15 slots usados")
+também estava, na prática, **errado**: `count_filled_slots` contava os
+slots de *print* (`.png`), não os de texto — então o texto do jogador
+nunca influenciava aquele número. Isso confirma exatamente a queixa: dá
+pra escrever, mas não pra ver de volta o que foi escrito.
+
+**A virada.** A página esquerda passou a ser um visualizador de slot,
+espelhando quase exatamente o que a página direita (álbum de prints) já
+fazia — mesmo layout de baixo pra cima (linha Fixar/Apagar, depois
+Escrever/Editar, depois `< anterior`/`proxima >`, depois a linha de
+info "N/15 (fixado)"), mesmo conceito de "navega até o slot, depois age
+nele". Mudanças concretas:
+
+- **Armazenamento**: `notes_dir/<título>/01.txt`..`15.txt`, numerados
+  independentemente dos slots de print (`01.png`..`15.png` continuam
+  existindo lado a lado — extensão diferente, sem colisão possível
+  mesmo usando o mesmo número). `save_text_slot`/`read_text_slot`/
+  `delete_text_slot` substituem `append_note_text` por completo.
+- **Cursor próprio**: `text_slot` (novo, começa em 1) é totalmente
+  independente de `note_slot` (o cursor dos prints) — navegar pelos
+  prints nunca move qual anotação de texto está sendo mostrada, e
+  vice-versa.
+- **Pin reaproveitado**: `NotesMeta` ganhou `text_slots` (mesmo
+  `SlotMeta{pinned,label}` dos prints, mapa separado) — fixar uma
+  anotação de texto usa exatamente o mesmo conceito de proteção que já
+  existia pros prints, só que agora protegendo contra *duas* coisas:
+  sobrescrita (editar) *e* exclusão (apagar). Um slot fixado mostra
+  "Editar" e "Apagar" visualmente apagados (`draw_button`'s `lit`) — o
+  clique em si é bloqueado pela guarda no handler do evento
+  (`if !notes_meta.text_slot(text_slot).pinned`), mesmo padrão que os
+  slots de print desabilitados na modal de Printscreen já usavam.
+- **Apagar, novo**: não existia pra nada no app até aqui (primeira ação
+  genuinamente destrutiva). Em vez de um diálogo de confirmação (que não
+  existe em nenhum lugar do app ainda), a proteção é o próprio "Fixar"
+  já estabelecido — pra apagar algo que importa, fixar primeiro é a
+  cautela; um clique isolado em "Apagar" já vale pra qualquer slot não
+  fixado, sem confirmação extra (chamada de julgamento: piorar a fricção
+  de um caso comum — testar/limpar rascunhos — não parecia valer pela
+  proteção extra, já que "Fixar" cobre o caso realmente importante).
+- **Editar em vez de sempre-sobrescrever-em-branco**: "Escrever" (slot
+  vazio) vira "Editar" (slot ocupado) — mesmo padrão que "Nomear
+  print"/"Renomear" já usava pro nome de um print. O campo abre
+  pré-preenchido com o texto salvo, e salvar vazio (backspace tudo,
+  confirmar) apaga o slot — uma segunda forma de apagar, mais natural
+  pra quem já está editando, ao lado do botão dedicado.
+- **Migração automática**: `migrate_legacy_text_notes`, chamada uma vez
+  no boot (perto de onde `notes_meta` já carrega) — se nenhum slot
+  numerado existir ainda e `notas.txt` existir, separa o conteúdo pelas
+  linhas em branco (o formato que `append_note_text` sempre escreveu,
+  `"{texto}\n\n"`) e distribui nas primeiras até 15 páginas não-vazias
+  encontradas, nessa ordem. `notas.txt` não é apagado — só passa a não
+  ser mais lido depois da primeira migração (nenhum slot numerado =
+  ainda não migrou; qualquer slot numerado = já migrou, não repete).
+  Isso resolve a queixa também pra quem já tinha escrito algo antes
+  desta revisão: a nota "perdida" aparece de volta, visível, na
+  primeira vez que abrir o jogo depois de atualizar.
+- **`PauseNote`/`Cabinet`**: novos campos `text_page`/`text_pinned`/
+  `text_content` (espelham `page`/`pinned`/`slot_label` dos prints);
+  novo `set_pause_text_page` (espelha `set_pause_page`); `filled`
+  removido de `PauseNote`/`set_pause_note` — a página esquerda não
+  precisa mais de um resumo "N usados" agora que dá pra simplesmente
+  passear pelos slots e ver "slot vazio" ou o conteúdo direto, mesma
+  razão pela qual a página direita nunca teve um resumo desses.
+  `count_filled_slots` saiu inteiro (só existia pra alimentar aquele
+  resumo, que aliás contava a coisa errada — ver acima).
+- Quatro `PanelButton`/`UiEvent` novos: `PauseTextPrev`/`TextPrev`,
+  `PauseTextNext`/`TextNext`, `PauseTextPin`/`TextPinToggle`,
+  `PauseTextDelete`/`TextDelete`. `PauseWrite`/`NoteWriteStart` foram
+  reaproveitados (mesmo nome, novo comportamento: agora mira o
+  `text_slot` atual e pré-preenche, em vez de sempre abrir em branco).
+
+Verificado com `--debug-shot-pause`: caderno com os dois lados vazios
+("slot vazio" nas duas páginas, "Apagar" já nascendo desabilitado);
+depois com uma anotação de texto de verdade escrita à mão num `01.txt`
+de teste (apareceu inteira, com quebra de linha automática, botão
+virou "Editar"); depois com esse mesmo slot marcado como fixado em
+`slots.json` (info line virou "1/15 (fixado)", botão virou "Fixado",
+"Editar" e "Apagar" visualmente apagados) — as três capturas batendo
+exatamente com o layout pretendido, espelhando a página de prints ao
+lado. Suite de testes do módulo reescrita: saiu o teste do antigo
+append-log, entraram `text_slot_round_trips_and_deletes`,
+`whitespace_only_text_slot_reads_back_as_empty`,
+`legacy_notas_txt_migrates_into_numbered_slots`, e
+`migration_is_a_noop_once_any_text_slot_exists` (16 testes no crate
+`app` agora, antes 13). Build/test/clippy (`-D warnings`)/fmt limpos.
