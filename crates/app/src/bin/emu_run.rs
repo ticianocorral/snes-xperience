@@ -39,6 +39,9 @@ struct Args {
     debug_note_capture: bool,
     /// Headless: preview the pause book instead of gameplay (dev/testing).
     debug_shot_pause: bool,
+    /// Headless: preview one of the save/load/print modals instead of
+    /// gameplay (dev/testing) — "save", "load", or "print".
+    debug_shot_modal: Option<String>,
 }
 
 fn parse_args() -> Result<Args> {
@@ -56,6 +59,7 @@ fn parse_args() -> Result<Args> {
     let mut shot_off = false;
     let mut debug_note_capture = false;
     let mut debug_shot_pause = false;
+    let mut debug_shot_modal = None;
 
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
@@ -141,6 +145,12 @@ fn parse_args() -> Result<Args> {
             }
             "--debug-note-capture" => debug_note_capture = true,
             "--debug-shot-pause" => debug_shot_pause = true,
+            "--debug-shot-modal" => {
+                debug_shot_modal = Some(
+                    it.next()
+                        .ok_or_else(|| anyhow!("--debug-shot-modal needs save/load/print"))?,
+                )
+            }
             "-h" | "--help" => {
                 println!("{}", HELP);
                 std::process::exit(0);
@@ -169,6 +179,7 @@ fn parse_args() -> Result<Args> {
         shot_off,
         debug_note_capture,
         debug_shot_pause,
+        debug_shot_modal,
     })
 }
 
@@ -181,9 +192,11 @@ const HELP: &str = "emu-run --core <lib> --rom <game.sfc> [--system-dir D] [--sa
        [--notes-dir DIR]                   per-ROM notebooks (default: <save-dir>/notes)\n\
        [--debug-note-capture]              force one note capture at --shot-frame (dev/testing)\n\
        [--debug-shot-pause]                preview the pause book instead of gameplay (dev/testing)\n\
+       [--debug-shot-modal save|load|print] preview a modal instead of gameplay (dev/testing)\n\
 \n\
 Presentation is fixed: RF NTSC + CRT-tube warp (knobs are consts in the source).\n\
-Battery SRAM and 10 save-state slots live next to --save-dir, keyed by ROM hash.\n\
+Battery SRAM and 10 save-state slots live in --save-dir/<game title>/, same\n\
+folder-per-game layout as the notebook (--notes-dir).\n\
 Player 1 = keyboard or gamepad 1; player 2 = gamepad 2.\n\
 Keyboard binds (gameplay only, see below) and the run-ahead default come from\n\
 config.toml (see docs/fase-1).\n\
@@ -191,12 +204,12 @@ config.toml (see docs/fase-1).\n\
 default keys (gameplay only): arrows=dpad  Z=B X=A A=Y S=X Q=L W=R\n\
       Enter=Start  RShift=Select\n\
 \n\
-Everything else — power, eject, reset, pause, save/load state, slot, turbo,\n\
-notebook capture (a fixed 15-slot photo album per game, plus a free-text\n\
-page), cheats — is a clickable button in the side panel (or the pause\n\
-book's own buttons once paused); none of it is keyboard-bindable any more\n\
-(plan revision: mouse/gamepad only for console commands, config.toml's\n\
-[keyboard] section only ever holds gameplay binds).\n\
+Everything else — power, eject, reset, the notebook (Anotacoes: cheats,\n\
+free text, a fixed 15-slot photo album per game), Printscreen, save/load\n\
+state (both open a slot-picker modal) — is a clickable button in the side\n\
+panel (or the pause book's own buttons once paused); none of it is\n\
+keyboard-bindable any more (plan revision: mouse/gamepad only for console\n\
+commands, config.toml's [keyboard] section only ever holds gameplay binds).\n\
 Closing the window always quits, on or off — no ceremony.";
 
 fn main() -> Result<()> {
@@ -228,6 +241,7 @@ fn main() -> Result<()> {
         shot_off: args.shot_off,
         debug_note_capture: args.debug_note_capture,
         debug_shot_pause: args.debug_shot_pause,
+        debug_shot_modal: args.debug_shot_modal,
     };
     // Standalone: "back" and "close" both just end the process.
     run_game(&mut platform, &mut cabinet, &spec, &cfg)?;

@@ -19,10 +19,8 @@ use crate::config::Config;
 
 /// How often to flush battery SRAM to disk while playing (frames ≈ 10 s).
 const SRAM_FLUSH_FRAMES: u32 = 600;
-/// Save-state slots (keys 0..9 of the ROM hash).
+/// Save-state slots, `0`..`9`.
 const SLOTS: u8 = 10;
-/// Emulated frames per shown frame while fast-forward is held.
-const FF_SPEED: u32 = 8;
 /// Max characters a pause-book free-text note may hold (plan revision) —
 /// enforced live, as it's typed, not just on save.
 const NOTE_CHAR_LIMIT: usize = 240;
@@ -76,6 +74,10 @@ pub struct GameSpec {
     /// instead of gameplay, so `--shot` can prove it out against whatever
     /// notes already exist on disk for this ROM.
     pub debug_shot_pause: bool,
+    /// Headless self-check: skip straight to one of the save/load-state or
+    /// print slot pickers (plan revision) instead of gameplay — `"save"`,
+    /// `"load"`, or `"print"`; anything else is ignored (no modal shown).
+    pub debug_shot_modal: Option<String>,
 }
 
 const PAD: [(Button, xperience_platform::PadButton); 12] = {
@@ -104,8 +106,87 @@ fn map_format(f: EmuFormat) -> PlatFormat {
     }
 }
 
-fn state_file(hash: &Option<String>, dir: &Path, slot: u8) -> Option<PathBuf> {
-    hash.as_ref().map(|h| dir.join(format!("{h}.state{slot}")))
+/// A path-hostile character in a game title, replaced with `_` so it can't
+/// escape its parent directory or fail to create — shared by every per-game
+/// folder (`saves/<title>/`, `notes/<title>/`).
+fn sanitize_dir_name(title: &str) -> String {
+    let safe: String = title
+        .trim()
+        .chars()
+        .map(|c| {
+            if c.is_ascii_control()
+                || matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|')
+            {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect();
+    if safe.is_empty() {
+        "___".to_string()
+    } else {
+        safe
+    }
+}
+
+/// `save_dir/<game title>/` — one folder per game, named for a human
+/// browsing it rather than the ROM hash (plan revision — mirrors
+/// `note_dir`: readability over rename-proofing nobody asked for here).
+fn game_dir(save_dir: &Path, title: &str) -> PathBuf {
+    save_dir.join(sanitize_dir_name(title))
+}
+
+/// `save_dir/<title>/<slot>.state` — plain slot number, no hash prefix
+/// (plan revision).
+fn state_file(save_dir: &Path, title: &str, slot: u8) -> PathBuf {
+    game_dir(save_dir, title).join(format!("{slot}.state"))
+}
+
+/// `save_dir/<title>/sram.srm` — battery SRAM, one file per game (plan
+/// revision — used to be `<hash>.srm` directly under `save_dir`).
+fn sram_file(save_dir: &Path, title: &str) -> PathBuf {
+    game_dir(save_dir, title).join("sram.srm")
+}
+
+/// `save_dir/<title>/cheats.txt` — plain text either way, so the extension
+/// might as well say so (plan revision — used to be `<hash>.cheats`).
+fn cheat_state_path(save_dir: &Path, title: &str) -> PathBuf {
+    game_dir(save_dir, title).join("cheats.txt")
+}
+
+/// Rows for the "Salvar" modal (plan revision — replaces the old slot
+/// cycler): one per save-state slot, always clickable (saving overwrites
+/// whatever was there), labelled "(vazio)" for slots with nothing in them
+/// yet purely as information.
+fn save_slot_rows(save_dir: &Path, title: &str) -> Vec<(String, bool)> {
+    (0..SLOTS)
+        .map(|s| {
+            let filled = state_file(save_dir, title, s).exists();
+            let label = if filled {
+                format!("Slot {s}")
+            } else {
+                format!("Slot {s} (vazio)")
+            };
+            (label, true)
+        })
+        .collect()
+}
+
+/// Rows for the "Carregar" modal, mirroring `save_slot_rows` — an empty
+/// slot is disabled instead of just noted, since there's nothing to load.
+fn load_slot_rows(save_dir: &Path, title: &str) -> Vec<(String, bool)> {
+    (0..SLOTS)
+        .map(|s| {
+            let filled = state_file(save_dir, title, s).exists();
+            let label = if filled {
+                format!("Slot {s}")
+            } else {
+                format!("Slot {s} (vazio)")
+            };
+            (label, filled)
+        })
+        .collect()
 }
 
 /// How long a silent action's button shows "feito!" after firing (plan
@@ -138,14 +219,14 @@ fn reset_pressed(flash: &HashMap<PanelButton, Instant>) -> bool {
 /// The side panel's command legend (plan §3.2, item 3; plan revision:
 /// mouse/gamepad only, so labels don't carry a key name any more) — some
 /// live-refreshed every frame via `Cabinet::set_commands` since their text
-/// depends on state (`slot`, `turbo_on`, `flash`), not just the console
-/// being on. Power/Eject/Reset aren't in here (plan revision): they're drawn
-/// as their own rocker-switch widgets straight off `panel.powered`/
-/// `panel.reset_pressed` (see `draw_panel`/`draw_rocker`), not a text label.
+/// depends on state (`flash`), not just the console being on. Power/Eject/
+/// Reset aren't in here: they're drawn as their own rocker-switch widgets
+/// straight off `panel.powered`/`panel.reset_pressed` (see `draw_panel`/
+/// `draw_rocker`). Salvar/Carregar/Printscreen no longer carry a slot
+/// number in their label (plan revision — confusing next to the old
+/// cyclers): clicking any of the three now opens a modal to pick one, so
+/// the label just names the action.
 fn command_rows(
-    slot: u8,
-    note_slot: u8,
-    turbo_on: bool,
     flash: &HashMap<PanelButton, Instant>,
     all_slots_pinned: bool,
 ) -> Vec<(PanelButton, String)> {
@@ -157,44 +238,35 @@ fn command_rows(
         }
     };
     vec![
-        (PanelButton::Pause, "Pausar".to_string()),
+        (PanelButton::Notebook, "Anotacoes".to_string()),
         (
-            PanelButton::NoteCapture,
+            PanelButton::PrintScreen,
             if all_slots_pinned {
                 // Every slot resists overwrite — a click here would have
                 // nowhere to land, so say so instead of the normal label
                 // (plan revision: "avisar quando 15 fixados").
-                "Nota: sem espaco (15 fixados)".to_string()
+                "Printscreen: sem espaco (15 fixados)".to_string()
             } else {
-                label(
-                    PanelButton::NoteCapture,
-                    &format!("Nota (slot {note_slot})"),
-                )
+                label(PanelButton::PrintScreen, "Printscreen")
             },
         ),
-        (PanelButton::NoteSlot, format!("Nota slot: {note_slot}")),
         (
             PanelButton::SaveState,
-            label(PanelButton::SaveState, &format!("Salvar (slot {slot})")),
+            label(PanelButton::SaveState, "Salvar"),
         ),
         (
             PanelButton::LoadState,
-            label(PanelButton::LoadState, &format!("Carregar (slot {slot})")),
-        ),
-        (PanelButton::NextSlot, format!("Slot: {slot}")),
-        (
-            PanelButton::Turbo,
-            format!("Turbo: {}", if turbo_on { "ligado" } else { "desligado" }),
+            label(PanelButton::LoadState, "Carregar"),
         ),
     ]
 }
 
 /// Write battery SRAM to `path` if it changed since the last flush.
-fn flush_sram(path: &Option<PathBuf>, last: &mut Option<Vec<u8>>, cur: Option<Vec<u8>>) {
-    if let (Some(p), Some(cur)) = (path, cur) {
+fn flush_sram(path: &Path, last: &mut Option<Vec<u8>>, cur: Option<Vec<u8>>) {
+    if let Some(cur) = cur {
         if last.as_ref() != Some(&cur) {
-            match fs::write(p, &cur) {
-                Ok(_) => log::info!("SRAM flushed -> {}", p.display()),
+            match fs::write(path, &cur) {
+                Ok(_) => log::info!("SRAM flushed -> {}", path.display()),
                 Err(e) => log::warn!("SRAM flush failed: {e}"),
             }
             *last = Some(cur);
@@ -306,16 +378,11 @@ fn eject_clunk(plat: &Platform) {
     std::thread::sleep(Duration::from_millis(100));
 }
 
-/// Where a ROM's cheat toggle state lives, keyed by hash like save states.
-fn cheat_state_path(hash: &Option<String>, dir: &Path) -> Option<PathBuf> {
-    hash.as_ref().map(|h| dir.join(format!("{h}.cheats")))
-}
-
 /// One `0`/`1` per line, in the curated list's order. Missing/short/garbled
 /// files just mean "start with everything off" — nothing to migrate.
-fn load_cheat_state(path: &Option<PathBuf>, len: usize) -> Vec<bool> {
+fn load_cheat_state(path: &Path, len: usize) -> Vec<bool> {
     let mut state = vec![false; len];
-    if let Some(text) = path.as_ref().and_then(|p| fs::read_to_string(p).ok()) {
+    if let Ok(text) = fs::read_to_string(path) {
         for (slot, line) in state.iter_mut().zip(text.lines()) {
             *slot = line.trim() == "1";
         }
@@ -323,15 +390,13 @@ fn load_cheat_state(path: &Option<PathBuf>, len: usize) -> Vec<bool> {
     state
 }
 
-fn save_cheat_state(path: &Option<PathBuf>, state: &[bool]) {
-    if let Some(p) = path {
-        let text: String = state
-            .iter()
-            .map(|&on| if on { "1\n" } else { "0\n" })
-            .collect();
-        if let Err(e) = fs::write(p, text) {
-            log::warn!("cheat state flush failed: {e}");
-        }
+fn save_cheat_state(path: &Path, state: &[bool]) {
+    let text: String = state
+        .iter()
+        .map(|&on| if on { "1\n" } else { "0\n" })
+        .collect();
+    if let Err(e) = fs::write(path, text) {
+        log::warn!("cheat state flush failed: {e}");
     }
 }
 
@@ -400,16 +465,23 @@ const NOTE_SLOTS: u8 = 15;
 /// page (contrast `NOTE_CHAR_LIMIT` for the free-text notebook page).
 const SLOT_NAME_LIMIT: usize = 40;
 
-/// Which of the two things the pause book's one text editor is currently
-/// editing (plan revision) — they share all the input-polling plumbing,
-/// just write to a different place and have a different character limit.
+/// Which of three things the app's one text editor is currently editing
+/// (plan revision) — they share all the input-polling plumbing, just write
+/// to a different place, have a different character limit, and (for
+/// `PrintName`) render in the modal instead of the notebook.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum NoteEdit {
     None,
     /// Appending a page to the free-text notebook (`notas.txt`).
     Text,
-    /// Setting the caption on the current note slot.
+    /// Renaming the notebook's currently-shown slot caption (from
+    /// "Nomear print" on the notebook's right page).
     SlotName,
+    /// Naming the print just captured into this slot (plan revision — the
+    /// Printscreen modal's second step): unlike `SlotName`, committing this
+    /// one also writes `runner::print_capture`'s image to disk for the
+    /// first time — the capture and the name land together.
+    PrintName(u8),
 }
 
 impl NoteEdit {
@@ -417,7 +489,7 @@ impl NoteEdit {
         match self {
             NoteEdit::None => 0,
             NoteEdit::Text => NOTE_CHAR_LIMIT,
-            NoteEdit::SlotName => SLOT_NAME_LIMIT,
+            NoteEdit::SlotName | NoteEdit::PrintName(_) => SLOT_NAME_LIMIT,
         }
     }
 
@@ -425,9 +497,24 @@ impl NoteEdit {
         match self {
             NoteEdit::None => "",
             NoteEdit::Text => "escrevendo anotacao (clique fora cancela)",
-            NoteEdit::SlotName => "nomeando o print (clique fora cancela)",
+            NoteEdit::SlotName => "renomeando o print (clique fora cancela)",
+            NoteEdit::PrintName(_) => "nome do print (opcional)",
         }
     }
+}
+
+/// A save/load-state or print slot picker (plan revision) — mutually
+/// exclusive with `paused` (the notebook has no slot-picking of its own)
+/// and gates gameplay stepping the same way `paused` does, so the frozen
+/// frame behind the dialog doesn't keep moving while a choice is pending.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Modal {
+    None,
+    SaveSlot,
+    LoadSlot,
+    /// Picking which of the 15 note slots to save the just-grabbed print
+    /// into — see `runner::print_capture`.
+    PrintSlot,
 }
 
 /// One note slot's protection/caption (plan revision) — everything defaults
@@ -455,10 +542,31 @@ impl NotesMeta {
     }
 }
 
-/// Every one of the 15 slots resists overwrite — `NoteCapture` has nowhere
-/// left to redirect to (plan revision: "avisar quando 15 fixados").
+/// Every one of the 15 slots resists overwrite — Printscreen has nowhere
+/// left to put a new capture (plan revision: "avisar quando 15 fixados").
 fn all_slots_pinned(meta: &NotesMeta) -> bool {
     (1..=NOTE_SLOTS).all(|s| meta.slot(s).pinned)
+}
+
+/// Rows for the Printscreen modal's slot-picking step (plan revision): one
+/// per note slot, in order, labelled with its number plus whether it's
+/// filled/pinned; a pinned slot is disabled, same protection `NoteCapture`
+/// used to enforce by auto-redirecting instead.
+fn print_slot_rows(notes_dir: &Path, title: &str, meta: &NotesMeta) -> Vec<(String, bool)> {
+    (1..=NOTE_SLOTS)
+        .map(|s| {
+            let m = meta.slot(s);
+            let filled = note_slot_path(notes_dir, title, s).exists();
+            let label = if m.pinned {
+                format!("Slot {s} (fixado)")
+            } else if filled {
+                format!("Slot {s}")
+            } else {
+                format!("Slot {s} (vazio)")
+            };
+            (label, !m.pinned)
+        })
+        .collect()
 }
 
 fn notes_meta_path(notes_dir: &Path, title: &str) -> PathBuf {
@@ -488,28 +596,10 @@ fn save_notes_meta(notes_dir: &Path, title: &str, meta: &NotesMeta) {
 
 /// `notes_dir/<game title>/` — one folder per game, named for a human
 /// browsing it rather than the ROM hash (plan revision: readability over
-/// rename-proofing, since the player picked this explicitly). Sanitized so
-/// a title with a `/` or other path-hostile character can't escape it or
-/// fail to create.
+/// rename-proofing, since the player picked this explicitly). Mirrors
+/// `game_dir` (`saves/<title>/`) — same sanitizing, same tradeoff.
 fn note_dir(notes_dir: &Path, title: &str) -> PathBuf {
-    let safe: String = title
-        .trim()
-        .chars()
-        .map(|c| {
-            if c.is_ascii_control()
-                || matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|')
-            {
-                '_'
-            } else {
-                c
-            }
-        })
-        .collect();
-    notes_dir.join(if safe.is_empty() {
-        "___".to_string()
-    } else {
-        safe
-    })
+    notes_dir.join(sanitize_dir_name(title))
 }
 
 /// `notes_dir/<title>/01.png` .. `15.png` — 1-indexed to match the slot
@@ -614,7 +704,7 @@ pub fn run_game(
 
     let rom_bytes =
         fs::read(&spec.rom).with_context(|| format!("reading ROM {}", spec.rom.display()))?;
-    let (rom_hash, internal_name) = match xperience_domain::RomId::from_bytes(&rom_bytes) {
+    let internal_name = match xperience_domain::RomId::from_bytes(&rom_bytes) {
         Ok(id) => {
             log::info!(
                 "rom: {} bytes (+{} header), crc32={} sha1={} name={:?} {:?}",
@@ -625,33 +715,38 @@ pub fn run_game(
                 id.internal_name,
                 id.mapper
             );
-            (Some(id.sha1), id.internal_name)
+            id.internal_name
         }
         Err(e) => {
-            log::warn!("rom id failed (no SRAM/state persistence): {e}");
-            (None, None)
+            log::warn!("rom id failed: {e}");
+            None
         }
     };
 
     core.load_game(&spec.rom, &rom_bytes)
         .context("core rejected the ROM")?;
 
-    // Per-game persistence files next to save_dir, keyed by ROM hash.
-    fs::create_dir_all(&spec.save_dir).ok();
-    let sram_path = rom_hash
-        .as_ref()
-        .map(|h| spec.save_dir.join(format!("{h}.srm")));
-    let mut slot: u8 = 0;
-    // Note slot (plan revision: fixed 1..=15, not save-state's 0..=9) — the
-    // same value both "Nota" captures into and the pause book's right page
-    // shows, cycled by "Nota slot: N" (gameplay) or Prev/Next (paused).
+    let title = spec
+        .rom
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "???".to_string());
+
+    // Per-game persistence — one folder per game, named for the title like
+    // notes already are (plan revision — used to be a flat file per kind,
+    // keyed by ROM hash: unreadable next to a folder a player might actually
+    // open, and the hash bought rename-proofing nobody asked for here).
+    fs::create_dir_all(game_dir(&spec.save_dir, &title)).ok();
+    let sram_path = sram_file(&spec.save_dir, &title);
+    // Note slot (fixed 1..=15, not save-state's 0..=9) — which of the 15
+    // the notebook's right page shows; Prev/Next move it while paused
+    // there, and picking a print's destination in the Printscreen modal
+    // moves it too, so the notebook opens on whatever was captured last.
     let mut note_slot: u8 = 1;
 
-    if let Some(p) = &sram_path {
-        if let Ok(bytes) = fs::read(p) {
-            let n = core.load_sram(&bytes);
-            log::info!("SRAM: loaded {n} bytes from {}", p.display());
-        }
+    if let Ok(bytes) = fs::read(&sram_path) {
+        let n = core.load_sram(&bytes);
+        log::info!("SRAM: loaded {n} bytes from {}", sram_path.display());
     }
 
     // We do our own NTSC (vendored blargg snes_ntsc, RF preset) on the raw
@@ -671,11 +766,6 @@ pub fn run_game(
         av.sample_rate
     );
 
-    let title = spec
-        .rom
-        .file_stem()
-        .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "???".to_string());
     // Which note slots are pinned/captioned (plan revision) — loaded once,
     // mutated and re-saved in place on every pin toggle or rename.
     let mut notes_meta = load_notes_meta(&spec.notes_dir, &title);
@@ -683,17 +773,10 @@ pub fn run_game(
     // --- side panel: logo, cartridge art, command legend, session timer
     // (plan §3.2) — cartridge art is new (plan revision): a second, optional
     // image alongside the logo, same local-file convention.
-    let mut turbo_on = false;
     // "Done!" flash for otherwise-silent actions (Nota/Salvar/Carregar) —
     // see `flashed`/`FLASH_DURATION`.
     let mut flash: HashMap<PanelButton, Instant> = HashMap::new();
-    let commands = command_rows(
-        slot,
-        note_slot,
-        turbo_on,
-        &flash,
-        all_slots_pinned(&notes_meta),
-    );
+    let commands = command_rows(&flash, all_slots_pinned(&notes_meta));
     let decode_panel_art = |path: &Option<PathBuf>, kind: &str| {
         path.as_ref().and_then(|p| match decode_art(p, 640) {
             Ok(img) => Some(img),
@@ -718,7 +801,7 @@ pub fn run_game(
     // Matched by the cartridge header title, not the file — see
     // `xperience_domain::cheats`. Empty for anything we haven't picked yet.
     let cheat_defs = xperience_domain::cheats_for_title(internal_name.as_deref().unwrap_or(""));
-    let cheat_path = cheat_state_path(&rom_hash, &spec.save_dir);
+    let cheat_path = cheat_state_path(&spec.save_dir, &title);
     let mut cheat_state = load_cheat_state(&cheat_path, cheat_defs.len());
     if !cheat_defs.is_empty() {
         core.cheat_reset();
@@ -755,6 +838,42 @@ pub fn run_game(
             cab.capture_pause_bmp(path)
                 .map_err(|e| anyhow!(e.to_string()))?;
             log::info!("wrote {} (pause book preview)", path.display());
+        }
+        return Ok(GameExit::Quit);
+    }
+
+    // Headless self-check: skip straight to one of the modals (plan
+    // revision) instead of gameplay — same "build the rows, capture" shape
+    // as the pause book above, just picking which modal by name.
+    if let Some(kind) = &spec.debug_shot_modal {
+        if let Some((path, _)) = &spec.shot {
+            match kind.as_str() {
+                "save" => cab.set_modal("Salvar estado", &save_slot_rows(&spec.save_dir, &title)),
+                "load" => cab.set_modal("Carregar estado", &load_slot_rows(&spec.save_dir, &title)),
+                "print" => cab.set_modal(
+                    "Onde salvar o print?",
+                    &print_slot_rows(&spec.notes_dir, &title, &notes_meta),
+                ),
+                // Not a real step on its own (there's no row list once
+                // naming starts) — previews the draft view `NoteEdit::
+                // PrintName` switches to after a slot's picked.
+                "print-name" => {
+                    cab.set_modal("Onde salvar o print?", &[]);
+                    cab.set_modal_draft(
+                        Some(""),
+                        NoteEdit::PrintName(1).limit(),
+                        NoteEdit::PrintName(1).heading(),
+                    );
+                }
+                other => {
+                    log::warn!(
+                        "--debug-shot-modal {other}: unknown, expected save/load/print/print-name"
+                    )
+                }
+            }
+            cab.capture_modal_bmp(path)
+                .map_err(|e| anyhow!(e.to_string()))?;
+            log::info!("wrote {} (modal preview: {kind})", path.display());
         }
         return Ok(GameExit::Quit);
     }
@@ -799,12 +918,19 @@ pub fn run_game(
     let mut powered = spec.shot.is_some();
     cab.set_powered(powered);
     let mut static_level = OFF_STATIC_LEVEL;
-    // Drives the one deliberate keyboard-typing exception (plan revision),
-    // gated entirely on `paused` — either the free-text note or a slot's
-    // caption, never both (see `NoteEdit`).
+    // Drives the one deliberate keyboard-typing exception (plan revision) —
+    // the free-text note, a slot's caption, or a just-captured print's name
+    // (see `NoteEdit`).
     let mut note_edit = NoteEdit::None;
     let mut note_draft = String::new();
-    log::info!("running: rf ntsc + crt tube, run-ahead {runahead}, slot {slot}");
+    // A save/load-state or print slot picker (plan revision) — see `Modal`.
+    let mut modal = Modal::None;
+    // Set the instant "Printscreen" is clicked; the frame that's live once
+    // `core.run()` next produces one gets cloned into `print_capture` below
+    // and held there until the player finishes naming it (or cancels).
+    let mut print_pending = false;
+    let mut print_capture: Option<EmuFrame> = None;
+    log::info!("running: rf ntsc + crt tube, run-ahead {runahead}");
 
     let exit = 'run: loop {
         let mut step_once = false;
@@ -813,6 +939,9 @@ pub fn run_game(
         // text/backspace/commit/cancel instead of gameplay input, so a key
         // meant for the editor doesn't also twitch the D-pad underneath it.
         if note_edit != NoteEdit::None {
+            // Naming a fresh print (plan revision) renders in the modal, not
+            // the notebook — everything else about polling/typing is shared.
+            let in_modal = matches!(note_edit, NoteEdit::PrintName(_));
             let te = plat.poll_text_entry();
             if te.quit {
                 break 'run GameExit::Quit;
@@ -826,15 +955,28 @@ pub fn run_game(
                 }
             }
             if !te.typed.is_empty() || te.backspace {
-                cab.set_pause_draft(Some(&note_draft), note_edit.limit(), note_edit.heading());
+                if in_modal {
+                    cab.set_modal_draft(Some(&note_draft), note_edit.limit(), note_edit.heading());
+                } else {
+                    cab.set_pause_draft(Some(&note_draft), note_edit.limit(), note_edit.heading());
+                }
             }
             let mut save = te.commit;
             let mut cancel = te.cancel;
             if let Some((x, y)) = te.click {
                 let (ox, oy) = cab.window_to_output(x, y);
-                match cab.hit_pause_button(ox, oy) {
-                    Some(PanelButton::PauseDraftSave) => save = true,
-                    Some(PanelButton::PauseDraftCancel) => cancel = true,
+                let hit = if in_modal {
+                    cab.hit_modal_button(ox, oy)
+                } else {
+                    cab.hit_pause_button(ox, oy)
+                };
+                match hit {
+                    Some(PanelButton::PauseDraftSave) | Some(PanelButton::ModalConfirm) => {
+                        save = true
+                    }
+                    Some(PanelButton::PauseDraftCancel) | Some(PanelButton::ModalCancel) => {
+                        cancel = true
+                    }
                     _ => {}
                 }
             }
@@ -853,16 +995,42 @@ pub fn run_game(
                         show_note_slot(cab, &spec.notes_dir, &title, note_slot, &notes_meta);
                         log::info!("note slot {note_slot}: renamed");
                     }
+                    NoteEdit::PrintName(print_slot) => {
+                        if let Some(frame) = &print_capture {
+                            match save_note_image(&spec.notes_dir, &title, print_slot, frame) {
+                                Ok(_) => {
+                                    notes_meta.slots.entry(print_slot).or_default().label =
+                                        note_draft.trim().to_string();
+                                    save_notes_meta(&spec.notes_dir, &title, &notes_meta);
+                                    note_slot = print_slot;
+                                    refresh_notes(cab, &spec.notes_dir, &title, note_slot);
+                                    log::info!("print: captured into slot {print_slot}");
+                                }
+                                Err(e) => log::warn!("print capture failed: {e}"),
+                            }
+                        }
+                    }
                     _ => {}
                 }
             }
             if save || cancel {
+                if in_modal {
+                    modal = Modal::None;
+                    print_capture = None;
+                    cab.set_modal_draft(None, 0, "");
+                    cab.clear_modal();
+                } else {
+                    cab.set_pause_draft(None, 0, "");
+                }
                 note_edit = NoteEdit::None;
                 note_draft.clear();
-                cab.set_pause_draft(None, 0, "");
                 plat.stop_text_input(cab);
             }
-            cab.present_pause();
+            if in_modal {
+                cab.present_modal();
+            } else {
+                cab.present_pause();
+            }
             next += frame_time;
             let now = Instant::now();
             if next > now {
@@ -884,7 +1052,17 @@ pub fn run_game(
             .filter_map(|ev| match ev {
                 UiEvent::Click(x, y) => {
                     let (ox, oy) = cab.window_to_output(x, y);
-                    if paused {
+                    if modal != Modal::None {
+                        // Not reachable during the naming step — that's
+                        // `NoteEdit::PrintName`, polled via `poll_text_entry`
+                        // instead (above), so `Click` never comes through
+                        // `plat.poll()` while it's open.
+                        match cab.hit_modal_button(ox, oy) {
+                            Some(PanelButton::ModalSlot(i)) => Some(UiEvent::ModalPick(i)),
+                            Some(PanelButton::ModalCancel) => Some(UiEvent::ModalCancel),
+                            _ => None,
+                        }
+                    } else if paused {
                         // Not reachable here while `note_edit != None` — that
                         // branch polls via `poll_text_entry` instead (below
                         // the main match), so `Click` never comes through
@@ -905,17 +1083,15 @@ pub fn run_game(
                             PanelButton::Power => Some(UiEvent::Quit),
                             PanelButton::Eject => Some(UiEvent::Eject),
                             PanelButton::Reset => Some(UiEvent::Reset),
-                            PanelButton::Pause => Some(UiEvent::TogglePause),
-                            PanelButton::NoteCapture => Some(UiEvent::NoteCapture),
-                            PanelButton::NoteSlot => Some(UiEvent::NoteSlotNext),
-                            PanelButton::SaveState => Some(UiEvent::SaveState),
-                            PanelButton::LoadState => Some(UiEvent::LoadState),
-                            PanelButton::NextSlot => Some(UiEvent::NextSlot),
-                            PanelButton::Turbo => Some(UiEvent::ToggleFastForward),
+                            PanelButton::Notebook => Some(UiEvent::TogglePause),
+                            PanelButton::PrintScreen => Some(UiEvent::OpenPrintModal),
+                            PanelButton::SaveState => Some(UiEvent::OpenSaveModal),
+                            PanelButton::LoadState => Some(UiEvent::OpenLoadModal),
                             // Cheats are only clickable from the pause book
                             // now (plan revision) — same for the rest of
-                            // these, all idle-screen- or pause-book-only,
-                            // never shown alongside the panel that's up now.
+                            // these, all idle-screen-, pause-book- or
+                            // modal-only, never shown alongside the panel
+                            // that's up now.
                             PanelButton::Insert
                             | PanelButton::Settings
                             | PanelButton::CheatRow(_)
@@ -927,7 +1103,10 @@ pub fn run_game(
                             | PanelButton::PauseNotePin
                             | PanelButton::PauseNoteName
                             | PanelButton::PauseDraftSave
-                            | PanelButton::PauseDraftCancel => None,
+                            | PanelButton::PauseDraftCancel
+                            | PanelButton::ModalSlot(_)
+                            | PanelButton::ModalConfirm
+                            | PanelButton::ModalCancel => None,
                         })
                     }
                 }
@@ -966,11 +1145,6 @@ pub fn run_game(
                 }
                 UiEvent::CloseRequested => break 'run GameExit::Quit,
                 UiEvent::FrameStep => step_once = true,
-                UiEvent::ToggleFastForward => {
-                    turbo_on = !turbo_on;
-                    input.set_fast_forward(turbo_on);
-                    log::info!("turbo {}", if turbo_on { "on" } else { "off" });
-                }
                 UiEvent::Reset => {
                     if powered {
                         core.reset();
@@ -1027,44 +1201,74 @@ pub fn run_game(
                     );
                     plat.start_text_input(cab);
                 }
-                UiEvent::NextSlot if powered => {
-                    slot = (slot + 1) % SLOTS;
-                    log::info!("slot {slot}");
+                UiEvent::OpenSaveModal if powered => {
+                    modal = Modal::SaveSlot;
+                    cab.set_modal("Salvar estado", &save_slot_rows(&spec.save_dir, &title));
                 }
-                UiEvent::NoteSlotNext if powered => {
-                    note_slot = if note_slot >= NOTE_SLOTS {
-                        1
+                UiEvent::OpenLoadModal if powered => {
+                    modal = Modal::LoadSlot;
+                    cab.set_modal("Carregar estado", &load_slot_rows(&spec.save_dir, &title));
+                }
+                UiEvent::OpenPrintModal if powered => {
+                    if all_slots_pinned(&notes_meta) {
+                        log::warn!("print skipped: all {NOTE_SLOTS} slots pinned");
                     } else {
-                        note_slot + 1
-                    };
-                    refresh_notes(cab, &spec.notes_dir, &title, note_slot);
-                    log::info!("note slot {note_slot}");
-                }
-                UiEvent::SaveState if powered => {
-                    match (
-                        state_file(&rom_hash, &spec.save_dir, slot),
-                        core.save_state(),
-                    ) {
-                        (Some(p), Some(s)) => match fs::write(&p, &s) {
-                            Ok(_) => {
-                                log::info!("slot {slot}: saved ({} KiB)", s.len() / 1024);
-                                flash.insert(PanelButton::SaveState, Instant::now());
-                            }
-                            Err(e) => log::warn!("slot {slot}: save failed: {e}"),
-                        },
-                        _ => log::warn!("no state slot (unidentified ROM?)"),
+                        // The actual capture happens once `core.run()` next
+                        // produces a frame, below — same "wait for a real
+                        // frame" pattern `--debug-note-capture` already uses.
+                        print_pending = true;
                     }
                 }
-                UiEvent::LoadState if powered => {
-                    match state_file(&rom_hash, &spec.save_dir, slot).map(|p| fs::read(&p)) {
-                        Some(Ok(s)) if core.load_state(&s) => {
-                            log::info!("slot {slot}: loaded");
-                            flash.insert(PanelButton::LoadState, Instant::now());
+                UiEvent::ModalPick(i) => match modal {
+                    Modal::SaveSlot => {
+                        let path = state_file(&spec.save_dir, &title, i);
+                        match core.save_state() {
+                            Some(s) => match fs::write(&path, &s) {
+                                Ok(_) => {
+                                    log::info!("slot {i}: saved ({} KiB)", s.len() / 1024);
+                                    flash.insert(PanelButton::SaveState, Instant::now());
+                                    modal = Modal::None;
+                                    cab.clear_modal();
+                                }
+                                Err(e) => log::warn!("slot {i}: save failed: {e}"),
+                            },
+                            None => log::warn!("core doesn't support save states"),
                         }
-                        Some(Ok(_)) => log::warn!("slot {slot}: core rejected the state"),
-                        Some(Err(_)) => log::warn!("slot {slot}: empty"),
-                        None => log::warn!("no state slot (unidentified ROM?)"),
                     }
+                    Modal::LoadSlot => {
+                        let path = state_file(&spec.save_dir, &title, i);
+                        match fs::read(&path) {
+                            Ok(s) if core.load_state(&s) => {
+                                log::info!("slot {i}: loaded");
+                                flash.insert(PanelButton::LoadState, Instant::now());
+                                modal = Modal::None;
+                                cab.clear_modal();
+                            }
+                            // An empty/rejected slot just stays disabled in the
+                            // modal — nothing to load, nothing changes.
+                            Ok(_) => log::warn!("slot {i}: core rejected the state"),
+                            Err(_) => log::warn!("slot {i}: empty"),
+                        }
+                    }
+                    Modal::PrintSlot => {
+                        let picked = i + 1; // modal rows are 0-based, slots 1..=15
+                        if !notes_meta.slot(picked).pinned {
+                            note_edit = NoteEdit::PrintName(picked);
+                            note_draft.clear();
+                            cab.set_modal_draft(
+                                Some(""),
+                                NoteEdit::PrintName(picked).limit(),
+                                NoteEdit::PrintName(picked).heading(),
+                            );
+                            plat.start_text_input(cab);
+                        }
+                    }
+                    Modal::None => {}
+                },
+                UiEvent::ModalCancel => {
+                    modal = Modal::None;
+                    print_capture = None;
+                    cab.clear_modal();
                 }
                 UiEvent::CheatToggle(i) if powered && i < cheat_defs.len() => {
                     let on = !cheat_state[i];
@@ -1078,44 +1282,16 @@ pub fn run_game(
                         if on { "on" } else { "off" }
                     );
                 }
-                UiEvent::NoteCapture if powered => {
-                    // A pinned slot resists a capture same as Eject resists
-                    // a powered-on console (plan revision): search forward
-                    // from `note_slot` (wrapping) for the first unpinned
-                    // one and use that instead, silently redirecting; if
-                    // all 15 are pinned there's nowhere to put it — the
-                    // "Nota" label itself already says so persistently
-                    // (`all_slots_pinned`, in `command_rows`), so this just
-                    // no-ops instead of also flashing a misleading "feito!".
-                    let target = (0..NOTE_SLOTS)
-                        .map(|i| ((note_slot - 1 + i) % NOTE_SLOTS) + 1)
-                        .find(|&s| !notes_meta.slot(s).pinned);
-                    match target {
-                        Some(s) => {
-                            note_slot = s;
-                            // capture happens after present, below, once a
-                            // real frame is ready.
-                            note_request = Some(s);
-                            flash.insert(PanelButton::NoteCapture, Instant::now());
-                            refresh_notes(cab, &spec.notes_dir, &title, note_slot);
-                        }
-                        None => {
-                            log::warn!("note capture skipped: all {NOTE_SLOTS} slots pinned");
-                        }
-                    }
-                }
                 // The rest only make sense with the console on (or, for the
                 // pause-book trio, only while actually paused); ignored
                 // otherwise. `Click` never reaches this match — it's already
                 // resolved into one of the arms above (or dropped) before
                 // the loop.
                 UiEvent::TogglePause
-                | UiEvent::NextSlot
-                | UiEvent::SaveState
-                | UiEvent::LoadState
+                | UiEvent::OpenSaveModal
+                | UiEvent::OpenLoadModal
+                | UiEvent::OpenPrintModal
                 | UiEvent::CheatToggle(_)
-                | UiEvent::NoteCapture
-                | UiEvent::NoteSlotNext
                 | UiEvent::NotePrev
                 | UiEvent::NoteNext
                 | UiEvent::NoteWriteStart
@@ -1124,13 +1300,7 @@ pub fn run_game(
                 | UiEvent::Click(..) => {}
             }
         }
-        cab.set_commands(&command_rows(
-            slot,
-            note_slot,
-            turbo_on,
-            &flash,
-            all_slots_pinned(&notes_meta),
-        ));
+        cab.set_commands(&command_rows(&flash, all_slots_pinned(&notes_meta)));
         cab.set_reset_pressed(reset_pressed(&flash));
 
         if !powered {
@@ -1146,8 +1316,7 @@ pub fn run_game(
             continue;
         }
 
-        let ff = input.fast_forward() && !paused;
-        if !paused || step_once {
+        if (!paused && modal == Modal::None) || step_once {
             for port in 0..MAX_PORTS {
                 for (rb, pb) in PAD {
                     core.set_button(port, rb, input.held(port, pb));
@@ -1162,17 +1331,8 @@ pub fn run_game(
                 audio.queue(core.audio());
             }
 
-            // Fast-forward: extra emulated frames with no audio, no run-ahead.
-            if ff {
-                for _ in 1..FF_SPEED {
-                    core.run();
-                    frames += 1;
-                }
-            }
-
             // Speculative frames past the shown one; their audio is discarded.
-            let speculated =
-                runahead > 0 && !ff && !step_once && core.save_state_into(&mut spec_state);
+            let speculated = runahead > 0 && !step_once && core.save_state_into(&mut spec_state);
             if speculated {
                 for _ in 0..runahead {
                     core.run();
@@ -1227,6 +1387,20 @@ pub fn run_game(
                     }
                 }
 
+                if print_pending {
+                    // Grabbed now, held until the player finishes picking a
+                    // slot and naming it (or cancels) — see `NoteEdit::
+                    // PrintName`. Not written to disk yet: nothing's final
+                    // until they confirm the name.
+                    print_pending = false;
+                    print_capture = Some(frame.clone());
+                    modal = Modal::PrintSlot;
+                    cab.set_modal(
+                        "Onde salvar o print?",
+                        &print_slot_rows(&spec.notes_dir, &title, &notes_meta),
+                    );
+                }
+
                 if let Some((path, at)) = &spec.shot {
                     if frames >= *at {
                         cab.capture_bmp(&fref, aspect, path)
@@ -1246,23 +1420,22 @@ pub fn run_game(
             if frames.is_multiple_of(SRAM_FLUSH_FRAMES) {
                 flush_sram(&sram_path, &mut last_sram, core.sram());
             }
-        } else {
+        } else if paused {
             // Paused, not stepping: the book, not a frozen game frame.
             cab.present_pause();
+        } else {
+            // A save/load-state or print slot picker is open (plan
+            // revision): the modal, frozen same as the book is.
+            cab.present_modal();
         }
 
-        if ff {
-            // Run flat out; don't accumulate a pacing debt.
-            next = Instant::now();
+        next += frame_time;
+        let now = Instant::now();
+        if next > now {
+            std::thread::sleep(next - now);
         } else {
-            next += frame_time;
-            let now = Instant::now();
-            if next > now {
-                std::thread::sleep(next - now);
-            } else {
-                // Fell behind; resync so we don't spiral.
-                next = now;
-            }
+            // Fell behind; resync so we don't spiral.
+            next = now;
         }
     };
 
@@ -1276,8 +1449,9 @@ pub fn run_game(
 #[cfg(test)]
 mod tests {
     use super::{
-        append_note_text, count_filled_slots, frame_to_rgb8, load_cheat_state, note_dir,
-        save_cheat_state, save_note_image, EmuFrame,
+        append_note_text, cheat_state_path, count_filled_slots, frame_to_rgb8, game_dir,
+        load_cheat_state, note_dir, save_cheat_state, save_note_image, sram_file, state_file,
+        EmuFrame,
     };
     use xperience_emulation::PixelFormat as EmuFormat;
 
@@ -1291,7 +1465,7 @@ mod tests {
     #[test]
     fn cheat_state_round_trips_through_disk() {
         let dir = scratch_dir("cheats");
-        let path = Some(dir.join("test.cheats"));
+        let path = dir.join("test.cheats");
 
         save_cheat_state(&path, &[true, false, true]);
         assert_eq!(load_cheat_state(&path, 3), vec![true, false, true]);
@@ -1301,7 +1475,7 @@ mod tests {
 
     #[test]
     fn missing_file_defaults_everything_off() {
-        let path = Some(std::env::temp_dir().join("xperience-cheat-test-missing.cheats"));
+        let path = std::env::temp_dir().join("xperience-cheat-test-missing.cheats");
         assert_eq!(load_cheat_state(&path, 2), vec![false, false]);
     }
 
@@ -1371,6 +1545,39 @@ mod tests {
         let d = note_dir(&dir, "Foo/Bar: The \"Game\"?");
         // A single direct child of `dir` — no path traversal, no nested
         // directories from the slashes/colons in the title.
+        assert_eq!(d.parent(), Some(dir.as_path()));
+        assert!(!d.file_name().unwrap().to_string_lossy().contains('/'));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn save_paths_are_grouped_by_game_with_plain_names() {
+        let dir = scratch_dir("saves-layout");
+        let title = "Aladdin";
+
+        // All under saves_dir/<title>/, not a flat file per kind at the
+        // root — same folder-per-game shape as notes.
+        assert_eq!(
+            state_file(&dir, title, 3),
+            game_dir(&dir, title).join("3.state")
+        );
+        assert_eq!(
+            sram_file(&dir, title),
+            game_dir(&dir, title).join("sram.srm")
+        );
+        assert_eq!(
+            cheat_state_path(&dir, title),
+            game_dir(&dir, title).join("cheats.txt")
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn game_dir_sanitizes_path_hostile_titles() {
+        let dir = scratch_dir("saves-sanitize");
+        let d = game_dir(&dir, "Foo/Bar: The \"Game\"?");
         assert_eq!(d.parent(), Some(dir.as_path()));
         assert!(!d.file_name().unwrap().to_string_lossy().contains('/'));
 

@@ -7,6 +7,38 @@ versionamento segue [SemVer](https://semver.org/lang/pt-BR/). Enquanto a versão
 for `0.x`, a API das crates e a interface de linha de comando podem mudar sem
 aviso — só o incremento de _minor_ marca um conjunto de mudanças.
 
+## [Não lançado]
+
+### Adicionado
+
+- **Modais de Salvar/Carregar/Printscreen**: clicar em qualquer um dos três
+  pausa o jogo e abre uma tela dedicada com os slots pra escolher — 10 pra
+  save state, 15 pro print — em vez de um contador que precisava ser
+  clicado várias vezes antes. O print ganhou uma etapa a mais: depois de
+  escolher o slot, um campo de texto (opcional, até 40 caracteres) nomeia
+  a captura.
+
+### Alterado
+
+- **Botão "Pausar" removido — "Nota" virou "Anotacoes"**: agora é o único
+  caminho pro caderno (pausa o jogo e já abre a tela de anotações/cheats).
+  A captura de tela que "Nota" fazia direto virou o botão "Printscreen"
+  (ver Adicionado).
+- **`saves/` organizado por jogo**, mesma convenção de `notes/`:
+  `saves/<título>/0.state` .. `9.state`, `sram.srm`, `cheats.txt` — antes
+  eram arquivos soltos direto em `saves/`, nomeados pelo hash SHA1 da ROM
+  (`<hash>.state0`, `<hash>.srm`, `<hash>.cheats`), ilegíveis por quem
+  fosse abrir a pasta a mão. Efeito colateral bem-vindo: uma ROM que falha
+  a identificação (hash indisponível) agora salva normalmente — antes
+  ficava sem save state nenhum ("no state slot (unidentified ROM?)"),
+  já que não tinha hash pra nomear o arquivo.
+
+### Removido
+
+- **Botão "Turbo"** e o fast-forward que ele ligava — junto com o próprio
+  conceito de rodar quadros extra sem áudio/run-ahead
+  (`FF_SPEED`/`Input::fast_forward`).
+
 ## [0.5.0] — 2026-09-15
 
 ### Adicionado

@@ -92,26 +92,39 @@ pub enum UiEvent {
     /// still on the lock resists (plan §3.3).
     Eject,
     Reset,
+    /// Also what the panel's "Anotacoes" button fires (plan revision — it
+    /// replaced "Pausar": clicking it pauses *and* lands straight on the
+    /// notebook, one action instead of two).
     TogglePause,
-    SaveState,
-    LoadState,
-    NextSlot,
+    /// Open the save-state slot picker — a modal, not an immediate save
+    /// (plan revision). The game freezes while it's open, same as the
+    /// notebook; picking a slot (`ModalPick`) is what actually saves.
+    OpenSaveModal,
+    /// Open the load-state slot picker, mirroring `OpenSaveModal`.
+    OpenLoadModal,
+    /// Open the "which slot for this print" picker (plan revision — replaces
+    /// the old direct-capture "Nota" button): the frame to save is grabbed
+    /// the moment this fires, so whichever slot the player ends up picking
+    /// (after the game has frozen) gets the frame from the instant they
+    /// clicked, not whatever's on screen once they're done choosing.
+    OpenPrintModal,
+    /// A slot row clicked inside whichever modal (`OpenSaveModal`/
+    /// `OpenLoadModal`/`OpenPrintModal`) is open right now — only reachable
+    /// during the row-picking step; the naming step that can follow
+    /// (`OpenPrintModal`) is polled via `Platform::poll_text_entry` instead,
+    /// same as the notebook's own text editor, so it never produces a
+    /// `Click`/`UiEvent` at all (see `PanelButton::ModalConfirm`).
+    ModalPick(u8),
+    /// Back out of whichever modal is open, discarding any choice so far —
+    /// only reachable during the row-picking step, same caveat as
+    /// `ModalPick`.
+    ModalCancel,
     /// Flip cheat `usize` on/off directly — a panel click addresses its row,
     /// so there's no separate cursor-move step any more.
     CheatToggle(usize),
-    /// Capture straight into the current note slot (plan §3.4, plan
-    /// revision: a fixed 1..=15 slot, not an open-ended timestamped list) —
-    /// not a keepsake of the cabinet, a page for the password/map/progress
-    /// screen on-screen right now.
-    NoteCapture,
-    /// Cycle which of the 15 note slots `NoteCapture` targets (plan
-    /// revision) — the same slot the pause book's right page shows.
-    NoteSlotNext,
     /// Advance a single frame — only offered (and only acts) while paused,
     /// via the pause book's own "Avancar quadro" button.
     FrameStep,
-    /// Turbo toggle — click-driven, not held: on until clicked again.
-    ToggleFastForward,
     /// Pause book: step the right page to an earlier/later note slot.
     NotePrev,
     NoteNext,
@@ -204,7 +217,6 @@ impl KeyMap {
 pub struct Input {
     keys: [bool; 12],
     pads: [[bool; 12]; MAX_PORTS],
-    fast_forward: bool,
 }
 
 impl Input {
@@ -218,11 +230,6 @@ impl Input {
         (port == 0 && self.keys[i]) || (port < MAX_PORTS && self.pads[port][i])
     }
 
-    /// The fast-forward key is down.
-    pub fn fast_forward(&self) -> bool {
-        self.fast_forward
-    }
-
     pub(crate) fn set_key(&mut self, b: PadButton, down: bool) {
         self.keys[b as usize] = down;
     }
@@ -231,12 +238,6 @@ impl Input {
         if port < MAX_PORTS {
             self.pads[port][b as usize] = down;
         }
-    }
-
-    /// Turbo is a click-to-toggle now (no held key) — the caller (`runner`)
-    /// owns the on/off state and just tells `Input` about it each frame.
-    pub fn set_fast_forward(&mut self, on: bool) {
-        self.fast_forward = on;
     }
 
     pub(crate) fn clear_pads(&mut self) {

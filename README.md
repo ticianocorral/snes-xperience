@@ -22,14 +22,18 @@ janela com o jogo. Projeto pessoal, sem fins comerciais.
   state, notas, menus...) usa teclado. A única exceção é escrever uma
   anotação, que por natureza precisa de teclado; o D-pad/botões do próprio
   SNES continuam por teclado por padrão pra quem joga sem controle.
-- **Caderno de pausa**: pausar o jogo abre um livro de duas páginas — de
-  um lado o interruptor de cada cheat curado e um editor de texto livre
-  (até 240 caracteres); do outro, 15 slots fixos de captura de tela por
-  jogo, cada um podendo ser **fixado** (evita sobrescrita — "Nota" pula
-  pro próximo slot livre) e **nomeado**.
+- **Anotacoes**: pausa o jogo e abre um livro de duas páginas — de um lado
+  o interruptor de cada cheat curado e um editor de texto livre (até 240
+  caracteres); do outro, 15 slots fixos de captura de tela por jogo, cada
+  um podendo ser **fixado** (evita sobrescrita) e **nomeado**.
+- **Printscreen, Salvar e Carregar abrem uma modal** pra escolher o slot
+  (e, no print, dar um nome) em vez de um contador pra clicar antes — sem
+  precisar entrar na tela de anotações pra isso.
 - **App portátil, sem instalação**: sem banco de dados nenhum — tudo em
   pastas ao lado do executável (`roms/`, `core/`, `assets/`, `saves/`,
-  `notes/`), ou em `~/Documents/SNES Xperience` no macOS.
+  `notes/`), ou em `~/Documents/SNES Xperience` no macOS; `saves/` e
+  `notes/` organizam por jogo (`<pasta>/<título>/...`, nomes de arquivo
+  simples), não por hash da ROM.
 - **Sem raspagem online**: capa, logo e arte de cartucho vêm de imagens
   que você mesmo solta em `assets/`; o nome canônico do jogo vem de um DAT
   [No-Intro](https://datomatic.no-intro.org/) local opcional.

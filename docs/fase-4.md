@@ -606,3 +606,93 @@ Ejetar acendendo só quando desligado, e a tela final batendo com a tela
 inicial original. Repetido com um `console.png` de teste (removido depois)
 pra confirmar o caminho de imagem, não só o de texto. Build/clippy/test/
 fmt limpos.
+
+## Revisão (2026-09-15): modais de Salvar/Carregar/Printscreen, "Pausar" vira "Anotacoes", saves organizados por jogo
+
+Usuário achou a seção de comandos do painel confusa (Pausar, Nota, Nota
+slot, Salvar, Carregar, Slot, Turbo — sete botões, vários deles só
+existindo pra pré-selecionar o alvo de outro). Pedido: Salvar/Carregar
+abrem uma modal pra escolher o slot; "Pausar" sai, "Nota" vira
+"Anotacoes" e passa a só abrir o caderno (pausa + entra na tela já
+existente); um botão novo, "Printscreen", assume a captura de tela,
+também com modal (slot + nome opcional).
+
+- **`Modal` (novo enum em `runner.rs`)**: `None`/`SaveSlot`/`LoadSlot`/
+  `PrintSlot`, ortogonal a `paused` (o caderno continua sendo o dono
+  exclusivo da tela de duas páginas) — trava o laço de gameplay do mesmo
+  jeito (`(!paused && modal == Modal::None) || step_once`), mas desenha
+  uma tela própria (`Cabinet::present_modal`), não o caderno.
+- **`ModalInfo`/`draw_modal` (novos em `cabinet.rs`)**: um cartão único
+  centralizado — título, uma grade de linhas clicáveis (uma ou duas
+  colunas, conforme a contagem: 15 linhas de print em duas colunas de
+  8/7 não vira uma coluna gigante) e um botão "Cancelar"; ou, na etapa de
+  nomear um print, o mesmo cartão troca a grade por um campo de texto com
+  contador e "Salvar"/"Cancelar" — mesma ideia do modo de rascunho do
+  caderno (`PauseNote::draft`), implementação própria pra não arrastar a
+  paginação/cheats do caderno pra uma tela que não precisa deles.
+  `PanelButton` ganhou `ModalSlot(u8)`/`ModalConfirm`/`ModalCancel`.
+- **Fluxo do print**: clicar "Printscreen" só marca `print_pending = true`
+  — a captura de verdade acontece no mesmo quadro, quando `core.run()` já
+  ia produzir um frame de qualquer jeito (mesma janela que
+  `--debug-note-capture` já usava), clonado pra `print_capture: Option
+  <EmuFrame>` e só gravado em disco quando o jogador confirma o nome
+  (`NoteEdit::PrintName(slot)`, nova variante — reaproveita toda a
+  máquina de digitação do caderno, incluindo o limite de 40 caracteres já
+  usado por "Nomear print"). Cancelar em qualquer etapa descarta a
+  captura sem gravar nada.
+- **"Nota"/"Pausar" removidos, "Anotacoes" assume os dois papéis**:
+  `PanelButton::Notebook` (renomeado de `Pause`) dispara o mesmo
+  `UiEvent::TogglePause` de sempre — clicar pausa e já deixa o caderno
+  aberto, sem precisar de um botão "Pausar" separado. `command_rows`
+  perdeu os parâmetros `slot`/`note_slot` (os rótulos não precisam mais
+  mostrar um número pré-selecionado — quem escolhe agora é a modal) e
+  ficou com só cinco linhas: Anotacoes, Printscreen, Salvar, Carregar,
+  Turbo.
+- **`saves/` ganhou pasta por jogo** (`game_dir`, mesmo sanitizador de
+  nome que `note_dir` já usava — extraído pra uma função só,
+  `sanitize_dir_name`, pra não duplicar a lista de caracteres proibidos):
+  `saves/<título>/0.state`..`9.state`, `sram.srm`, `cheats.txt`, no lugar
+  de `<hash-sha1>.state0`, `<hash>.srm`, `<hash>.cheats` soltos direto em
+  `saves/`. Pedido explícito do usuário ("os códigos ficam feios"), mesma
+  motivação e mesmo trade-off já aceito pra `notes/` (legibilidade pra
+  quem abre a pasta a mão, em troca de perder a resistência a rename que
+  o hash dava). Efeito colateral: `rom_hash` não tinha mais nenhum uso
+  fora desse propósito, então saiu de `run_game` inteiro — uma ROM que
+  falha a identificação agora salva normalmente (a chave é o título, que
+  sempre existe, nem que seja o nome do arquivo), onde antes ficava sem
+  save state nenhum.
+- **`--debug-shot-modal save|load|print|print-name`** (novo em
+  `emu-run`): mesma ideia do `--debug-shot-pause` já existente, prova as
+  quatro telas (três grades + a etapa de nome) sem precisar de clique
+  nenhum — foi assim que as capturas abaixo saíram, depois que a sessão
+  de `computer-use` ficou instável (janela sumindo, cliques não
+  confiáveis) no meio da verificação ao vivo.
+
+Verificado com `--debug-shot-modal` pras quatro telas (grades de 10/10/15
+linhas mais a etapa de nome) e com testes novos
+(`save_paths_are_grouped_by_game_with_plain_names`,
+`game_dir_sanitizes_path_hostile_titles`) cobrindo os nomes de arquivo.
+Antes disso, ao vivo: escolher o jogo → ligar → clicar "Anotacoes" abriu
+o caderno de verdade (com um slot já fixado/nomeado de um teste anterior,
+provando que o pin/rename da revisão passada sobreviveu intacto) — a
+sessão de automação ficou instável logo depois (cliques íntermitentemente
+não confiáveis, provavelmente do lado do host, não do app) antes de dar
+pra clicar nos três botões novos ao vivo; o `--debug-shot-modal` supriu o
+resto da verificação visual. Build/clippy (`-D warnings`)/test/fmt
+limpos.
+
+## Revisão (2026-09-15, continuação 2): botão "Turbo" removido
+
+Pedido direto do usuário, sem contexto adicional — o fast-forward saiu por
+completo, não só o botão: `PanelButton::Turbo`/`UiEvent::ToggleFastForward`
+(o clique), `Input::fast_forward`/`set_fast_forward` (o estado, em
+`crates/platform`), `FF_SPEED`/o `let ff = ...` em `runner.rs` (os quadros
+extra sem áudio/run-ahead) e o ramo de paciente-de-quadro que rodava "sem
+acumular dívida de tempo" enquanto ligado — sem esse ramo, o laço sempre
+usa o único caminho de espera que sobrou (dormir até `frame_time`).
+`command_rows` perdeu o parâmetro `turbo_on` (não sobrou nenhum rótulo que
+precisasse dele). Nenhuma outra tela referenciava o conceito.
+
+Verificado com `--shot` (painel sem a linha "Turbo", as quatro que sobraram
+— Anotacoes/Printscreen/Salvar/Carregar — no lugar certo) e o ciclo
+completo de build/test/clippy (`-D warnings`)/fmt.
