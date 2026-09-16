@@ -1060,3 +1060,77 @@ append-log, entraram `text_slot_round_trips_and_deletes`,
 `legacy_notas_txt_migrates_into_numbered_slots`, e
 `migration_is_a_noop_once_any_text_slot_exists` (16 testes no crate
 `app` agora, antes 13). Build/test/clippy (`-D warnings`)/fmt limpos.
+
+## Revisão (2026-09-16, continuação 3): painel com contagem de cheats, filtro ligado/desligado na modal, painel com nota de texto
+
+Pedido direto do usuário: "no painel, mostrar apenas '1 cheat ativado'
+'15 cheats ativados' - nao liste cada um dos cheats. na lista de cheats
+possibilitar filtro ativado / desativado. possibilitar mostrar apenas
+uma nota e/ou uma imagem das anotações no painel".
+
+**Painel: só a contagem.** A seção "cheats ativos" do painel lateral
+listava a descrição de cada cheat ligado, um por linha — útil quando a
+base era um punhado de jogos curados com 2-3 cheats cada, mas depois da
+expansão pra base inteira do libretro-database um jogo pode ter dezenas
+ligados ao mesmo tempo, cada descrição competindo por espaço com as
+outras seções do painel. Trocado por uma linha só: "N cheat(s)
+ativado(s)" — a lista completa (com checkbox, buscável, filtrável) já
+mora na modal de Cheats, então nada se perde por não repeti-la aqui.
+
+**Filtro ligado/desligado na modal.** Três botões — "Todos"/"Ligados"/
+"Desligados" — logo abaixo da caixa de busca, mesmo estilo de "segmented
+control" (um sempre `lit`, os outros dois dimmed mas clicáveis). O
+estado on/off de cada linha não tinha um campo próprio em `ModalRow` —
+em vez de acrescentar um array paralelo só pra isso, o filtro lê o
+mesmo prefixo `"[x] "`/`"[ ] "` que `cheat_modal_rows` já grava no
+rótulo pra desenhar o checkbox (`row_checked`, novo helper) — reaproveita
+a única fonte da verdade que já existia em vez de duplicá-la. O filtro e
+a busca combinam com `&&`: dá pra buscar "infinit" *e* filtrar só os
+ligados ao mesmo tempo. `cheat_filter: Option<bool>` mora em `ModalInfo`,
+carregado adiante entre chamadas de `set_modal` do mesmo jeito que
+`search_query` já era (senão cada refresh de checkbox depois de um
+toggle resetaria o filtro escolhido).
+
+**Painel: nota de texto fixada, independente da imagem.** O bloco
+"notas" do painel já mostrava uma miniatura de print fixado; agora
+também mostra o conteúdo de uma anotação de texto fixada, do mesmo jeito
+("mostrar apenas uma nota e/ou uma imagem" — as duas são buscadas e
+mostradas independentemente, cada uma podendo estar presente, ausente,
+ou as duas ao mesmo tempo). `refresh_notes` ganhou um parâmetro
+`text_slot` e passou a fazer a mesma busca "o slot atual se estiver
+fixado, senão o de menor número fixado" duas vezes — uma pro lado das
+imagens (já existia), outra pro lado do texto (novo) — e `Cabinet::
+set_notes` ganhou um terceiro parâmetro `text: Option<&str>`. O texto
+mostrado no painel é cortado em 120 caracteres
+(`PANEL_NOTE_SNIPPET_CHARS`/`panel_text_snippet`, novo, com reticências
+se passar disso) — o painel não tem como sobrar espaço pra um texto de
+até 240 caracteres (`NOTE_CHAR_LIMIT`) inteiro ao lado de tudo mais que
+já mora ali; mesma ideia de "versão pequena pro painel, inteira no
+caderno" que a miniatura de foto (200px vs 900px) já usava.
+
+**Um bug real, achado testando.** A verificação headless da contagem de
+cheats ("3 cheats ativados") simplesmente não aparecia — nenhum erro,
+só ausência silenciosa. Rastreado com `log::info!` temporário: `cab.
+set_cheats(...)` já tinha sido chamado com os 3 cheats corretos, mas
+`panel.cheats.len()` no momento de desenhar era 0. Causa: `set_cheats`
+era chamado *antes* de `set_panel` em `run_game` — e `set_panel`
+substitui a `PanelInfo` inteira por uma nova, `cheats: Vec::new()`
+incluso, apagando o que acabara de ser gravado. Bug antigo, não desta
+sessão: veio de uma revisão anterior que moveu o carregamento de cheats
+pra *antes* do bloco do painel (pra `command_rows` saber se mostra o
+botão "Cheats"), levando `set_cheats` junto por engano — o carregamento
+em si (`cheat_defs`/`cheat_state`) precisa mesmo vir antes, só a
+chamada de UI (`set_cheats`) não. Corrigido movendo só essa chamada pra
+depois de `set_panel`; a seção de cheats do painel nunca tinha
+funcionado antes disso, em nenhuma versão publicada.
+
+Verificado com `--debug-shot-modal cheats-filtered` (novo kind de
+debug, dev/testing only — força o primeiro cheat ligado e aplica o
+filtro "Ligados" ou "Desligados" sem precisar de clique) mostrando
+"Ligados" reduzindo pra só a 1 linha ligada e "Desligados" pros outros
+125 de uma lista de 126; e com capturas do painel (janela 1280×800,
+trocada de volta depois) numa pasta de save/notes fabricada à mão —
+`cheats.txt` com 3 linhas "1" (→ "3 cheats ativados"), depois só 1 linha
+(→ "1 cheat ativado", singular correto), com uma imagem e um texto
+fixados ao mesmo tempo aparecendo juntos no bloco "notas". Build/test (16
+app + 12 domain)/clippy (`-D warnings`)/fmt limpos.

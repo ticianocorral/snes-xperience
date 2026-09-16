@@ -7,6 +7,35 @@ versionamento segue [SemVer](https://semver.org/lang/pt-BR/). Enquanto a versão
 for `0.x`, a API das crates e a interface de linha de comando podem mudar sem
 aviso — só o incremento de _minor_ marca um conjunto de mudanças.
 
+## [Não lançado]
+
+### Adicionado
+
+- **Filtro ativado/desativado na modal de Cheats**: três botões
+  ("Todos"/"Ligados"/"Desligados") ao lado da busca, filtrando pelo
+  estado atual de cada cheat em vez de (ou junto com) o texto digitado.
+- **Painel: até uma nota de texto e/ou uma imagem fixada** — o bloco
+  "notas" do painel lateral, que já mostrava uma imagem fixada, agora
+  também pode mostrar uma anotação de texto fixada (as duas são
+  independentes: pode aparecer só uma, as duas juntas, ou nenhuma).
+
+### Alterado
+
+- **Painel: cheats ativos viram só uma contagem** ("1 cheat ativado" /
+  "15 cheats ativados") em vez de listar a descrição de cada um — a
+  lista completa (com checkbox) já vive na modal de Cheats; repeti-la no
+  painel só ocupava espaço que podia faltar pra outras seções num jogo
+  com vários cheats ligados ao mesmo tempo.
+
+### Corrigido
+
+- **A contagem de cheats ativos no painel nunca aparecia** — um bug real,
+  de antes desta sessão: `set_cheats` (que grava a lista no painel) era
+  chamado *antes* de `set_panel`, e `set_panel` sempre recria o bloco do
+  zero (inclusive a lista de cheats, voltando a ficar vazia) — o painel
+  achava que nenhum cheat estava ligado, sempre, mesmo com vários
+  ativados de verdade. Corrigido invertendo a ordem das duas chamadas.
+
 ## [0.8.0] - 2026-09-16
 
 ### Adicionado

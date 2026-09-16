@@ -253,6 +253,12 @@ pub enum PanelButton {
     /// Click the search box on a searchable modal (plan revision — today
     /// only Cheats) to start typing a filter.
     ModalSearchStart,
+    /// On a searchable modal (today only Cheats): show every row, only the
+    /// ones checked on, or only the ones off (plan revision) — a segmented
+    /// three-way control, one of the three always "active" (`lit`).
+    ModalFilterAll,
+    ModalFilterOn,
+    ModalFilterOff,
     /// Drawn only on the pause book screen (not the side panel): resume play.
     PauseContinue,
     /// Pause book: step the right page (the photo album) to an earlier/
@@ -364,6 +370,14 @@ struct ModalInfo {
     /// A row matches when its label contains this, case-insensitively.
     /// Preserved across `set_modal` the same way `scroll` is.
     search_query: String,
+    /// On/off state filter (plan revision, Cheats-only like `search_query`
+    /// — drawn only when `searchable`): `None` shows every row, `Some(true)`
+    /// only the ones checked on, `Some(false)` only the ones off. Derived
+    /// per-row from the `[x] `/`[ ] ` prefix `cheat_modal_rows` already
+    /// encodes into the label for display — see `row_checked` — rather
+    /// than threading a second parallel array through `set_modal` just for
+    /// this. Preserved across `set_modal` the same way `search_query` is.
+    cheat_filter: Option<bool>,
     draft: Option<String>,
     draft_limit: usize,
     draft_heading: String,
@@ -401,6 +415,12 @@ struct PanelInfo {
     /// no "no notes" filler.
     note_count: usize,
     has_note_thumb: bool,
+    /// A pinned text-note slot's content (plan revision — independent of
+    /// the photo thumbnail above: either, both, or neither can be showing
+    /// at once, "mostrar apenas uma nota e/ou uma imagem"), already
+    /// snippet-length by the time it gets here (see `runner::
+    /// panel_text_snippet`) — the panel itself doesn't truncate anything.
+    text_note: Option<String>,
 }
 
 struct SrcTexture {
@@ -589,6 +609,7 @@ impl Cabinet {
             cheats: Vec::new(),
             note_count: 0,
             has_note_thumb: false,
+            text_note: None,
         });
     }
 
@@ -642,13 +663,21 @@ impl Cabinet {
     }
 
     /// Update the panel's notebook block (plan §3.4, item 5): `count` of the
-    /// 15 note slots that are pinned (plan revision — used to be however
+    /// 15 print slots that are pinned (plan revision — used to be however
     /// many were filled, shown regardless of pin; now the panel only
     /// features what the player deliberately pinned), `thumb` a pinned
-    /// slot's image (width, height, RGBA) if there's one to show. Call once
-    /// at game start and again after every capture, pin toggle, or slot
-    /// change. A no-op before `set_panel`.
-    pub fn set_notes(&mut self, count: usize, thumb: Option<(u32, u32, &[u8])>) {
+    /// slot's image (width, height, RGBA) if there's one to show, `text` a
+    /// pinned text-note slot's content if there's one of those to show —
+    /// independent of the photo side, so either, both, or neither can be
+    /// present at once. Call once at game start and again after every
+    /// capture, write, or pin toggle (either kind). A no-op before
+    /// `set_panel`.
+    pub fn set_notes(
+        &mut self,
+        count: usize,
+        thumb: Option<(u32, u32, &[u8])>,
+        text: Option<&str>,
+    ) {
         let has_thumb = if let Some((w, h, rgba)) = thumb {
             self.set_image(PANEL_NOTE_IMG, w, h, rgba);
             true
@@ -658,6 +687,7 @@ impl Cabinet {
         if let Some(panel) = &mut self.panel {
             panel.note_count = count;
             panel.has_note_thumb = has_thumb;
+            panel.text_note = text.map(str::to_string);
         }
     }
 
@@ -773,6 +803,7 @@ impl Cabinet {
             .modal
             .as_ref()
             .map_or_else(String::new, |m| m.search_query.clone());
+        let cheat_filter = self.modal.as_ref().and_then(|m| m.cheat_filter);
         self.modal = Some(ModalInfo {
             title: title.to_string(),
             rows: rows
@@ -785,10 +816,22 @@ impl Cabinet {
             scroll,
             searchable,
             search_query,
+            cheat_filter,
             draft: None,
             draft_limit: 0,
             draft_heading: String::new(),
         });
+    }
+
+    /// Set the Cheats modal's on/off state filter (plan revision): `None`
+    /// shows every row, `Some(true)`/`Some(false)` only the ones checked
+    /// on/off. Resets `scroll` to 0, same reasoning as `set_modal_search`.
+    /// A no-op before `set_modal`.
+    pub fn set_modal_filter(&mut self, filter: Option<bool>) {
+        if let Some(m) = &mut self.modal {
+            m.cheat_filter = filter;
+            m.scroll = 0;
+        }
     }
 
     /// Mark whether the open modal offers a search box (plan revision —
@@ -2027,63 +2070,57 @@ fn draw_panel(
         buttons.push((*kind, drawn));
     }
 
-    // 4. Cheats — informational only here (plan revision): plain text, only
-    // the ones actually on, no click (toggling lives in its own Cheats
-    // modal now, reachable from a `commands` row above). Absent entirely
-    // with none on, not an empty "cheats" label.
-    let cheats_on: Vec<&str> = panel
-        .cheats
-        .iter()
-        .filter(|(_, on)| *on)
-        .map(|(desc, _)| desc.as_str())
-        .collect();
-    // Room for the header plus at least one line — otherwise skip the whole
-    // section instead of showing a "cheats" label with nothing under it.
-    // The header hint can wrap to 2 lines on a narrow panel — reserve for
-    // that plus one row's worth, rather than assuming a single line.
-    let cheats_fit = cy + 16 + (GLYPH_H as i32 + 2) * 2 + GLYPH_H as i32 <= limit;
-    if !cheats_on.is_empty() && cheats_fit {
+    // 4. Cheats — just a count here (plan revision: used to list every
+    // active description, one per line, which could run the panel out of
+    // room on its own for a game with several curated cheats on at once;
+    // the actual list lives in the Cheats modal, reachable from a
+    // `commands` row above, so nothing is lost by not repeating it here).
+    // Absent entirely with none on, not a "0 cheats" filler.
+    let cheats_on_count = panel.cheats.iter().filter(|(_, on)| *on).count();
+    // Room for the header plus one line — the count line never wraps to
+    // more than that (it's always short: "N cheats ativados").
+    let cheats_fit = cy + 16 + (GLYPH_H as i32 + 2) <= limit;
+    if cheats_on_count > 0 && cheats_fit {
         cy += 16;
+        let label = if cheats_on_count == 1 {
+            "1 cheat ativado".to_string()
+        } else {
+            format!("{cheats_on_count} cheats ativados")
+        };
         cy = draw_text_wrapped_absolute(
             canvas,
             font,
             x,
             cy,
             inner_w,
-            TextStyle::new(1, PANEL_DIM),
-            "cheats ativos (botao Cheats pra editar)",
+            TextStyle::new(1, PANEL_TEXT),
+            &label,
         );
-        cy += 4;
-        for desc in cheats_on {
-            // Same projected-bottom check as the commands loop — a single
-            // line's worth; a long description that wraps to more may still
-            // poke past `limit`, but curated descriptions are short.
-            if cy + GLYPH_H as i32 + 2 > limit {
-                break;
-            }
-            cy = draw_text_wrapped_absolute(
-                canvas,
-                font,
-                x,
-                cy,
-                inner_w,
-                TextStyle::new(1, PANEL_TEXT),
-                desc,
-            );
-        }
     }
 
-    // 5. Notes — a pinned print's thumbnail + counter (plan §3.2, item 5;
-    // §3.4; plan revision: used to show whatever was captured/viewed most
-    // recently, pin or not — surprising, since a slot nobody deliberately
-    // featured would show up here anyway. Now it's opt-in: nothing shows
-    // unless at least one of the 15 slots is pinned). Absent entirely with
-    // nothing pinned, not a "no notes" filler. Same room-for-header-plus-
-    // content check as cheats, above — the thumbnail (when there is one)
-    // needs its own extra room accounted for.
-    let notes_h =
-        16 + (GLYPH_H as i32 + 6) + if panel.has_note_thumb { 70 + 6 } else { 0 } + GLYPH_H as i32;
-    if panel.note_count > 0 && cy + notes_h <= limit {
+    // 5. Notes — a pinned print's thumbnail + counter, and/or a pinned
+    // text-note slot's content (plan §3.2, item 5; §3.4; plan revision:
+    // the two are independent — either, both, or neither can be showing at
+    // once, "mostrar apenas uma nota e/ou uma imagem"). Used to show
+    // whatever was captured/viewed most recently regardless of pin, which
+    // was surprising; now it's opt-in on both sides. Absent entirely with
+    // nothing pinned either way, not a "no notes" filler. Same room-check
+    // shape as cheats, above — the thumbnail and the text block each add
+    // their own extra room when present.
+    let text_h = panel
+        .text_note
+        .as_ref()
+        .map_or(0, |t| wrapped_height(inner_w, 1, t) + 6);
+    let notes_h = 16
+        + (GLYPH_H as i32 + 6)
+        + if panel.has_note_thumb { 70 + 6 } else { 0 }
+        + if panel.note_count > 0 {
+            GLYPH_H as i32 + 6
+        } else {
+            0
+        }
+        + text_h;
+    if (panel.note_count > 0 || panel.text_note.is_some()) && cy + notes_h <= limit {
         cy += 16;
         draw_text_absolute(
             canvas,
@@ -2099,20 +2136,34 @@ fn draw_panel(
             draw_image_absolute(canvas, images, PANEL_NOTE_IMG, x, cy, inner_w, 70);
             cy += 70 + 6;
         }
-        let label = if panel.note_count == 1 {
-            "1 slot fixado".to_string()
-        } else {
-            format!("{} slots fixados", panel.note_count)
-        };
-        draw_text_absolute(
-            canvas,
-            font,
-            x,
-            cy,
-            TextStyle::new(1, PANEL_TEXT),
-            &label,
-            usize::MAX,
-        );
+        if panel.note_count > 0 {
+            let label = if panel.note_count == 1 {
+                "1 slot fixado".to_string()
+            } else {
+                format!("{} slots fixados", panel.note_count)
+            };
+            draw_text_absolute(
+                canvas,
+                font,
+                x,
+                cy,
+                TextStyle::new(1, PANEL_TEXT),
+                &label,
+                usize::MAX,
+            );
+            cy += GLYPH_H as i32 + 6;
+        }
+        if let Some(text) = &panel.text_note {
+            draw_text_wrapped_absolute(
+                canvas,
+                font,
+                x,
+                cy,
+                inner_w,
+                TextStyle::new(1, PANEL_TEXT),
+                text,
+            );
+        }
     }
 
     // 6. Session clock, pinned to the bottom (plan §3.2, item 6).
@@ -2742,6 +2793,10 @@ fn draw_modal(
         .iter()
         .enumerate()
         .filter(|(_, row)| query.is_empty() || contains_ignore_ascii_case(&row.label, query))
+        .filter(|(_, row)| match modal.cheat_filter {
+            None => true,
+            Some(want_on) => row_checked(&row.label) == Some(want_on),
+        })
         .map(|(i, _)| i)
         .collect();
 
@@ -2776,8 +2831,10 @@ fn draw_modal(
     // (save/load's 10, print's 15). Only once a list (the Cheats modal, for
     // a database-heavy game) overflows even a generous card does scrolling
     // — and the two extra rows it costs — enter the picture at all.
+    // Two extra rows on a searchable modal: the search box, and the
+    // on/off state filter (plan revision) right below it.
     let search_h = if modal.searchable {
-        (btn_h + 8) as u32
+        ((btn_h + 8) * 2) as u32
     } else {
         0
     };
@@ -2821,13 +2878,14 @@ fn draw_modal(
         &modal.title,
         usize::MAX,
     );
-    if scrollable || (modal.searchable && !query.is_empty()) {
+    let filtering_active = modal.searchable && (!query.is_empty() || modal.cheat_filter.is_some());
+    if scrollable || filtering_active {
         // Same "counter next to a scale-2 heading" placement the naming
         // step's char counter already uses, just against the title instead
         // of a draft's text — no extra row spent on it. Reflects the
-        // *filtered* count when a search is active, so "3/1209" (say)
-        // reads as "these 3 are what matched", not a bound on the game's
-        // real cheat count.
+        // *filtered* count when a search and/or the on/off filter is
+        // active, so "3/1209" (say) reads as "these 3 are what matched",
+        // not a bound on the game's real cheat count.
         let counter = if visible.is_empty() {
             "0".to_string()
         } else {
@@ -2863,11 +2921,49 @@ fn draw_modal(
             draw_button(canvas, font, search_box, &label, true),
         ));
         cy += btn_h + 8;
+
+        // On/off state filter (plan revision): a three-way segmented
+        // control, whichever matches `modal.cheat_filter` drawn `lit`
+        // (highlighted) — clicking either of the other two switches to it,
+        // clicking the active one is a harmless no-op (same "not guarded,
+        // the click just re-applies the same state" shape `Fixar`/`Fixado`
+        // already has for a print slot).
+        let seg_gap = 8i32;
+        let seg_w = ((inner_w as i32 - seg_gap * 2) / 3).max(1) as u32;
+        let all_btn = Rect::new(x, cy, seg_w, btn_h as u32);
+        let on_btn = Rect::new(x + (seg_w as i32 + seg_gap), cy, seg_w, btn_h as u32);
+        let off_btn = Rect::new(x + (seg_w as i32 + seg_gap) * 2, cy, seg_w, btn_h as u32);
+        buttons.push((
+            PanelButton::ModalFilterAll,
+            draw_button(canvas, font, all_btn, "Todos", modal.cheat_filter.is_none()),
+        ));
+        buttons.push((
+            PanelButton::ModalFilterOn,
+            draw_button(
+                canvas,
+                font,
+                on_btn,
+                "Ligados",
+                modal.cheat_filter == Some(true),
+            ),
+        ));
+        buttons.push((
+            PanelButton::ModalFilterOff,
+            draw_button(
+                canvas,
+                font,
+                off_btn,
+                "Desligados",
+                modal.cheat_filter == Some(false),
+            ),
+        ));
+        cy += btn_h + 8;
     }
 
     if visible.is_empty() {
-        // Only reachable with a search active and nothing typed matching —
-        // opening the modal at all already requires a non-empty row list.
+        // Reachable with a search and/or the on/off filter active and
+        // nothing matching — opening the modal at all already requires a
+        // non-empty row list, so an *unfiltered* empty view can't happen.
         draw_text_absolute(
             canvas,
             font,
@@ -2941,6 +3037,22 @@ fn draw_modal(
 fn contains_ignore_ascii_case(haystack: &str, needle: &str) -> bool {
     let (h, n) = (haystack.as_bytes(), needle.as_bytes());
     n.is_empty() || h.len() >= n.len() && h.windows(n.len()).any(|w| w.eq_ignore_ascii_case(n))
+}
+
+/// Whether a Cheats modal row's label reads as checked on/off, from the
+/// `[x] `/`[ ] ` prefix `cheat_modal_rows` (the one and only place that
+/// builds these labels) always puts in front of the description —
+/// `None` for a row with neither prefix (every other modal's rows: "Slot
+/// N", never checkbox-shaped). Reused for the on/off state filter instead
+/// of threading a second parallel array through `set_modal` just for it.
+fn row_checked(label: &str) -> Option<bool> {
+    if label.starts_with("[x] ") {
+        Some(true)
+    } else if label.starts_with("[ ] ") {
+        Some(false)
+    } else {
+        None
+    }
 }
 
 /// Build a textured grid over `dst` whose vertex positions are barrel-distorted

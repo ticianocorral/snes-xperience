@@ -744,15 +744,43 @@ fn migrate_legacy_text_notes(notes_dir: &Path, title: &str) {
     log::info!("notas.txt: migrated {migrated} page(s) into numbered text-note slots");
 }
 
+/// Panel display cap for a pinned text note (plan revision) — the full
+/// slot can run up to `NOTE_CHAR_LIMIT`, way more than the side panel has
+/// comfortable room for alongside everything else already in it. Mirrors
+/// `note_thumb`'s own smaller size (200px) for the panel vs. the full
+/// 900px the pause book gets.
+const PANEL_NOTE_SNIPPET_CHARS: usize = 120;
+
+/// Truncate `text` to at most `max_chars`, with a trailing `...` if it
+/// didn't already fit — see `PANEL_NOTE_SNIPPET_CHARS`.
+fn panel_text_snippet(text: &str, max_chars: usize) -> String {
+    if text.chars().count() <= max_chars {
+        return text.to_string();
+    }
+    let head: String = text.chars().take(max_chars.saturating_sub(3)).collect();
+    format!("{head}...")
+}
+
 /// Recompute the panel's notebook block from what's actually on disk: how
-/// many of the 15 slots are pinned (plan revision — used to be how many
-/// were filled, shown regardless of pin; a slot nobody deliberately
+/// many of the 15 print slots are pinned (plan revision — used to be how
+/// many were filled, shown regardless of pin; a slot nobody deliberately
 /// featured showing up in the always-visible panel anyway was the actual
-/// complaint), and a thumbnail if there's a pinned one to show — `slot` if
-/// it's itself pinned, else the lowest-numbered pinned slot, else none.
-/// Call at game start, after every capture, after cycling the note slot,
-/// and after every pin toggle — cheap, at most 15 file-exists checks.
-fn refresh_notes(cab: &mut Cabinet, notes_dir: &Path, title: &str, slot: u8, meta: &NotesMeta) {
+/// complaint), a thumbnail if there's a pinned one to show, and a pinned
+/// text note's content if there's one of those too — independent of the
+/// photo side ("mostrar apenas uma nota e/ou uma imagem"), so either, both,
+/// or neither can end up in the panel. Both sides pick the same way: the
+/// currently-viewed slot if it's itself pinned, else the lowest-numbered
+/// pinned one, else none. Call at game start, after every capture/write,
+/// after cycling either slot, and after every pin toggle (either kind) —
+/// cheap, at most 30 file-exists checks.
+fn refresh_notes(
+    cab: &mut Cabinet,
+    notes_dir: &Path,
+    title: &str,
+    slot: u8,
+    text_slot: u8,
+    meta: &NotesMeta,
+) {
     let count = (1..=NOTE_SLOTS).filter(|&s| meta.slot(s).pinned).count();
     let thumb_slot = if meta.slot(slot).pinned {
         Some(slot)
@@ -760,9 +788,20 @@ fn refresh_notes(cab: &mut Cabinet, notes_dir: &Path, title: &str, slot: u8, met
         (1..=NOTE_SLOTS).find(|&s| meta.slot(s).pinned)
     };
     let thumb = thumb_slot.and_then(|s| note_thumb(notes_dir, title, s, 200));
+
+    let text_pin_slot = if meta.text_slot(text_slot).pinned {
+        Some(text_slot)
+    } else {
+        (1..=NOTE_SLOTS).find(|&s| meta.text_slot(s).pinned)
+    };
+    let text = text_pin_slot
+        .and_then(|s| read_text_slot(notes_dir, title, s))
+        .map(|t| panel_text_snippet(&t, PANEL_NOTE_SNIPPET_CHARS));
+
     cab.set_notes(
         count,
         thumb.as_ref().map(|(w, h, d)| (*w, *h, d.as_slice())),
+        text.as_deref(),
     );
 }
 
@@ -903,8 +942,6 @@ pub fn run_game(
             core.cheat_set(i as u32, on, def.code);
         }
     }
-    cab.set_cheats(&cheat_rows(&cheat_defs, &cheat_state));
-
     // --- side panel: logo, cartridge art, command legend, session timer
     // (plan §3.2) — cartridge art is new (plan revision): a second, optional
     // image alongside the logo, same local-file convention.
@@ -935,10 +972,25 @@ pub fn run_game(
         &title,
         &commands,
     );
+    // `set_cheats` has to come *after* `set_panel` — `set_panel` replaces
+    // the whole `PanelInfo` (fresh `cheats: Vec::new()` included), so
+    // calling this first, as an earlier revision did when the cheats-
+    // loading block moved up ahead of the panel block (for `command_rows`'
+    // `has_cheats` flag), silently wiped out the count before it ever
+    // reached the screen — a real bug, caught by testing the panel's
+    // "N cheats ativados" line and finding it never showed up at all.
+    cab.set_cheats(&cheat_rows(&cheat_defs, &cheat_state));
 
     // --- notes: the notebook block, empty until the first capture (§3.4) --
     fs::create_dir_all(&spec.notes_dir).ok();
-    refresh_notes(cab, &spec.notes_dir, &title, note_slot, &notes_meta);
+    refresh_notes(
+        cab,
+        &spec.notes_dir,
+        &title,
+        note_slot,
+        text_slot,
+        &notes_meta,
+    );
 
     let session_start = Instant::now();
 
@@ -1008,9 +1060,24 @@ pub fn run_game(
                     cab.set_modal_searchable(true);
                     cab.set_modal_search("infinit");
                 }
+                // Previews the on/off state filter, forcing the first
+                // cheat on first so "Ligados" has something to show
+                // (dev/testing only — no CLI way to pick which).
+                "cheats-filtered" => {
+                    let mut state = cheat_state.clone();
+                    if let Some(first) = state.first_mut() {
+                        *first = true;
+                    }
+                    cab.set_modal(
+                        "Cheats",
+                        &cheat_modal_rows(&cheat_rows(&cheat_defs, &state)),
+                    );
+                    cab.set_modal_searchable(true);
+                    cab.set_modal_filter(Some(true));
+                }
                 other => {
                     log::warn!(
-                        "--debug-shot-modal {other}: unknown, expected save/load/print/print-name/cheats/cheats-search"
+                        "--debug-shot-modal {other}: unknown, expected save/load/print/print-name/cheats/cheats-search/cheats-filtered"
                     )
                 }
             }
@@ -1157,6 +1224,7 @@ pub fn run_game(
                                         &spec.notes_dir,
                                         &title,
                                         note_slot,
+                                        text_slot,
                                         &notes_meta,
                                     );
                                     log::info!("print: captured into slot {print_slot}");
@@ -1227,6 +1295,9 @@ pub fn run_game(
                             Some(PanelButton::ModalScrollUp) => Some(UiEvent::ModalScrollUp),
                             Some(PanelButton::ModalScrollDown) => Some(UiEvent::ModalScrollDown),
                             Some(PanelButton::ModalSearchStart) => Some(UiEvent::ModalSearchStart),
+                            Some(PanelButton::ModalFilterAll) => Some(UiEvent::ModalFilterAll),
+                            Some(PanelButton::ModalFilterOn) => Some(UiEvent::ModalFilterOn),
+                            Some(PanelButton::ModalFilterOff) => Some(UiEvent::ModalFilterOff),
                             _ => None,
                         }
                     } else if paused {
@@ -1279,7 +1350,10 @@ pub fn run_game(
                             | PanelButton::ModalCancel
                             | PanelButton::ModalScrollUp
                             | PanelButton::ModalScrollDown
-                            | PanelButton::ModalSearchStart => None,
+                            | PanelButton::ModalSearchStart
+                            | PanelButton::ModalFilterAll
+                            | PanelButton::ModalFilterOn
+                            | PanelButton::ModalFilterOff => None,
                         })
                     }
                 }
@@ -1367,7 +1441,14 @@ pub fn run_game(
                     // now (plan revision) — recompute it so the change is
                     // already reflected once the player resumes, not stale
                     // until the next capture.
-                    refresh_notes(cab, &spec.notes_dir, &title, note_slot, &notes_meta);
+                    refresh_notes(
+                        cab,
+                        &spec.notes_dir,
+                        &title,
+                        note_slot,
+                        text_slot,
+                        &notes_meta,
+                    );
                     log::info!(
                         "note slot {note_slot}: {}",
                         if now_pinned { "pinned" } else { "unpinned" }
@@ -1397,6 +1478,17 @@ pub fn run_game(
                     let now_pinned = m.pinned;
                     save_notes_meta(&spec.notes_dir, &title, &notes_meta);
                     show_text_slot(cab, &spec.notes_dir, &title, text_slot, &notes_meta);
+                    // Same reasoning as `NotePinToggle`'s own refresh: the
+                    // panel only features pinned slots, so a text pin
+                    // toggle needs to reach it right away too.
+                    refresh_notes(
+                        cab,
+                        &spec.notes_dir,
+                        &title,
+                        note_slot,
+                        text_slot,
+                        &notes_meta,
+                    );
                     log::info!(
                         "text slot {text_slot}: {}",
                         if now_pinned { "pinned" } else { "unpinned" }
@@ -1525,6 +1617,13 @@ pub fn run_game(
                     );
                     plat.start_text_input(cab);
                 }
+                UiEvent::ModalFilterAll if modal == Modal::Cheats => cab.set_modal_filter(None),
+                UiEvent::ModalFilterOn if modal == Modal::Cheats => {
+                    cab.set_modal_filter(Some(true))
+                }
+                UiEvent::ModalFilterOff if modal == Modal::Cheats => {
+                    cab.set_modal_filter(Some(false))
+                }
                 // The rest only make sense with the console on (or, for the
                 // pause-book trio, only while actually paused); ignored
                 // otherwise. `Click` never reaches this match — it's already
@@ -1538,6 +1637,9 @@ pub fn run_game(
                 | UiEvent::ModalScrollUp
                 | UiEvent::ModalScrollDown
                 | UiEvent::ModalSearchStart
+                | UiEvent::ModalFilterAll
+                | UiEvent::ModalFilterOn
+                | UiEvent::ModalFilterOff
                 | UiEvent::NotePrev
                 | UiEvent::NoteNext
                 | UiEvent::NoteWriteStart
@@ -1634,7 +1736,14 @@ pub fn run_game(
                 if let Some(slot) = note_request.take() {
                     match save_note_image(&spec.notes_dir, &title, slot, &frame) {
                         Ok(_) => {
-                            refresh_notes(cab, &spec.notes_dir, &title, note_slot, &notes_meta);
+                            refresh_notes(
+                                cab,
+                                &spec.notes_dir,
+                                &title,
+                                note_slot,
+                                text_slot,
+                                &notes_meta,
+                            );
                             log::info!("note: captured into slot {slot}");
                         }
                         Err(e) => log::warn!("note capture failed: {e}"),
