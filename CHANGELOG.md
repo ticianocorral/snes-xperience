@@ -7,7 +7,7 @@ versionamento segue [SemVer](https://semver.org/lang/pt-BR/). Enquanto a versão
 for `0.x`, a API das crates e a interface de linha de comando podem mudar sem
 aviso — só o incremento de _minor_ marca um conjunto de mudanças.
 
-## [Não lançado]
+## [0.8.0] - 2026-09-16
 
 ### Adicionado
 
@@ -488,7 +488,8 @@ emulador utilitário completo, sem moldura nem seletor.
   a Fase 3; os três modos de escala originais foram substituídos por essa
   visualização única a pedido.
 
-[Não lançado]: https://github.com/ticianocorral/snes-xperience/compare/v0.7.0...HEAD
+[Não lançado]: https://github.com/ticianocorral/snes-xperience/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/ticianocorral/snes-xperience/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/ticianocorral/snes-xperience/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/ticianocorral/snes-xperience/compare/v0.5.0...v0.6.0
 [0.3.1]: https://github.com/ticianocorral/snes-xperience/compare/v0.3.0...v0.3.1
