@@ -113,18 +113,27 @@ pub enum UiEvent {
     /// during the row-picking step; the naming step that can follow
     /// (`OpenPrintModal`) is polled via `Platform::poll_text_entry` instead,
     /// same as the notebook's own text editor, so it never produces a
-    /// `Click`/`UiEvent` at all (see `PanelButton::ModalConfirm`).
-    ModalPick(u8),
+    /// `Click`/`UiEvent` at all (see `PanelButton::ModalConfirm`). `u16`,
+    /// not `u8` (plan revision): the Cheats modal can run into the
+    /// thousands of rows for a database-heavy game, well past what a byte
+    /// addresses.
+    ModalPick(u16),
     /// Back out of whichever modal is open, discarding any choice so far —
     /// only reachable during the row-picking step, same caveat as
     /// `ModalPick`.
     ModalCancel,
-    /// Flip cheat `usize` on/off directly — a panel click addresses its row,
-    /// so there's no separate cursor-move step any more.
-    CheatToggle(usize),
-    /// Advance a single frame — only offered (and only acts) while paused,
-    /// via the pause book's own "Avancar quadro" button.
-    FrameStep,
+    /// Scroll whichever modal's row grid is open one page up/down — only
+    /// reachable (and only drawn at all) when there are more rows than fit
+    /// in the card at once (plan revision: the Cheats modal made lists
+    /// long enough that this stopped being hypothetical).
+    ModalScrollUp,
+    ModalScrollDown,
+    /// Open the Cheats modal — a checklist of curated codes for this
+    /// cartridge (plan revision: its own menu, split out of the notebook,
+    /// which was getting crowded and had no room for a "pausar pra editar"
+    /// hint to make sense of it). Toggling a row (`ModalPick`) flips it and
+    /// keeps the modal open, unlike the other three modals' one-shot pick.
+    OpenCheatsModal,
     /// Pause book: step the right page to an earlier/later note slot.
     NotePrev,
     NoteNext,

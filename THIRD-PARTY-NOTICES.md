@@ -35,25 +35,33 @@ código aberto e não comercial, distribuir o binário junto do fonte cobre isso
 Se um dia virar produto fechado, linkar `snes_ntsc` dinamicamente ou fornecer os
 objetos para religação.
 
-## libretro-database — pasta `cht` (Fase 4)
+## libretro-database — pasta `cht` (Fase 4, revisão)
 
-`crates/domain/src/cheats.rs` embute uma lista curada de códigos vindos da
-pasta `cht` do [`libretro-database`](https://github.com/libretro/libretro-database),
-de `github.com/libretro/libretro-database/tree/master/cht/Nintendo%20-%20Super%20Nintendo%20Entertainment%20System`.
-(O plano, §4.4, citava MIT de memória — o `LICENSE` do repositório é na
-verdade **CC BY-SA 4.0**; corrigido aqui.)
+`crates/domain/src/cheats_data.txt` embute a pasta `cht` inteira do
+[`libretro-database`](https://github.com/libretro/libretro-database) pro
+SNES — `github.com/libretro/libretro-database/tree/master/cht/Nintendo%20-%20Super%20Nintendo%20Entertainment%20System`,
+gerado por `scripts/gen_cheats_data.py` (revisão: antes era uma lista
+curada de ~20 jogos escolhidos a dedo; agora é a base toda, ~2400 jogos,
+pra cobrir qualquer ROM que o jogador adicionar, não só as poucas
+testadas na hora). (O plano, §4.4, citava MIT de memória — o `LICENSE` do
+repositório é na verdade **CC BY-SA 4.0**; corrigido aqui.)
 
-O que foi usado é só o código de cada cheat — um par endereço/valor (ex.:
-`7E034704`), fato bruto sem expressão autoral, do jeito que uma lista de
-números de telefone não vira obra protegida por estar arrumada numa tabela.
-Nenhuma descrição da base foi copiada: toda descrição em `cheats.rs` foi
-escrita para este app. Ainda assim, por transparência e crédito — não porque
-achamos que o CC BY-SA prende os códigos em si —, a atribuição:
+Diferente da revisão anterior deste arquivo: desta vez tanto o código de
+cada cheat (endereço/valor, fato bruto sem expressão autoral — do jeito
+que uma lista de números de telefone não vira obra protegida por estar
+arrumada numa tabela) quanto a **descrição** são reproduzidos como estão
+na base, sem reescrever — na escala de milhares de linhas, reescrever
+cada uma não seria viável nem teria sentido (são rótulos factuais curtos,
+não prosa). Por isso `cheats_data.txt` em si é distribuído sob a mesma
+licença da base (CC BY-SA 4.0 — o *share-alike* da licença já pede isso
+de qualquer coleção derivada; ver `scripts/gen_cheats_data.py` pra como
+foi gerado, prova de que não é uma cópia opaca).
 
-> Códigos de cheat adaptados de `libretro-database`
+> Cheats (códigos e descrições) adaptados de `libretro-database`
 > (github.com/libretro/libretro-database), licenciado sob
 > [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/).
 > Copyright dos respectivos colaboradores do projeto libretro.
+> `crates/domain/src/cheats_data.txt` é distribuído sob os mesmos termos.
 
 ## Marcas
 

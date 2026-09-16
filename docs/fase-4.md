@@ -696,3 +696,182 @@ precisasse dele). Nenhuma outra tela referenciava o conceito.
 Verificado com `--shot` (painel sem a linha "Turbo", as quatro que sobraram
 — Anotacoes/Printscreen/Salvar/Carregar — no lugar certo) e o ciclo
 completo de build/test/clippy (`-D warnings`)/fmt.
+
+## Revisão (2026-09-15, continuação 3): cheats num menu próprio, painel opt-in por pin, "avancar quadro" removido, bug de cheat corrigido
+
+Quatro pedidos diretos do usuário depois de testar a leva anterior de
+modais:
+
+- **Cheats saíram do caderno de anotações**: viviam na página esquerda de
+  "Anotacoes" (uma lista `[x]`/`[ ]` clicável, `PanelButton::CheatRow`)
+  competindo por espaço com o status dos slots e o botão "Escrever
+  anotacao". Agora é um botão próprio na lista de comandos — `Cheats`
+  (`command_rows` só o inclui quando `!cheat_defs.is_empty()`, mesma
+  regra de "esconder em vez de mostrar tela vazia" que o Printscreen já
+  usava pros 15 slots fixados) — que abre uma modal dedicada
+  (`Modal::Cheats`), reaproveitando o sistema de modal do Salvar/
+  Carregar/Print em vez de inventar um terceiro tipo de tela. A
+  diferença: uma modal normal fecha ao escolher uma linha (`ModalPick`
+  seta `modal = Modal::None`); a de cheats não — o pick alterna o estado
+  e o `cab.set_modal(...)` é chamado de novo com as linhas atualizadas
+  (`[x]`/`[ ]` recalculado por `cheat_modal_rows`), então a modal continua
+  aberta pra ligar/desligar vários de uma vez. `PanelButton::CheatRow` e
+  `PauseStep` saíram do enum inteiro — o antigo clique de cheat agora usa
+  `PanelButton::ModalSlot` como qualquer outra linha de modal.
+- **"Avancar quadro" removido do caderno**: um botão de depuração (um
+  frame por clique, pausado) sem uso real pra quem só quer ler/escrever
+  anotações — nunca teve tecla nem foi mencionado em nenhum lugar do
+  app fora do próprio caderno. Saiu por completo: `UiEvent::FrameStep`,
+  `PanelButton::PauseStep`, a variável `step_once` e os dois lugares que
+  a liam (o gate de step da gameplay, o `!step_once` no cálculo de
+  run-ahead especulativo). O "Continuar" que sobrou ocupa a largura toda
+  da faixa de botões, não mais metade.
+- **Painel lateral: notas viram opt-in por pin.** `refresh_notes` contava
+  quantos dos 15 slots tinham *algum* arquivo (`count_filled_slots`) e
+  mostrava a miniatura do slot atualmente selecionado (`note_slot`),
+  fixado ou não — na prática, qualquer captura recente aparecia ali sem
+  o jogador ter pedido. Agora conta só os fixados
+  (`meta.slot(s).pinned`) e a miniatura é a do slot atual *se* estiver
+  fixado, senão a do primeiro fixado que achar, senão nenhuma — a seção
+  "notas" some inteira quando não há nenhum pin. Precisou de um
+  `refresh_notes` a mais: o toggle de pin (`NotePinToggle`) já salvava a
+  meta e atualizava a página do caderno, mas não recomputava o bloco do
+  painel — sem isso, fixar um slot só refletiria no painel na próxima
+  captura, não assim que o jogador voltasse do caderno.
+- **Bug real corrigido: desligar um cheat não desligava o efeito** — a
+  linha virava `[ ]` mas o jogo continuava com o cheat ativo. Um único
+  `core.cheat_set(indice, false, codigo)` não é garantia de que o core
+  desfaça um patch de memória sustentado (nem todo core trata "enabled:
+  false" como "reverte na hora"); a correção padrão (a mesma que o
+  RetroArch usa) é resetar e reaplicar a lista inteira a cada mudança, não
+  só o índice tocado — exatamente o que o carregamento inicial já fazia
+  (`core.cheat_reset()` + laço reaplicando todo mundo), só que só na
+  primeira vez. Agora o toggle dentro do `Modal::Cheats` faz a mesma
+  sequência.
+
+Verificado com `--debug-shot-modal cheats` (grade `[ ]`/`[x]` com os três
+códigos curados de Street Fighter II Turbo, "Cancelar" embaixo) e
+`--debug-shot-pause` (caderno sem cheats, sem "Avancar quadro", só
+"Continuar" ocupando a largura toda). O sistema de pin foi verificado nos
+dois sentidos com uma `slots.json` fabricada à mão: slot fixado -> painel
+mostra "notas"/"N slot(s) fixado(s)" com a miniatura; mesmo slot com
+`pinned: false` (mas ainda com imagem no disco) -> seção some por
+completo. Essas duas capturas precisaram da janela 1280×800 de
+`xperience.rs` (trocada de volta pra 1024×768 depois) — a pequena e
+não-16:9 de `emu-run` já é conhecida por cortar as últimas linhas do
+painel (ver revisão anterior), e o botão Cheats novo empurrou o bloco de
+notas pra fora da área visível nela. Build/test (13 suítes)/clippy
+(`-D warnings`)/fmt limpos.
+
+## Revisão (2026-09-16): base de cheats vira a base inteira do libretro-database, rolagem na modal, um crash real corrigido
+
+Pedido direto do usuário depois de duas perguntas sobre a feature de
+cheats ("o DAT do nointro está embutido?" / "e os cheats está pegado da
+onde?", respondidas nesta mesma sessão): a lista curada de ~20 jogos em
+`cheats.rs` virou pouca coisa perto do que o `libretro-database` realmente
+tem — "aumente o banco de dados, coloque tudo que tem lá no libretro" —
+com o aviso já embutido de que a lista ia crescer bastante e ia precisar
+de rolagem.
+
+**De onde veio.** `git clone --filter=blob:none --sparse` do
+`libretro-database`, `sparse-checkout` só da pasta
+`cht/Nintendo - Super Nintendo Entertainment System/` (2773 arquivos,
+15 MB) — mais rápido e mais leve que baixar o repositório inteiro (que
+cobre todo console suportado pelo libretro) ou paginar pela API do GitHub
+arquivo por arquivo. `scripts/gen_cheats_data.py` (novo, comitado —
+referenciado pelo próprio doc comment de `cheats.rs`, pra a base poder
+ser regerada quando o upstream atualizar) converte cada `.cht` (formato
+ini do libretro: `cheatN_desc`/`cheatN_code`/`cheatN_enable`) num formato
+bem mais compacto — `G\t<nome do jogo>` seguido de `C\t<descrição>\t<código>`
+por linha — descartando cheats com código vazio ou com um placeholder de
+valor ajustável (`X`/`?` literal no código, ex. `"7FC136XX"`: o
+jogador escolheria o byte na UI do RetroArch, coisa que nosso checkbox
+on/off simples não tem campo pra oferecer). Resultado: 2401 jogos, 67 mil
+códigos, 2.7 MB de texto — `include_str!`'d direto em
+`crates/domain/src/cheats_data.txt` (comitado; ver
+`THIRD-PARTY-NOTICES.md`, atualizado — desta vez tanto código quanto
+*descrição* são da base, não reescritos, então o arquivo em si carrega a
+mesma licença CC BY-SA 4.0 por *share-alike*).
+
+**Por que o casamento mudou de "título do cabeçalho SNES" pra "título do
+arquivo".** A tabela curada anterior usava o título interno do cabeçalho
+SNES (ex. `"ALADDIN"`, `"STREET FIGHTER2 TURBO"`) porque sobrevive a um
+re-dump ou rename — mas isso exige *ler* o cabeçalho de cada jogo pra
+saber a chave certa, e não há como fazer isso pros ~2400 jogos da base
+sem possuir cada cartucho. A única chave que o app já tem de graça, pro
+número que for de jogos, é o nome do arquivo da ROM — a mesma string que
+`saves/`/`notes/` já usam (`title`, calculado uma vez em `run_game`).
+`xperience_domain::cheats::for_title` (doc comment reescrito) casa em
+duas etapas: exato (case-insensitive) primeiro — um arquivo nomeado do
+jeito usual da cena, `Titulo (Regiao).sfc`, bate direto com o mesmo nome
+que o `libretro-database` usa; se isso não achar nada, uma etapa mais
+solta ignora todo grupo `(...)` no fim de ambos os lados (região, revisão,
+"Action Replay"/"Game Genie") e casa pelo nome base. Efeito colateral:
+`internal_name` (o título do cabeçalho) perdeu seu único uso em
+`run_game` — só sobrou o log de identificação da ROM.
+
+**Um bug real pego no meio do caminho, não hipotético.** A primeira
+versão da etapa solta pegava o primeiro arquivo cujo nome base batesse —
+e alfabeticamente isso às vezes é o arquivo errado: `"Final Fantasy III
+(USA) (Action Replay).cht"` (29 cheats) ordena antes de `"Final Fantasy
+III (USA).cht"` (2418 cheats) porque `' '` (espaço) vem antes de `'.'`
+em ASCII. Um teste manual pegou isso na hora (uma ROM chamada só "Final
+Fantasy III" abriu a modal com 29 linhas, óbvio demais pra passar batido).
+Trocado pra pegar, entre todos os arquivos que batem pelo nome base, o
+que tem *mais* cheats — sem precisar hardcodar nenhuma regra de
+prioridade entre tags de região/formato, e resolve o caso certo de
+qualquer forma (a lista mais completa é a lista mais completa,
+independente de qual arquivo ela mora).
+
+**O crash de verdade.** Testando a modal nova com uma lista grande (2418
+cheats, forçado renomeando temporariamente uma ROM de teste pra "Final
+Fantasy III.sfc" — o conteúdo real não importa pro teste, só o nome do
+arquivo, já que o casamento é por título agora), o app abortou
+(`SIGABRT`) no meio do carregamento — sem nenhum panic do Rust, só um
+`abort trap: 6`. O crash report do macOS
+(`~/Library/Logs/DiagnosticReports`) apontou o culpado exato:
+`__stack_chk_fail` dentro de `retro_cheat_set`, chamado pelo `core.cheat_set`
+de `run_game` — um estouro de buffer na pilha *dentro do próprio core*
+snes9x-libretro, disparado por um código de cheat de 602 caracteres (67
+endereços `7E......` encadeados com `+`, um cheat de "escreve a tabela
+inteira" que a base tinha codificado como um combo gigante em vez de
+vários cheats pequenos). Não dá (nem faz sentido tentar) consertar o
+parser do core; a correção do lado de cá é defensiva: `gen_cheats_data.py`
+descarta qualquer código acima de 96 caracteres na geração (folga grande
+sobre os 602 que de fato travaram — a exata margem segura do buffer do
+core nunca foi determinada por bisseção, não valia o risco de travar o
+processo repetidas vezes só pra achar o número exato). Só 148 dos 67 mil
+códigos (0.2%) passavam desse limite. `cheats.rs` ganhou um teste de
+regressão (`no_cheat_code_is_long_enough_to_crash_the_core`, limite de
+128 — folga extra sobre os 96 da geração) pra pegar isso automaticamente
+se a base for regerada um dia sem essa cautela.
+
+**Rolagem.** `ModalPick`/`PanelButton::ModalSlot` eram `u8` (a maior
+lista antes disso, Printscreen, tinha 15) — não cabe mais um índice de
+até 2418; virou `u16`. `draw_modal` calculava a altura do card pra caber
+*todas* as linhas de uma vez e só recortava o card no fim (`card_h.min(...)`)
+sem nunca deixar de desenhar as linhas que sobravam — ou seja, uma lista
+grande simplesmente vazava pra fora do card, sem clique nem visual
+corretos. Reescrito: calcula quantas linhas cabem sem nenhuma rolagem
+(igual antes, pra Salvar/Carregar/Print de sempre — o caminho comum não
+muda em nada); só se a lista *ainda* não couber é que entra o modo com
+rolagem, reservando duas linhas de botão (`^ Cima`/`v Baixo`, dimmed nas
+pontas) e recortando o card numa altura razoável. O desenho em si
+continua iterando todas as linhas (o índice original de cada uma
+`i` precisa sobreviver pro clique bater certo), só pula (`continue`) as
+que caem fora da janela visível — nenhum desenho de texto de fato
+acontece pra uma linha fora de tela, então o custo por quadro fica preso
+em ~24 botões não importa se o jogo tem 3 cheats ou 2400. `scroll` mora
+em `ModalInfo`, sobrevive a um `set_modal` que só está *atualizando* a
+mesma modal aberta (Cheats chama de novo a cada toggle, pra redesenhar
+os `[x]`/`[ ]`) e só zera numa abertura genuinamente nova — sem isso,
+marcar um cheat na página 50 voltaria a modal pro topo a cada clique.
+
+Verificado: `--debug-shot-modal cheats` pra um jogo pequeno (Street
+Fighter II Turbo real, 2 cheats — layout idêntico a antes, sem UI de
+rolagem) e pra um grande (2418 cheats, via o truque do nome de arquivo
+trocado) — o segundo mostrando `^ Cima`/`v Baixo`/contador `"1-12/1209"`
+corretamente, sem o crash (re-testado depois da correção, confirmando
+que o mesmo cenário exato que travava antes agora sai limpo). `cargo
+test --workspace` (12 suítes no domain agora, +1 sobre a revisão
+anterior), clippy (`-D warnings`) e fmt limpos.

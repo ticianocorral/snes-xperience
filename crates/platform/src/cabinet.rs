@@ -228,23 +228,29 @@ pub enum PanelButton {
     /// Opens a modal to pick which save-state slot to load, mirroring
     /// `SaveState`.
     LoadState,
+    /// Opens the Cheats modal (plan revision — split out of the notebook,
+    /// which had no natural home for a checklist next to the photo album).
+    /// Absent from the panel entirely for a cartridge with no curated
+    /// cheats, same "hide rather than show an empty screen" rule as the
+    /// other modal-opening buttons.
+    Cheats,
     /// One slot row inside whichever modal (`SaveState`/`LoadState`/
-    /// `PrintScreen`) is open right now.
-    ModalSlot(u8),
+    /// `PrintScreen`) is open right now, or one cheat row inside the Cheats
+    /// modal (plan revision — same click addresses both a pick and a
+    /// toggle; which it means depends on which modal is open). `u16`, not
+    /// `u8` (plan revision): a database-heavy game's Cheats list can run
+    /// well past 255 rows.
+    ModalSlot(u16),
     /// Confirm the modal's text step (naming a print).
     ModalConfirm,
     /// Back out of whichever modal is open, discarding any choice so far.
     ModalCancel,
-    /// One cheat row, addressed directly — a click both selects and toggles
-    /// it, no separate cursor step (plan revision: mouse/gamepad only).
-    /// Drawn on the pause book now, not the side panel (see `PanelInfo`'s
-    /// doc comment) — there's room there, and it isn't racing gameplay for
-    /// a slot in the always-visible panel.
-    CheatRow(usize),
+    /// Scroll the modal's row grid up/down by one page — only drawn (and
+    /// so only clickable) once the row count overflows the card.
+    ModalScrollUp,
+    ModalScrollDown,
     /// Drawn only on the pause book screen (not the side panel): resume play.
     PauseContinue,
-    /// Drawn only on the pause book screen: advance exactly one frame.
-    PauseStep,
     /// Pause book: step the right page to an earlier/later capture.
     PauseNotePrev,
     PauseNoteNext,
@@ -300,15 +306,24 @@ struct ModalRow {
     enabled: bool,
 }
 
-/// A modal dialog (plan revision) — save/load-state and "which slot for
-/// this print" pickers: a title, a grid of slot rows, and a Cancel button;
-/// lighter than the two-page pause book, since picking a slot is the whole
-/// job here. Once a print's slot is picked, `draft` replaces the row grid
-/// with a text field (name it) plus Confirm/Cancel — same idea as the pause
-/// book's own draft mode (`PauseNote::draft`), just a lighter home for it.
+/// A modal dialog (plan revision) — save/load-state, "which slot for this
+/// print", and the Cheats checklist: a title, a grid of rows, and a Cancel
+/// button; lighter than the two-page pause book, since picking (or, for
+/// Cheats, toggling) a row is the whole job here. Once a print's slot is
+/// picked, `draft` replaces the row grid with a text field (name it) plus
+/// Confirm/Cancel — same idea as the pause book's own draft mode
+/// (`PauseNote::draft`), just a lighter home for it.
 struct ModalInfo {
     title: String,
     rows: Vec<ModalRow>,
+    /// Index of the first visible row-of-columns (plan revision — a
+    /// database-heavy Cheats list can run to thousands of rows, so
+    /// `draw_modal` only ever renders a page of them at a time). Preserved
+    /// across a `set_modal` call that keeps the dialog open (Cheats
+    /// refreshing its own checkmarks after a toggle) so a click deep in a
+    /// long list doesn't jump the view back to the top; reset to 0 only on
+    /// a fresh open (see `Cabinet::set_modal`).
+    scroll: usize,
     draft: Option<String>,
     draft_limit: usize,
     draft_heading: String,
@@ -322,8 +337,8 @@ struct ModalInfo {
 /// labels are live state (e.g. a "(feito!)" flash) — see
 /// `Cabinet::set_commands`. `cheats` (item 4, plan §4.4) is
 /// informational-only here now — `(description, on)` pairs, only the ones
-/// that are on get drawn, plain text; toggling moved to the pause book
-/// (`draw_pause_book`), which isn't fighting the panel for vertical space.
+/// that are on get drawn, plain text; toggling lives in its own Cheats modal
+/// (plan revision), reachable from a `commands` row like any other.
 struct PanelInfo {
     has_logo: bool,
     has_cartridge: bool,
@@ -587,10 +602,12 @@ impl Cabinet {
     }
 
     /// Update the panel's notebook block (plan §3.4, item 5): `count` of the
-    /// 15 note slots (plan revision) filled so far, `thumb` the
-    /// currently-selected slot's image (width, height, RGBA) if it has one.
-    /// Call once at game start and again after every capture or slot change.
-    /// A no-op before `set_panel`.
+    /// 15 note slots that are pinned (plan revision — used to be however
+    /// many were filled, shown regardless of pin; now the panel only
+    /// features what the player deliberately pinned), `thumb` a pinned
+    /// slot's image (width, height, RGBA) if there's one to show. Call once
+    /// at game start and again after every capture, pin toggle, or slot
+    /// change. A no-op before `set_panel`.
     pub fn set_notes(&mut self, count: usize, thumb: Option<(u32, u32, &[u8])>) {
         let has_thumb = if let Some((w, h, rgba)) = thumb {
             self.set_image(PANEL_NOTE_IMG, w, h, rgba);
@@ -605,10 +622,11 @@ impl Cabinet {
     }
 
     /// Update the side panel's cheat list (plan §4.4): `cheats` is
-    /// `(description, on)` pairs in the curated order — each becomes its own
-    /// clickable row (`PanelButton::CheatRow`), no cursor to move any more.
-    /// Call once at game start and again on every toggle — the list is
-    /// always tiny. A no-op before `set_panel`.
+    /// `(description, on)` pairs in the curated order, shown informationally
+    /// here (only the ones that are on, plain text) — toggling lives in the
+    /// Cheats modal now (plan revision: its own menu, not a page inside the
+    /// notebook). Call once at game start and again on every toggle — the
+    /// list is always tiny. A no-op before `set_panel`.
     pub fn set_cheats(&mut self, cheats: &[(String, bool)]) {
         if let Some(panel) = &mut self.panel {
             panel.cheats = cheats.to_vec();
@@ -681,11 +699,17 @@ impl Cabinet {
         }
     }
 
-    /// Open (or replace) a save/load-state or print slot picker (plan
-    /// revision): `title` names the dialog, `rows` is one `(label, enabled)`
-    /// pair per slot in order — a disabled row (e.g. "Carregar" on an empty
-    /// slot, or a pinned print slot) still shows, just dimmed and unclickable.
+    /// Open (or replace) a save/load-state, print slot, or Cheats picker
+    /// (plan revision): `title` names the dialog, `rows` is one `(label,
+    /// enabled)` pair per slot in order — a disabled row (e.g. "Carregar"
+    /// on an empty slot, or a pinned print slot) still shows, just dimmed
+    /// and unclickable. Scroll position carries over from whatever modal
+    /// was already open (Cheats calls this again after every toggle, to
+    /// redraw its checkmarks, without wanting the view to jump back to the
+    /// top) — only a genuinely fresh open (no modal was showing) starts
+    /// scrolled to the top.
     pub fn set_modal(&mut self, title: &str, rows: &[(String, bool)]) {
+        let scroll = self.modal.as_ref().map_or(0, |m| m.scroll);
         self.modal = Some(ModalInfo {
             title: title.to_string(),
             rows: rows
@@ -695,10 +719,22 @@ impl Cabinet {
                     enabled: *enabled,
                 })
                 .collect(),
+            scroll,
             draft: None,
             draft_limit: 0,
             draft_heading: String::new(),
         });
+    }
+
+    /// Scroll the modal's row grid by `delta` visual rows (negative = up) —
+    /// a no-op before `set_modal`. `draw_modal` clamps the visible result
+    /// against however many rows actually overflow the card, so over-
+    /// scrolling just stops at the last page rather than needing a bound
+    /// here too.
+    pub fn scroll_modal(&mut self, delta: i32) {
+        if let Some(m) = &mut self.modal {
+            m.scroll = (m.scroll as i32 + delta).max(0) as usize;
+        }
     }
 
     /// Enter/update/leave the modal's naming step (plan revision — the print
@@ -779,8 +815,10 @@ impl Cabinet {
 
     /// Draw the pause book to the window: two pages, not warped by the tube,
     /// replacing the whole window rather than sharing it with the cabinet
-    /// (plan §3.2/§3.4), plus its own two clickable buttons ("Continuar",
-    /// "Avancar quadro" — plan revision: mouse/gamepad only, no keyboard).
+    /// (plan §3.2/§3.4), plus its own clickable "Continuar" button — mouse/
+    /// gamepad only, no keyboard (plan revision: the frame-step button that
+    /// used to sit next to it is gone, a dev-only leftover nobody used
+    /// through the actual UI).
     pub fn present_pause(&mut self) {
         let (real_w, real_h) = self.canvas.output_size().unwrap_or((1280, 720));
         let rect = cabinet_canvas_rect(real_w, real_h);
@@ -789,17 +827,11 @@ impl Cabinet {
             .set_draw_color(Color::RGB(RECESS.0, RECESS.1, RECESS.2));
         self.canvas.clear();
         self.canvas.set_viewport(Some(rect));
-        let cheats = self
-            .panel
-            .as_ref()
-            .map(|p| p.cheats.as_slice())
-            .unwrap_or(&[]);
         self.pause_buttons = draw_pause_book(
             &mut self.canvas,
             &mut self.font,
             &self.images,
             self.pause.as_ref(),
-            cheats,
             rect.width(),
             rect.height(),
         );
@@ -817,11 +849,6 @@ impl Cabinet {
             .create_texture_target(SdlFormat::RGBA32, real_w, real_h)
             .map_err(|e| PlatformError::Sdl(e.to_string()))?;
         let pause = self.pause.as_ref();
-        let cheats = self
-            .panel
-            .as_ref()
-            .map(|p| p.cheats.as_slice())
-            .unwrap_or(&[]);
         let font = &mut self.font;
         let images = &self.images;
         let mut saved: Result<(), PlatformError> = Ok(());
@@ -829,7 +856,7 @@ impl Cabinet {
             c.set_draw_color(Color::RGB(RECESS.0, RECESS.1, RECESS.2));
             c.clear();
             c.set_viewport(Some(rect));
-            let _ = draw_pause_book(c, font, images, pause, cheats, rect.width(), rect.height());
+            let _ = draw_pause_book(c, font, images, pause, rect.width(), rect.height());
             c.set_viewport(None);
             saved = c
                 .read_pixels(None::<Rect>)
@@ -1906,10 +1933,10 @@ fn draw_panel(
         buttons.push((*kind, drawn));
     }
 
-    // 4. Cheats — informational only here now (plan revision): plain text,
-    // only the ones actually on, no click (toggling moved to the pause book,
-    // `draw_pause_book`, which has the room and isn't racing the clock for
-    // space). Absent entirely with none on, not an empty "cheats" label.
+    // 4. Cheats — informational only here (plan revision): plain text, only
+    // the ones actually on, no click (toggling lives in its own Cheats
+    // modal now, reachable from a `commands` row above). Absent entirely
+    // with none on, not an empty "cheats" label.
     let cheats_on: Vec<&str> = panel
         .cheats
         .iter()
@@ -1923,9 +1950,6 @@ fn draw_panel(
     let cheats_fit = cy + 16 + (GLYPH_H as i32 + 2) * 2 + GLYPH_H as i32 <= limit;
     if !cheats_on.is_empty() && cheats_fit {
         cy += 16;
-        // "Pausar pra editar" is the discoverability fix for a real report:
-        // with no hint here, a player who wants to turn a cheat off has no
-        // way to know the interruptor moved to the pause book.
         cy = draw_text_wrapped_absolute(
             canvas,
             font,
@@ -1933,7 +1957,7 @@ fn draw_panel(
             cy,
             inner_w,
             TextStyle::new(1, PANEL_DIM),
-            "cheats ativos (pausar pra editar)",
+            "cheats ativos (botao Cheats pra editar)",
         );
         cy += 4;
         for desc in cheats_on {
@@ -1955,10 +1979,14 @@ fn draw_panel(
         }
     }
 
-    // 5. Notes — most-recent capture + counter (plan §3.2, item 5; §3.4).
-    // Absent entirely with nothing captured yet, not a "no notes" filler.
-    // Same room-for-header-plus-content check as cheats, above — the
-    // thumbnail (when there is one) needs its own extra room accounted for.
+    // 5. Notes — a pinned print's thumbnail + counter (plan §3.2, item 5;
+    // §3.4; plan revision: used to show whatever was captured/viewed most
+    // recently, pin or not — surprising, since a slot nobody deliberately
+    // featured would show up here anyway. Now it's opt-in: nothing shows
+    // unless at least one of the 15 slots is pinned). Absent entirely with
+    // nothing pinned, not a "no notes" filler. Same room-for-header-plus-
+    // content check as cheats, above — the thumbnail (when there is one)
+    // needs its own extra room accounted for.
     let notes_h =
         16 + (GLYPH_H as i32 + 6) + if panel.has_note_thumb { 70 + 6 } else { 0 } + GLYPH_H as i32;
     if panel.note_count > 0 && cy + notes_h <= limit {
@@ -1977,11 +2005,11 @@ fn draw_panel(
             draw_image_absolute(canvas, images, PANEL_NOTE_IMG, x, cy, inner_w, 70);
             cy += 70 + 6;
         }
-        let label = format!(
-            "{} slot{} usados",
-            panel.note_count,
-            if panel.note_count == 1 { "" } else { "s" }
-        );
+        let label = if panel.note_count == 1 {
+            "1 slot fixado".to_string()
+        } else {
+            format!("{} slots fixados", panel.note_count)
+        };
         draw_text_absolute(
             canvas,
             font,
@@ -2167,7 +2195,6 @@ fn draw_pause_book(
     font: &mut Texture,
     images: &HashMap<u64, ImgTex>,
     pause: Option<&PauseNote>,
-    cheats: &[(String, bool)],
     out_w: u32,
     out_h: u32,
 ) -> Vec<(PanelButton, Rect)> {
@@ -2266,7 +2293,7 @@ fn draw_pause_book(
         } else {
             format!("{} de {} slots usados.", pause.filled, pause.captures)
         };
-        cy = draw_text_wrapped_absolute(
+        draw_text_wrapped_absolute(
             canvas,
             font,
             lx,
@@ -2276,35 +2303,7 @@ fn draw_pause_book(
             &status,
         );
 
-        // Cheats — moved here from the side panel (plan revision): plenty of
-        // room, and pausing already stopped the game from consuming input,
-        // so gamepad-menu-nav could reach these too (not wired up yet).
         let write_y = left.bottom() - pad - btn_h;
-        if !cheats.is_empty() {
-            cy += 16;
-            draw_text_absolute(
-                canvas,
-                font,
-                lx,
-                cy,
-                TextStyle::new(1, PANEL_DIM),
-                "cheats",
-                usize::MAX,
-            );
-            cy += GLYPH_H as i32 + 6;
-            let cheats_limit = write_y - 10;
-            for (i, (desc, on)) in cheats.iter().enumerate() {
-                if cy >= cheats_limit {
-                    break;
-                }
-                let mark = if *on { "[x] " } else { "[ ] " };
-                let btn = Rect::new(lx, cy, lw, GLYPH_H + 8);
-                let drawn = draw_button(canvas, font, btn, &format!("{mark}{desc}"), true);
-                cy = drawn.bottom() + 4;
-                buttons.push((PanelButton::CheatRow(i), drawn));
-            }
-        }
-
         let write_btn = Rect::new(lx, write_y, lw, btn_h as u32);
         buttons.push((
             PanelButton::PauseWrite,
@@ -2413,28 +2412,25 @@ fn draw_pause_book(
         ),
     ));
 
-    // Buttons below both pages, in the same margin band above them
+    // Button below both pages, in the same margin band above them
     // (`pause_pages` leaves a symmetric top/bottom gap of `PAUSE_TOP`) —
-    // hidden while writing (commit/cancel the draft first).
+    // hidden while writing (commit/cancel the draft first). Spans both pages
+    // (plan revision: used to split this band with "Avancar quadro", a
+    // dev-only frame-step nobody reached through the actual UI — removed,
+    // so the one real action left gets the whole width).
     if pause.draft.is_none() {
         let band = (out_h as f32 * PAUSE_TOP) as i32;
         let bottom_btn_h = (GLYPH_H + 12) as i32;
         let btn_y = out_h as i32 - band + (band - bottom_btn_h).max(0) / 2;
-        let gap = (out_w as f32 * PAUSE_GAP) as i32;
-        let continue_btn = Rect::new(left.x(), btn_y, left.width(), bottom_btn_h as u32);
-        let step_btn = Rect::new(
-            left.x() + left.width() as i32 + gap,
+        let continue_btn = Rect::new(
+            left.x(),
             btn_y,
-            right.width(),
+            (right.right() - left.x()).max(0) as u32,
             bottom_btn_h as u32,
         );
         buttons.push((
             PanelButton::PauseContinue,
             draw_button(canvas, font, continue_btn, "Continuar", true),
-        ));
-        buttons.push((
-            PanelButton::PauseStep,
-            draw_button(canvas, font, step_btn, "Avancar quadro", true),
         ));
     }
 
@@ -2534,9 +2530,37 @@ fn draw_modal(
     let col_w = 200u32;
     let card_w =
         card_w.max(pad as u32 * 2 + col_w * cols as u32 + col_gap as u32 * (cols as u32 - 1));
-    let card_h =
-        pad as u32 * 2 + GLYPH_H + 16 + rows_per_col as u32 * row_h as u32 + 12 + btn_h as u32;
-    let card = centered_in(whole, card_w, card_h.min(out_h.saturating_sub(40)));
+
+    // How many rows fit without any scroll UI eating into the budget —
+    // matches every dialog that's had room to just show everything so far
+    // (save/load's 10, print's 15). Only once a list (the Cheats modal, for
+    // a database-heavy game) overflows even a generous card does scrolling
+    // — and the two extra rows it costs — enter the picture at all.
+    let max_card_h = out_h.saturating_sub(40);
+    let fixed_overhead = pad as u32 * 2 + GLYPH_H + 16 + 12 + btn_h as u32;
+    let budget_no_scroll = max_card_h.saturating_sub(fixed_overhead) as i32;
+    let rows_that_fit = (budget_no_scroll / row_h).max(1) as usize;
+    let scrollable = rows_per_col > rows_that_fit;
+    let visible_rows = if scrollable {
+        let scroll_ui_h = (btn_h + 8) * 2;
+        let budget = budget_no_scroll - scroll_ui_h;
+        (budget / row_h).max(1) as usize
+    } else {
+        rows_per_col
+    };
+    let scroll = if scrollable {
+        modal.scroll.min(rows_per_col - visible_rows)
+    } else {
+        0
+    };
+
+    let extra_h = if scrollable {
+        ((btn_h + 8) * 2) as u32
+    } else {
+        0
+    };
+    let card_h = fixed_overhead + extra_h + visible_rows as u32 * row_h as u32;
+    let card = centered_in(whole, card_w, card_h.min(max_card_h));
     canvas.set_draw_color(Color::RGB(PANEL_BG.0, PANEL_BG.1, PANEL_BG.2));
     let _ = canvas.fill_rect(card);
 
@@ -2552,21 +2576,70 @@ fn draw_modal(
         &modal.title,
         usize::MAX,
     );
+    if scrollable {
+        // Same "counter next to a scale-2 heading" placement the naming
+        // step's char counter already uses, just against the title instead
+        // of a draft's text — no extra row spent on it.
+        let counter = format!(
+            "{}-{}/{}",
+            scroll + 1,
+            (scroll + visible_rows).min(rows_per_col),
+            rows_per_col
+        );
+        let counter_w = (GLYPH_W as i32) * counter.chars().count() as i32;
+        draw_text_absolute(
+            canvas,
+            font,
+            card.right() - pad - counter_w,
+            cy,
+            TextStyle::new(1, PANEL_DIM),
+            &counter,
+            usize::MAX,
+        );
+    }
     cy += GLYPH_H as i32 + 16;
+
+    if scrollable {
+        let up = Rect::new(x, cy, inner_w, btn_h as u32);
+        buttons.push((
+            PanelButton::ModalScrollUp,
+            draw_button(canvas, font, up, "^ Cima", scroll > 0),
+        ));
+        cy += btn_h + 8;
+    }
 
     let rows_top = cy;
     for (i, row) in modal.rows.iter().enumerate() {
         let col = i / rows_per_col;
         let row_in_col = i % rows_per_col;
+        if row_in_col < scroll || row_in_col >= scroll + visible_rows {
+            continue; // scrolled out of view this frame
+        }
         let rx = x + col as i32 * (col_w as i32 + col_gap);
-        let ry = rows_top + row_in_col as i32 * row_h;
+        let ry = rows_top + (row_in_col - scroll) as i32 * row_h;
         let rect = Rect::new(rx, ry, col_w, (row_h - 4) as u32);
         buttons.push((
-            PanelButton::ModalSlot(i as u8),
+            PanelButton::ModalSlot(i as u16),
             draw_button(canvas, font, rect, &row.label, row.enabled),
         ));
     }
-    cy = rows_top + rows_per_col as i32 * row_h + 12;
+    cy = rows_top + visible_rows as i32 * row_h;
+
+    if scrollable {
+        let down = Rect::new(x, cy, inner_w, btn_h as u32);
+        buttons.push((
+            PanelButton::ModalScrollDown,
+            draw_button(
+                canvas,
+                font,
+                down,
+                "v Baixo",
+                scroll + visible_rows < rows_per_col,
+            ),
+        ));
+        cy += btn_h + 8;
+    }
+    cy += 12;
 
     let cancel = Rect::new(x, cy, inner_w, btn_h as u32);
     buttons.push((
