@@ -178,6 +178,9 @@ pub struct Cabinet {
     /// The pause book's content (plan §3.2/§3.4), set once on entering pause
     /// and read every frame while `present_pause` is what's on screen.
     pause: Option<PauseNote>,
+    /// A save/load-state or print slot picker (plan revision), set on
+    /// opening one and read every frame while `present_modal` is on screen.
+    modal: Option<ModalInfo>,
     fullscreen: bool,
     /// Clickable panel buttons drawn last frame, in output/canvas coordinates
     /// — `hit_panel_button` scans this. Repopulated by `present_frame`/
@@ -188,6 +191,9 @@ pub struct Cabinet {
     /// book replaces the whole window (no side panel drawn alongside it), so
     /// it needs its own list rather than sharing `panel_buttons`.
     pause_buttons: Vec<(PanelButton, Rect)>,
+    /// Clickable buttons on the modal dialog drawn last frame —
+    /// `hit_modal_button` scans this, same pattern as `pause_buttons`.
+    modal_buttons: Vec<(PanelButton, Rect)>,
     /// Where the cabinet actually drew last frame, in real window/output
     /// pixels — always 16:9, letterboxed/pillarboxed to fit whatever the
     /// window's own shape is (plan: don't distort on an ultrawide monitor).
@@ -209,16 +215,26 @@ pub enum PanelButton {
     Power,
     Eject,
     Reset,
-    Pause,
-    NoteCapture,
-    /// Cycle the note slot `NoteCapture` targets (plan revision: fixed
-    /// 1..=15 slots, not a screenshot feature — that's gone, it didn't earn
-    /// its keep next to a real notebook).
-    NoteSlot,
+    /// Pauses and opens the notebook in one click (plan revision — replaces
+    /// the old separate "Pausar" button; "Nota" moved to `PrintScreen`).
+    Notebook,
+    /// Grabs the current frame and opens a modal to pick which of the 15
+    /// note slots to save it into, with a name (plan revision — replaces
+    /// the old direct-capture "Nota" button and its slot cycler).
+    PrintScreen,
+    /// Opens a modal to pick which of the save-state slots to write into
+    /// (plan revision — used to save straight into a pre-cycled slot).
     SaveState,
+    /// Opens a modal to pick which save-state slot to load, mirroring
+    /// `SaveState`.
     LoadState,
-    NextSlot,
-    Turbo,
+    /// One slot row inside whichever modal (`SaveState`/`LoadState`/
+    /// `PrintScreen`) is open right now.
+    ModalSlot(u8),
+    /// Confirm the modal's text step (naming a print).
+    ModalConfirm,
+    /// Back out of whichever modal is open, discarding any choice so far.
+    ModalCancel,
     /// One cheat row, addressed directly — a click both selects and toggles
     /// it, no separate cursor step (plan revision: mouse/gamepad only).
     /// Drawn on the pause book now, not the side panel (see `PanelInfo`'s
@@ -276,12 +292,34 @@ struct PauseNote {
     draft_heading: String,
 }
 
+/// One clickable row in a `ModalInfo`'s slot grid — `enabled` false dims it
+/// the same way `draw_button` dims anything that wouldn't do anything right
+/// now (e.g. "Carregar" on an empty slot, or a pinned print slot).
+struct ModalRow {
+    label: String,
+    enabled: bool,
+}
+
+/// A modal dialog (plan revision) — save/load-state and "which slot for
+/// this print" pickers: a title, a grid of slot rows, and a Cancel button;
+/// lighter than the two-page pause book, since picking a slot is the whole
+/// job here. Once a print's slot is picked, `draft` replaces the row grid
+/// with a text field (name it) plus Confirm/Cancel — same idea as the pause
+/// book's own draft mode (`PauseNote::draft`), just a lighter home for it.
+struct ModalInfo {
+    title: String,
+    rows: Vec<ModalRow>,
+    draft: Option<String>,
+    draft_limit: usize,
+    draft_heading: String,
+}
+
 /// What to draw at the top of the side panel: the `wheel` logo if we have
 /// it, else the ROM's title, plus cartridge art right below when there's a
 /// local file for it (plan revision — both are optional, independent of
 /// each other). `commands` is the button legend (plan §3.2, item 3), one
 /// clickable row per entry, rebuilt every frame by the caller since several
-/// labels are live state (current slot, turbo on/off, ...) — see
+/// labels are live state (e.g. a "(feito!)" flash) — see
 /// `Cabinet::set_commands`. `cheats` (item 4, plan §4.4) is
 /// informational-only here now — `(description, on)` pairs, only the ones
 /// that are on get drawn, plain text; toggling moved to the pause book
@@ -382,9 +420,11 @@ impl Cabinet {
             panel: None,
             session: Duration::ZERO,
             pause: None,
+            modal: None,
             fullscreen: false,
             panel_buttons: Vec::new(),
             pause_buttons: Vec::new(),
+            modal_buttons: Vec::new(),
             canvas_rect,
         })
     }
@@ -460,8 +500,8 @@ impl Cabinet {
     /// image drawn right below it when present (plan revision — neither
     /// needs the other). `commands` is the initial button legend (item 3,
     /// plan revision: mouse-only) — see `set_commands` for the per-frame
-    /// updates that follow (labels like the current slot or turbo state
-    /// change live). Call once per game.
+    /// updates that follow (labels like a "(feito!)" flash change live).
+    /// Call once per game.
     pub fn set_panel(
         &mut self,
         logo: Option<(u32, u32, &[u8])>,
@@ -497,10 +537,9 @@ impl Cabinet {
         });
     }
 
-    /// Refresh the command legend's labels (plan revision: several are live
-    /// state now — the current save/load slot, whether turbo is on — so the
-    /// caller rebuilds and passes this every frame instead of once). A no-op
-    /// before `set_panel`.
+    /// Refresh the command legend's labels (plan revision: a "(feito!)"
+    /// flash on a silent action is live state, so the caller rebuilds and
+    /// passes this every frame instead of once). A no-op before `set_panel`.
     pub fn set_commands(&mut self, commands: &[(PanelButton, String)]) {
         if let Some(panel) = &mut self.panel {
             panel.commands = commands.to_vec();
@@ -640,6 +679,102 @@ impl Cabinet {
             p.draft_limit = limit;
             p.draft_heading = heading.to_string();
         }
+    }
+
+    /// Open (or replace) a save/load-state or print slot picker (plan
+    /// revision): `title` names the dialog, `rows` is one `(label, enabled)`
+    /// pair per slot in order — a disabled row (e.g. "Carregar" on an empty
+    /// slot, or a pinned print slot) still shows, just dimmed and unclickable.
+    pub fn set_modal(&mut self, title: &str, rows: &[(String, bool)]) {
+        self.modal = Some(ModalInfo {
+            title: title.to_string(),
+            rows: rows
+                .iter()
+                .map(|(label, enabled)| ModalRow {
+                    label: label.clone(),
+                    enabled: *enabled,
+                })
+                .collect(),
+            draft: None,
+            draft_limit: 0,
+            draft_heading: String::new(),
+        });
+    }
+
+    /// Enter/update/leave the modal's naming step (plan revision — the print
+    /// picker's second step, same idea as `set_pause_draft`): `Some(text)`
+    /// replaces the row grid with `text` and a `.../limit` counter. A no-op
+    /// before `set_modal`.
+    pub fn set_modal_draft(&mut self, draft: Option<&str>, limit: usize, heading: &str) {
+        if let Some(m) = &mut self.modal {
+            m.draft = draft.map(str::to_string);
+            m.draft_limit = limit;
+            m.draft_heading = heading.to_string();
+        }
+    }
+
+    /// Close whichever modal is open — call once the player picks a slot (or
+    /// finishes naming a print) and the action's done, or on Cancel.
+    pub fn clear_modal(&mut self) {
+        self.modal = None;
+    }
+
+    /// Same as `hit_panel_button`, for the modal dialog's own buttons — a
+    /// separate list since the modal replaces the whole window instead of
+    /// sharing it with the side panel (see `modal_buttons`).
+    pub fn hit_modal_button(&self, out_x: i32, out_y: i32) -> Option<PanelButton> {
+        self.modal_buttons
+            .iter()
+            .find(|(_, r)| r.contains_point((out_x, out_y)))
+            .map(|(b, _)| *b)
+    }
+
+    /// Draw the modal dialog to the window, replacing the whole window like
+    /// the pause book does (plan revision).
+    pub fn present_modal(&mut self) {
+        let (real_w, real_h) = self.canvas.output_size().unwrap_or((1280, 720));
+        let rect = cabinet_canvas_rect(real_w, real_h);
+        self.canvas_rect = rect;
+        self.canvas
+            .set_draw_color(Color::RGB(RECESS.0, RECESS.1, RECESS.2));
+        self.canvas.clear();
+        self.canvas.set_viewport(Some(rect));
+        self.modal_buttons = draw_modal(
+            &mut self.canvas,
+            &mut self.font,
+            self.modal.as_ref(),
+            rect.width(),
+            rect.height(),
+        );
+        self.canvas.set_viewport(None);
+        self.canvas.present();
+    }
+
+    /// Like [`Cabinet::present_modal`] but composited into an offscreen
+    /// target and saved as a BMP (headless preview).
+    pub fn capture_modal_bmp(&mut self, path: &std::path::Path) -> Result<(), PlatformError> {
+        let (real_w, real_h) = self.canvas.output_size().unwrap_or((1280, 720));
+        let rect = cabinet_canvas_rect(real_w, real_h);
+        let mut target = self
+            .canvas
+            .create_texture_target(SdlFormat::RGBA32, real_w, real_h)
+            .map_err(|e| PlatformError::Sdl(e.to_string()))?;
+        let modal = self.modal.as_ref();
+        let font = &mut self.font;
+        let mut saved: Result<(), PlatformError> = Ok(());
+        let outcome = self.canvas.with_texture_canvas(&mut target, |c| {
+            c.set_draw_color(Color::RGB(RECESS.0, RECESS.1, RECESS.2));
+            c.clear();
+            c.set_viewport(Some(rect));
+            let _ = draw_modal(c, font, modal, rect.width(), rect.height());
+            c.set_viewport(None);
+            saved = c
+                .read_pixels(None::<Rect>)
+                .and_then(|s| s.save_bmp(path))
+                .map_err(|e| PlatformError::Sdl(e.to_string()));
+        });
+        outcome.map_err(|e| PlatformError::Sdl(e.to_string()))?;
+        saved
     }
 
     /// Draw the pause book to the window: two pages, not warped by the tube,
@@ -2302,6 +2437,142 @@ fn draw_pause_book(
             draw_button(canvas, font, step_btn, "Avancar quadro", true),
         ));
     }
+
+    buttons
+}
+
+/// Draw the modal dialog: a single centered card on a plain background,
+/// replacing the whole window like the pause book does (plan revision) but
+/// much lighter — a title, then either a grid of clickable slot rows (two
+/// columns once there are more than a handful, so the 15 print slots don't
+/// make the card comically tall) plus a Cancel button, or — once a print's
+/// slot is picked — a text field (name it) with Confirm/Cancel. `None`
+/// (shouldn't happen — always set before `present_modal`/`capture_modal_bmp`
+/// are called) draws nothing and returns no buttons.
+fn draw_modal(
+    canvas: &mut WindowCanvas,
+    font: &mut Texture,
+    modal: Option<&ModalInfo>,
+    out_w: u32,
+    out_h: u32,
+) -> Vec<(PanelButton, Rect)> {
+    canvas.set_draw_color(Color::RGB(CABINET.0, CABINET.1, CABINET.2));
+    let _ = canvas.fill_rect(Rect::new(0, 0, out_w, out_h));
+    let Some(modal) = modal else {
+        return Vec::new();
+    };
+
+    let pad = 24i32;
+    let btn_h = (GLYPH_H + 10) as i32;
+    let row_h = (GLYPH_H + 6) as i32;
+    let whole = Rect::new(0, 0, out_w, out_h);
+    let mut buttons = Vec::new();
+
+    // Naming step: the row grid is replaced by a text field, same card width
+    // either way so the dialog doesn't visibly jump size between steps.
+    let card_w = 460u32.min(out_w.saturating_sub(80));
+    if let Some(draft) = &modal.draft {
+        let card_h = pad as u32 * 2 + GLYPH_H + 8 + GLYPH_H * 2 + 12 + btn_h as u32;
+        let card = centered_in(whole, card_w, card_h);
+        canvas.set_draw_color(Color::RGB(PANEL_BG.0, PANEL_BG.1, PANEL_BG.2));
+        let _ = canvas.fill_rect(card);
+
+        let x = card.x() + pad;
+        let inner_w = card.width().saturating_sub(pad as u32 * 2);
+        let mut cy = card.y() + pad;
+        cy = draw_text_wrapped_absolute(
+            canvas,
+            font,
+            x,
+            cy,
+            inner_w,
+            TextStyle::new(1, PANEL_DIM),
+            &modal.draft_heading,
+        );
+        cy += 8;
+        draw_text_absolute(
+            canvas,
+            font,
+            x,
+            cy,
+            TextStyle::new(2, PANEL_TEXT),
+            draft,
+            usize::MAX,
+        );
+        let counter = format!("{}/{}", draft.chars().count(), modal.draft_limit);
+        let counter_w = (GLYPH_W as i32) * counter.chars().count() as i32;
+        draw_text_absolute(
+            canvas,
+            font,
+            card.right() - pad - counter_w,
+            cy,
+            TextStyle::new(1, PANEL_DIM),
+            &counter,
+            usize::MAX,
+        );
+        cy += GLYPH_H as i32 * 2 + 12;
+
+        let gap = 12i32;
+        let half_w = ((inner_w as i32 - gap) / 2).max(1) as u32;
+        let confirm = Rect::new(x, cy, half_w, btn_h as u32);
+        let cancel = Rect::new(x + half_w as i32 + gap, cy, half_w, btn_h as u32);
+        buttons.push((
+            PanelButton::ModalConfirm,
+            draw_button(canvas, font, confirm, "Salvar", true),
+        ));
+        buttons.push((
+            PanelButton::ModalCancel,
+            draw_button(canvas, font, cancel, "Cancelar", true),
+        ));
+        return buttons;
+    }
+
+    // Row-picking step.
+    let cols = if modal.rows.len() > 8 { 2usize } else { 1usize };
+    let rows_per_col = modal.rows.len().div_ceil(cols);
+    let col_gap = 16i32;
+    let col_w = 200u32;
+    let card_w =
+        card_w.max(pad as u32 * 2 + col_w * cols as u32 + col_gap as u32 * (cols as u32 - 1));
+    let card_h =
+        pad as u32 * 2 + GLYPH_H + 16 + rows_per_col as u32 * row_h as u32 + 12 + btn_h as u32;
+    let card = centered_in(whole, card_w, card_h.min(out_h.saturating_sub(40)));
+    canvas.set_draw_color(Color::RGB(PANEL_BG.0, PANEL_BG.1, PANEL_BG.2));
+    let _ = canvas.fill_rect(card);
+
+    let x = card.x() + pad;
+    let inner_w = card.width().saturating_sub(pad as u32 * 2);
+    let mut cy = card.y() + pad;
+    draw_text_absolute(
+        canvas,
+        font,
+        x,
+        cy,
+        TextStyle::new(2, PANEL_TEXT),
+        &modal.title,
+        usize::MAX,
+    );
+    cy += GLYPH_H as i32 + 16;
+
+    let rows_top = cy;
+    for (i, row) in modal.rows.iter().enumerate() {
+        let col = i / rows_per_col;
+        let row_in_col = i % rows_per_col;
+        let rx = x + col as i32 * (col_w as i32 + col_gap);
+        let ry = rows_top + row_in_col as i32 * row_h;
+        let rect = Rect::new(rx, ry, col_w, (row_h - 4) as u32);
+        buttons.push((
+            PanelButton::ModalSlot(i as u8),
+            draw_button(canvas, font, rect, &row.label, row.enabled),
+        ));
+    }
+    cy = rows_top + rows_per_col as i32 * row_h + 12;
+
+    let cancel = Rect::new(x, cy, inner_w, btn_h as u32);
+    buttons.push((
+        PanelButton::ModalCancel,
+        draw_button(canvas, font, cancel, "Cancelar", true),
+    ));
 
     buttons
 }
