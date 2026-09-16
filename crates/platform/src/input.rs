@@ -128,24 +128,49 @@ pub enum UiEvent {
     /// long enough that this stopped being hypothetical).
     ModalScrollUp,
     ModalScrollDown,
+    /// Click the Cheats modal's search box — only drawn (and only
+    /// clickable) on a modal that's marked searchable, which today is only
+    /// Cheats (plan revision: the libretro-database expansion made
+    /// scrolling through everything by hand impractical for some games'
+    /// 1000+-cheat lists). Polled via `Platform::poll_text_entry`, same
+    /// keyboard-typing exception as the notebook's own editors.
+    ModalSearchStart,
     /// Open the Cheats modal — a checklist of curated codes for this
     /// cartridge (plan revision: its own menu, split out of the notebook,
     /// which was getting crowded and had no room for a "pausar pra editar"
     /// hint to make sense of it). Toggling a row (`ModalPick`) flips it and
     /// keeps the modal open, unlike the other three modals' one-shot pick.
     OpenCheatsModal,
-    /// Pause book: step the right page to an earlier/later note slot.
+    /// Pause book: step the right page (the photo album) to an earlier/
+    /// later print slot.
     NotePrev,
     NoteNext,
-    /// Pause book: open the free-text note editor (the one deliberate
-    /// keyboard-typing exception — see `Platform::poll_text_entry`).
+    /// Pause book: open the editor for the left page's currently-shown
+    /// text-note slot (plan revision — repurposed from "append a new,
+    /// always-blank free-text page": now targets whichever of the 15 slots
+    /// `TextPrev`/`TextNext` left showing, pre-filled with what's already
+    /// there so editing doesn't start by erasing it) — the one deliberate
+    /// keyboard-typing exception, see `Platform::poll_text_entry`.
     NoteWriteStart,
-    /// Pause book: toggle whether the shown slot resists a future "Nota"
-    /// overwrite (plan revision).
+    /// Pause book: toggle whether the right page's shown print slot
+    /// resists a future "Printscreen" overwrite (plan revision).
     NotePinToggle,
-    /// Pause book: open the editor for the shown slot's caption (plan
-    /// revision) — same keyboard-typing exception as `NoteWriteStart`.
+    /// Pause book: open the editor for the shown print slot's caption
+    /// (plan revision) — same keyboard-typing exception as `NoteWriteStart`.
     NoteNameStart,
+    /// Pause book: step the left page (the 15 text-note slots, plan
+    /// revision) to an earlier/later one — independent of `NotePrev`/
+    /// `NoteNext`, which move the *right* page's print slot instead.
+    TextPrev,
+    TextNext,
+    /// Pause book: toggle whether the left page's shown text-note slot
+    /// resists a future overwrite *or delete* (plan revision — pin means
+    /// "protected" the same way it already does for a print slot).
+    TextPinToggle,
+    /// Pause book: clear the left page's shown text-note slot — refused
+    /// while it's pinned, same protection `TextPinToggle` grants a print
+    /// slot against being overwritten.
+    TextDelete,
     /// Left mouse button went down, in **window** coordinates — the caller
     /// (which owns the `Cabinet`) converts to output/canvas space via
     /// `Cabinet::window_to_output` before hit-testing anything.

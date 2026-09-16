@@ -7,6 +7,39 @@ versionamento segue [SemVer](https://semver.org/lang/pt-BR/). Enquanto a versão
 for `0.x`, a API das crates e a interface de linha de comando podem mudar sem
 aviso — só o incremento de _minor_ marca um conjunto de mudanças.
 
+## [Não lançado]
+
+### Adicionado
+
+- **Anotações de texto viram 15 slots visíveis, iguais aos prints**: a
+  página esquerda do caderno (antes só um botão "Escrever anotacao" que
+  sempre acrescentava uma página nova a um arquivo só, sem jeito nenhum
+  de ver o que já tinha sido escrito) agora mostra o conteúdo salvo,
+  com `< anterior`/`proxima >` pra navegar entre as 15, "Fixar" (protege
+  de sobrescrita e exclusão, igual já funcionava pros prints),
+  "Escrever"/"Editar" (pré-preenchido com o texto já salvo) e um "Apagar"
+  novo (desabilitado num slot fixado ou vazio). Anotações escritas antes
+  dessa revisão (no antigo `notas.txt`) são migradas automaticamente pros
+  slots numerados na primeira vez que o jogo abre depois da atualização.
+
+- **Busca na modal de Cheats**: um campo "Buscar..." filtra a lista pelo
+  texto digitado (case-insensitive, em qualquer parte da descrição) —
+  necessário depois da base crescer pra milhares de códigos por jogo em
+  alguns casos.
+
+### Corrigido
+
+- **Textos quebrados/sobrepostos nas modais** (Cheats, mas o bug valia
+  pra qualquer botão): um rótulo maior que a caixa desenhava por cima da
+  coluna vizinha em vez de cortar — inofensivo enquanto todo rótulo era
+  curto ("Slot 3"), virou visível assim que a modal de Cheats passou a
+  mostrar descrições da base do libretro-database. Rótulo longo demais
+  agora corta com reticências (`...`); a coluna também ficou bem mais
+  larga por padrão (calculada a partir do rótulo mais comprido da lista,
+  não mais um valor fixo de 200px), então a maioria nem chega a cortar.
+- Descrições de cheat que vinham com `&quot;`/`&amp;`/etc. escapado (HTML)
+  na base agora aparecem com o caractere de verdade.
+
 ## [0.7.0] - 2026-09-16
 
 ### Adicionado

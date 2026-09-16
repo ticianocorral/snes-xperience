@@ -1443,7 +1443,7 @@ C	Start With 250 Spell Points In RPG Sequences	EC85-6D68
 C	Infinite MP	C9BD-6467
 C	Infinite Spell Points	CEA5-6DA3
 C	Unlock Professional Mode	DD67-D7AD
-C	Have Magic Spell &amp; 24 MP in Professional Mode	69C4-AF6C+62C4-A7DC+CBC4-A46C
+C	Have Magic Spell & 24 MP in Professional Mode	69C4-AF6C+62C4-A7DC+CBC4-A46C
 C	Towns Always Able To Grow	DD60-07A2
 C	All Monster Lairs Always Empty	B38B-07D3
 C	Almost invincible in action sequences	2264-6FD4
@@ -1824,7 +1824,7 @@ C	Double Jump	DD87-0FA7
 C	Have Flying Hat	6DAC-6FDD
 C	Infinite Health	7E00C303
 C	Infinite Lives	7E00AC99
-C	Invincible (&quot;Starman&quot; Effect)	7E00C5FF
+C	Invincible ("Starman" Effect)	7E00C5FF
 C	Invincible (Invisible Effect)	7E00C6FF
 C	Always Have Fencing Sword	7E00EEFF
 C	Always Have Golf Ball	7E00EFFF
@@ -2114,12 +2114,12 @@ C	Start with 6 credits	D186-4D19
 C	No credits	DD86-4D19
 C	Infinite lives	C988-340D
 C	No damage from enemies	DD8A-4D6D
-C	Don't start with any stars &amp; spray gun ammo	DDB3-376F
-C	Start with 25 stars &amp; spray gun ammo when starting game	FBB3-376F
-C	Start with 50 stars &amp; spray gun ammo when starting game	77B3-376F
-C	Don't start with any explosives &amp; smoke bomb ammo	DDBE-3F0F
-C	Start with 25 explosives &amp; smoke bomb ammo	FBBE-3F0F
-C	Start with 50 explosives &amp; smoke bomb ammo	77BE-3F0F
+C	Don't start with any stars & spray gun ammo	DDB3-376F
+C	Start with 25 stars & spray gun ammo when starting game	FBB3-376F
+C	Start with 50 stars & spray gun ammo when starting game	77B3-376F
+C	Don't start with any explosives & smoke bomb ammo	DDBE-3F0F
+C	Start with 25 explosives & smoke bomb ammo	FBBE-3F0F
+C	Start with 50 explosives & smoke bomb ammo	77BE-3F0F
 C	Infinite stars	C9A1-34AF
 C	Infinite spray gun ammo	C9A5-34DF
 C	Infinite plastic explosives	C9AB-3D6F
@@ -2292,16 +2292,16 @@ G	Aero Fighters (USA)
 C	Max cannon power	7FB79403
 C	Infinite Bombs/Specials	7FB79002
 C	Infinite Lives	7FB78C02
-C	Infinite Lives P1 &amp; P2	8229-37A0
-C	Don't Lose Power-ups When You Die P1 &amp; P2	8229-37D0
-C	Infinite Bombs &quot;American F-18&quot; P1	8237-47A1
-C	Infinite Bombs &quot;Japanese FSX&quot; P1	8237-47A9
-C	Infinite Bombs &quot;Swedish AJ-37&quot; P1	8237-1D09
-C	Infinite Bombs &quot;British AV-8&quot; P1	8237-17A9
-C	Infinite Bombs &quot;American F-15&quot; P2	823E-3D60
-C	Infinite Bombs &quot;Japanese F-15&quot; P2	823A-4D09
-C	Infinite Bombs &quot;Swedish JAS-39&quot; P2	8239-1FD9
-C	Infinite Bombs &quot;British IDS&quot; P2	823D-C769
+C	Infinite Lives P1 & P2	8229-37A0
+C	Don't Lose Power-ups When You Die P1 & P2	8229-37D0
+C	Infinite Bombs "American F-18" P1	8237-47A1
+C	Infinite Bombs "Japanese FSX" P1	8237-47A9
+C	Infinite Bombs "Swedish AJ-37" P1	8237-1D09
+C	Infinite Bombs "British AV-8" P1	8237-17A9
+C	Infinite Bombs "American F-15" P2	823E-3D60
+C	Infinite Bombs "Japanese F-15" P2	823A-4D09
+C	Infinite Bombs "Swedish JAS-39" P2	8239-1FD9
+C	Infinite Bombs "British IDS" P2	823D-C769
 C	Invincibility	82C2-4D64
 C	Hit Anywhere	6DC5-1F0D+40CA-14DD+40CA-17AD+40C2-1FDD+40C2-14DD+40C2-17DD+6DCB-1DAD
 C	One Hit Kills	6DCB-1DAD
@@ -3310,7 +3310,7 @@ C	Start With Full Health Bar On Standard Level	EEB5-6404+EEB5-64A4
 C	Start With Full Health Bar On Novice Level	EEB5-6704+EEB5-67A4
 C	Start With Full Health Bar On Advanced Level	EEB6-6D04+EEB6-6DA4
 C	Start With Full Health Bar On Expert Level	EEB6-6F04+EEB6-6FA4
-C	1 Hit Kills Enemies &amp; Bosses	7E1A0400+7E112400+7E1AA400
+C	1 Hit Kills Enemies & Bosses	7E1A0400+7E112400+7E1AA400
 G	Amazing Spider-Man, The - Lethal Foes (Japan) (Action Replay)
 C	Infinite Time	7E1C2299
 C	Infinite Health	7E1C2640
@@ -3418,7 +3418,7 @@ C	Coin Modifier	7F001600
 C	Moon Jump	7E0415FF
 C	Invincible	BDEA-DD77
 C	Higher Jump	EEBF-4D0A
-C	Press And Hold Up Or Down Against Some Walls To &quot;Climb&quot; Them	EEB2-4D0A
+C	Press And Hold Up Or Down Against Some Walls To "Climb" Them	EEB2-4D0A
 C	Better Vertical Jump Control	EEBE-476A
 C	Invincibility	7E04B602
 C	Jump in Midair	4D63-C763+1863-C7A3+B06E-CDD3+3C6E-CD03
@@ -3473,10 +3473,10 @@ G	Araiguma Rascal (Japan)
 C	Quickly Finish Stages	7E08BA30
 C	Score Modifier Rascal	7E081B00+7E181C00
 G	Arcade's Greatest Hits - The Atari Collection 1 (USA)
-C	Infinite Lives P1 &amp; P2	82A6-C49B
-C	Infinite Lives P1 &amp; P2	8262-C7DB
-C	Infinite Lives P1 &amp; P2	896E-3D6E
-C	Infinite Serves P1 &amp; P2	C2AB-CDD1
+C	Infinite Lives P1 & P2	82A6-C49B
+C	Infinite Lives P1 & P2	8262-C7DB
+C	Infinite Lives P1 & P2	896E-3D6E
+C	Infinite Serves P1 & P2	C2AB-CDD1
 C	Infinite Lives	C9BE-47B9
 C	9 Lives	7E005709
 C	6 Lives	7E00A507
@@ -4002,8 +4002,8 @@ C	Longest Paddle	7E046E03
 C	Shooting Paddle	7E046E04
 G	Arkanoid - Doh It Again (USA)
 C	Infinite Lives Player 2	C2C7-470D
-C	&quot;S&quot; Capsule Gives You The Laser Paddle	D062-14D5
-C	&quot;S&quot; Capsule Gives You The Longest Paddle	D762-14D5
+C	"S" Capsule Gives You The Laser Paddle	D062-14D5
+C	"S" Capsule Gives You The Longest Paddle	D762-14D5
 C	Force field  Lasts Until The End of Level - Player 1	C2BD-3F60
 C	Keep Current Paddle When You Get Forcefield	DD66-CFA5
 C	Start Every Level And Life With A Forcefield That Can Take Only One Hit - Player 2	336C-CDA9
@@ -5962,7 +5962,7 @@ C	Infinite Time	7E0C5E00
 G	Bass Masters Classic (USA, Japan) (Action Replay)
 C	Time	7E1774FF
 G	Bass Masters Classic - Pro Edition (USA)
-C	Big &amp; Infinite money	7E2242FF
+C	Big & Infinite money	7E2242FF
 C	Always Have $255	7E2240FF+7E2241FF
 C	Hour Modifier	7E0C5C00
 C	Minutes Modifier (Tens Digit)	7E0C5D00
@@ -7010,7 +7010,7 @@ C	Have All Items	3C22-4DDF+3CCB-14D4+C220-44DF+5020-440F
 C	Infinite Health [Switch Off When Picking Up Items]	82C8-CFA4
 C	Item Modifier	7E187600
 C	Have Machinegun	7E021C02
-C	Invincible To Guns &amp; Explosions	7E101544+7E101600
+C	Invincible To Guns & Explosions	7E101544+7E101600
 C	Damaging Falls Increase Health	19C8-CF04
 G	Block Kuzushi (Japan)
 C	Infinite Lives	8285-DDD7
@@ -7856,8 +7856,8 @@ G	Brawl Brothers (USA)
 C	Infinite Angry Mode Once Activated	C18D-4D9D
 C	Infinite Lives	C1A6-17BD
 C	Gain a life instead of losing one	31A6-17BD
-C	Infinite Lives P1 &amp; P2	C9A6-17BD
-C	Play &quot;Rushing Beat Ran&quot;	BAA1-1D0F
+C	Infinite Lives P1 & P2	C9A6-17BD
+C	Play "Rushing Beat Ran"	BAA1-1D0F
 C	Play as Dieter P1	DC6C-3F95
 C	Start In Forest/Gym Area	6268-A70D+C266-4795
 C	Start In ???	6268-A70D+C266-4795
@@ -7869,8 +7869,8 @@ C	Infinite Lives	7E094609
 C	Invincibility	7E0908FF
 C	One Hit Kill	EE6B-CF21+EE6B-C4F1+406B-C4B1
 C	Bosses Die Immediately	EE6E-1D21+EE6E-1FF1+406E-1FB1
-C	Infinite Lives P1 &amp; P2	C9A6-17BD
-C	Play &quot;Rushing Beat Ran&quot;	BAA1-1D0F
+C	Infinite Lives P1 & P2	C9A6-17BD
+C	Play "Rushing Beat Ran"	BAA1-1D0F
 C	Play As Dieter P1	DC6C-3F95
 C	Start In Forest/Gym Area	6268-A70D+C266-4795
 C	Start At A Specific Level	6268-A70D+C266-4795
@@ -8850,11 +8850,11 @@ C	Enable Dali Llama	7E131140
 G	Bubsy II (USA)
 C	9 Lives	7E342209
 C	Infinite Health	7E118804
-C	Start With 9 Lives [Only In &quot;Grand Tour&quot; Mode]	DB8C-5704
-C	Start With 20 Lives [Only In &quot;Grand Tour&quot; Mode]	F08C-5704
+C	Start With 9 Lives [Only In "Grand Tour" Mode]	DB8C-5704
+C	Start With 20 Lives [Only In "Grand Tour" Mode]	F08C-5704
 C	Infinite Lives	C2D8-7DAF
-C	Infinite Time In Most Main Levels [Only Works In The &quot;Play For Points&quot; Mode]	C217-8DD7+C21F-87A7
-C	Infinite Time In Some Bonus Levels [Like &quot;Manifold Destiny&quot;, &quot;Drown and Out&quot;, Etc]	C25C-740D
+C	Infinite Time In Most Main Levels [Only Works In The "Play For Points" Mode]	C217-8DD7+C21F-87A7
+C	Infinite Time In Some Bonus Levels [Like "Manifold Destiny", "Drown and Out", Etc]	C25C-740D
 C	Start With 25 Nerf Gun Bullets [Instead of 1]	FB88-54D4
 C	Infinite Ammo For Nerf Gun	C247-5465
 C	Start With 9 Smart Bombs [Instead of 1]	DB82-5404
@@ -8872,8 +8872,8 @@ C	Infinite Enemies To Marbles	7E34A263
 C	Infinite Diving Suits	7E34A463
 C	999 Marbles	7E34ACE7+7E34AD03
 C	Note	2542-D706
-C	Infinite Time In Most Main Levels (Only Works In The &quot;Play For Points&quot; Mode)	C217-8DD7
-C	Infinite Time In Most Main Levels (Only Works In The &quot;Play For Time&quot; Mode)	C21F-87A7
+C	Infinite Time In Most Main Levels (Only Works In The "Play For Points" Mode)	C217-8DD7
+C	Infinite Time In Most Main Levels (Only Works In The "Play For Time" Mode)	C21F-87A7
 C	Moon Jump	DDD2-E709+DDDA-8F01
 G	Bubsy II (USA, Europe) (Game Genie)
 C	Note	N/A
@@ -9059,7 +9059,7 @@ C	0 VS. 2P Losses	7E0B5400
 C	0 VS. 2P Draws	7E0B5600
 C	Shot Guide Is Always On [For A New 1 Player Game]	338B-0DA4
 C	Shot Guide Is Always On [For A Password Game]	338D-07A4
-C	Shot Guide Is Always On [For &quot;Challenge Record&quot; Mode]	333E-D721
+C	Shot Guide Is Always On [For "Challenge Record" Mode]	333E-D721
 C	Infinite Time To Shoot Each Ball	3C38-A764
 C	Infinite Continues	C281-DFE2
 C	Always Get Max Bonus At The End of Each Round	3C83-D467
@@ -9468,7 +9468,7 @@ C	Start With 3 Lives And The Boomerang	D485-1D6F+B385-14AF
 C	Start With 4 Lives And The Holy Water	D785-1D6F+B385-14AF
 C	Start With 5 Lives And The Dagger	D085-1D6F+B385-14AF
 C	Start With 6 Lives And The Stop Watch	D985-1D6F+B385-14AF
-C	Start With 7 Lives And &quot;The Key&quot;	D185-1D6F+B385-14AF
+C	Start With 7 Lives And "The Key"	D185-1D6F+B385-14AF
 C	Start With 8 Lives And (This One Is A Surprise)	D585-1D6F+B385-14AF
 C	Have Maxed Out Hearts With Each One Grabbed	2D25-1FD3+DD25-1F03
 C	Candles With Weapon Modifier	CB2C-14D3+DD2C-1463+DF2C-1403
@@ -9619,7 +9619,7 @@ C	Infinite credits	A26F-04D4
 C	Invincibility [Chester blinks]	3C60-04D9
 C	Get Paw Coins From Anywhere	DD63-A7A6
 C	Infinite Health	7E014F08
-C	Have Lots of &quot;Paw Coins&quot;	7E014B99+7E014C09
+C	Have Lots of "Paw Coins"	7E014B99+7E014C09
 C	Start With 0 Life Points	A26F-04D4
 C	Start With 2 Life Points	A26F-04D4
 C	Invincibility (Chester Blinks)	3C60-04D9
@@ -10366,12 +10366,12 @@ C	1st Party member always has 999 hp.	7E5EF30E
 C	Chrono starts with the Gold Rock	061E-4F2F
 C	Walk Through Walls.	0B60-7FA4
 C	Walk through walls.	39B0-EFA4
-C	&quot;Super sprint Up only&quot;	6CB5-5DD7
+C	"Super sprint Up only"	6CB5-5DD7
 C	Party and enemies disappear in battle	DCB3-7765
 C	Some moving monsters will try to flee during battle; may freeze	3BC4-7765
 C	After battle, the game will freeze, but it's actually	EE8E-7769
 C	Crono starts new game with Rainbow, Prism Helm, Moon Armor, and Prism Specs.	6164-7FED+1264-747D+9964-745D+8864-748D
-C	&quot;START A NEW GAME AS DALTON&quot;	9FAD-D40D+D7AD-D46D+85AB-67A4
+C	"START A NEW GAME AS DALTON"	9FAD-D40D+D7AD-D46D+85AB-67A4
 C	When Marle joins party, she will have a Valkerye, Prism Helm, Prism Dress, and Hit Ring.	6165-7FED+1A65-747D+FB65-745D+BA65-748D
 C	Enter before Marle joins and she will be equipped with RavenArmor as armor	1E65-747D
 C	Enter before Marle joins and she will be equipped with Shiva Edge as a weapon	D365-745D
@@ -10389,14 +10389,14 @@ C	Wave Background (Like When Fighting Lavos Core) When You Enter An Area	C356-ED
 C	Walk Thru Walls (Up [Vertical] Direction Only)	0E6F-7767
 C	Conversations Repeat	EE6F-54AD
 C	Teleport Code	29BD-5F07
-C	Watch The &quot;Killed By Lavos&quot; Ending	22B4-546B
-C	&quot;See Into The Future&quot; Code	EEB4-546B
+C	Watch The "Killed By Lavos" Ending	22B4-546B
+C	"See Into The Future" Code	EEB4-546B
 C	Strange Walk Thru Walls Code	4CB5-5F6D
 C	Your Party Will Run Very Fast But In An Up Direction Only	6CB5-5DD7
 C	Teleport Code	2AB4-77DD
 C	Get Some Items Just By Going Into The Items Screen	3F65-EF06
 C	Get Magus On Your Menu Screen	1065-5466
-C	&quot;Two Effects&quot; Code	EE68-7D0C
+C	"Two Effects" Code	EE68-7D0C
 C	Heal Party To A Certain Or Above Normal HP On Menu Screen	F2B0-54A6
 C	Replace Gaspar On The Character Exchange Screen With - Algetty Villager	9BE7-77AB
 C	Replace Gaspar On The Character Exchange Screen With - Belthasar	9BE7-74AB
@@ -10721,7 +10721,7 @@ C	Does Strange Things After A Battle	65B2-7760
 C	Alter Stats And Other Things After A Battle	336A-ED09
 C	Mixed Up Characters In Battle	3BBE-7765
 C	Invisible In A Fight	EEFE-7405
-C	Every Attack On Enemy Or Companion, Hurts Crono By &quot;0&quot; HP	B323-74A5
+C	Every Attack On Enemy Or Companion, Hurts Crono By "0" HP	B323-74A5
 C	Regular Attacks Do 1 HP Damage, Dual Techs = 2 HP Damage, Triple Techs = 2 HP Damage	B323-7465
 C	Every Attack On Enemy Or Companion = 9999 HP	B323-7405
 C	Enemies And Your Party Are Invincible	AA39-7D05
@@ -10735,7 +10735,7 @@ C	Erases 2nd Saved Game And All Are Invincible In Battles	2223-7765
 C	Invincibility In Battles	B424-7765
 C	Every Hit Kills Party Or Monster	FC23-7D65
 C	Enemies Won't Attack Unless Close	EEC4-7DD5
-C	In Battle, Use A Tech And You Will Get A Weird Message Saying, &quot;Got 1x Lightning&quot; Or &quot;Got 1x Revoke.&quot;	568F-7765
+C	In Battle, Use A Tech And You Will Get A Weird Message Saying, "Got 1x Lightning" Or "Got 1x Revoke."	568F-7765
 C	Instantly Destroys All Enemies (And Some Bosses) When You Try To Attack Or Use A Tech	CD3B-7765
 C	Party Is Invincible In Battles	AA34-7D65
 C	Enemies Disappear Instead Of Die	AA34-7DD5
@@ -10849,12 +10849,12 @@ C	Activate Pterodactyl But Chase After Epoch	7E028F02
 C	Activate Various Screens	7E027C03
 C	When You Enter A Time Portal And Come Out At The End of Time, A Small Sparkle Will Mark Which One You Came Out of	7E1A9501
 C	Start A New Game And Crono Will Appear As Marle In Subscreen	DF6D-7D7D
-C	&quot;CRONO = LUCCA&quot; - Start A New Game For This To Work	D46D-7D7D
-C	&quot;CRONO = ROBO&quot; - Start A New Game For This To Work	D76D-7D7D
-C	&quot;CRONO = FROG&quot; - Start A New Game For This To Work	D06D-7D7D
-C	&quot;CRONO = AYLA&quot; - Start A New Game For This To Work	D96D-7D7D
-C	&quot;CRONO = MAGUS&quot; - Start A New Game For This To Work	D16D-7D7D
-C	&quot;CRONO = EPOCH?&quot; - Start A New Game For This To Work	DE6D-7D7D
+C	"CRONO = LUCCA" - Start A New Game For This To Work	D46D-7D7D
+C	"CRONO = ROBO" - Start A New Game For This To Work	D76D-7D7D
+C	"CRONO = FROG" - Start A New Game For This To Work	D06D-7D7D
+C	"CRONO = AYLA" - Start A New Game For This To Work	D96D-7D7D
+C	"CRONO = MAGUS" - Start A New Game For This To Work	D16D-7D7D
+C	"CRONO = EPOCH?" - Start A New Game For This To Work	DE6D-7D7D
 C	Start With A Higher Max. HP	EE6D-7F5D
 C	Start With A Higher Max. MP	636D-745D
 C	Start With Max. Power	BD6D-74ED
@@ -11591,14 +11591,14 @@ C	Enemy 1 Modifier	7E17C800
 C	Enemy 2 Modifier	7E17CA00
 C	Enemy 3 Modifier	7E17CC00
 C	Enemy 4 Modifier	7E17CE00
-C	Berzerker's &amp; Blitz's running attacks don't go as far	7E16A500
+C	Berzerker's & Blitz's running attacks don't go as far	7E16A500
 C	Enemies are wearing alternate attire	7E155801
 C	Difficulty Modifier in options	7E157200
-C	Player 1 &amp; Player 2 are invincible	7E157A01
-C	CPU controls Player 1 &amp; Player 2 in Vs Mode	7E157C01
+C	Player 1 & Player 2 are invincible	7E157A01
+C	CPU controls Player 1 & Player 2 in Vs Mode	7E157C01
 C	Player 1 has to only win 1 round in Vs Mode to win the match	7E156802
 C	Player 2 has to only win 1 round in Vs Mode to win the match	7E156A02
-C	&quot;Push Start&quot; flashes on the screen during game play	7E157801
+C	"Push Start" flashes on the screen during game play	7E157801
 C	Most enemies die with 1-Hit	7E179800+7E179A00+7E179C00+7E179E00
 C	Rapid Attack By Holding A Or X Buttons	7E0A4230
 C	Player 1 Gravity Modifier	7E16C400
@@ -11651,14 +11651,14 @@ C	Enemy 2 With No Health	7E179A00
 C	Enemy 3 With No Health	7E179C00
 C	Enemy 4 With No Health	7E179E00
 C	Fewer enemies to fight	7E008100
-C	Player 1 as Blitz, Bullova, &amp; Berzerker can't throw a fireball in Vs Mode	7E0B1200
-C	Player 1 as Blitz, Bullova, &amp; Berzerker can't throw a fireball in Vs Mode	7E008501
+C	Player 1 as Blitz, Bullova, & Berzerker can't throw a fireball in Vs Mode	7E0B1200
+C	Player 1 as Blitz, Bullova, & Berzerker can't throw a fireball in Vs Mode	7E008501
 C	Vs Stage 1 flame modifier	7E1BCA00
 C	Vs Stage 2 left flame modifier	7E007D00
 C	Vs Stage 2 right flame modifier	7E008300
-C	Players &amp; Enemies can walk into the background	7E008F01
-C	Players &amp; Enemies can walk into the foreground	7E009201
-C	Players &amp; Enemies can walk past the left most barrier on every stage	7E009401
+C	Players & Enemies can walk into the background	7E008F01
+C	Players & Enemies can walk into the foreground	7E009201
+C	Players & Enemies can walk past the left most barrier on every stage	7E009401
 G	Combatribes, The (USA, Japan) (Action Replay)
 C	Infinite P1 Health	7E1794BE
 C	Infinite P2 Health	7E1796BE
@@ -12998,7 +12998,7 @@ C	Hit Anywhere Both Players	6D23-6FA4+DD28-67A4+C22D-A764+DD2E-6D04
 C	Start With 25 Lives	7E106725
 C	Start With 99 Lives	7E1067FF
 C	Infinite Lives	7E106809
-C	Set Lives to 99 (Player 1 &amp; Player 2)	7E106799
+C	Set Lives to 99 (Player 1 & Player 2)	7E106799
 C	Infinite Shield (Player 1)	7E177BFF
 C	Infinite Shield (Player 2)	7E188BFF
 C	Set Max. 1st Gun (Player 1)	7E17A408
@@ -13205,7 +13205,7 @@ G	Demolition Man (USA)
 C	Infinite Lives	C2AC-1FDD
 C	Infinite Grenades	82A2-4DA1
 C	Infinite Health	F989-376F
-C	Infinite Ammo for Shotgun &amp; Magnum	82AA-17AF
+C	Infinite Ammo for Shotgun & Magnum	82AA-17AF
 C	Jump 2x Higher	4D80-67DF
 C	Jump 4x Higher	FD80-67DF
 C	Jump 8x Higher	D680-67DF
@@ -13251,7 +13251,7 @@ C	As Regular Gargoyle Hover, Then You Can Hold The A Button To Fly Like Aerial G
 C	Fly Alot Faster When You Hover	C938-C7DD
 C	Rapid Fire	C939-37D7
 C	Jump Alot Higher	C937-37D7
-C	Character Is In The &quot;jump&quot; Animation, Permanently	7E100504
+C	Character Is In The "jump" Animation, Permanently	7E100504
 C	Disable Anti-Cheat	7E0EEE00+7E0EED00
 C	Infinite 20 Life Points	7E106214
 C	Maximum Life	7E1E5014
@@ -13346,7 +13346,7 @@ C	Easy Bosses	7E186000
 C	Bosses No Recovery Time	7E186A00
 C	Infinite Credits	C266-3FA7
 C	Collect 1 Big Coin To Finish Stage	DFC6-CF6D
-C	No Scrolling In &quot;The Park 2 &amp; 5&quot; Stages	C968-346D
+C	No Scrolling In "The Park 2 & 5" Stages	C968-346D
 C	Invincible After Being Hit	C9C2-4547+C9C0-C937
 C	Have All Weapons	3361-14DD+3361-14AD
 C	Infinite Courage	7E00480F
@@ -14111,10 +14111,10 @@ C	Continous Roll (Donkey Kong)	7E002A01
 C	Continous Cartwheel (Diddy Kong)	7E002801
 C	Set 99 Bananas	7E057B63
 C	Infinite Lives	7E057509
-C	Only Need Icon &quot;K&quot; of &quot;KONG&quot; For 1-UP	7E057F07
-C	Only Need Icon &quot;O&quot; of &quot;KONG&quot; For 1-UP	7E057F0B
-C	Only Need Icon &quot;N&quot; of &quot;KONG&quot; For 1-UP	7E057F0D
-C	Only Need Icon &quot;G&quot; of &quot;KONG&quot; For 1-UP	7E057F0E
+C	Only Need Icon "K" of "KONG" For 1-UP	7E057F07
+C	Only Need Icon "O" of "KONG" For 1-UP	7E057F0B
+C	Only Need Icon "N" of "KONG" For 1-UP	7E057F0D
+C	Only Need Icon "G" of "KONG" For 1-UP	7E057F0E
 C	Only Need One Frog Icon For Bonus Stage	7E057102
 C	Only Need One Ostrich Icon For Bonus Stage	7E057202
 C	Only Need One Rhino Icon For Bonus Stage	7E057302
@@ -14238,7 +14238,7 @@ C	Diddy Kong Action Modifier	7E10D500
 C	Donkey Kong Jump Height Modifier	7E16F9D0
 C	Diddy Kong Jump Height Modifier	7E16FB00
 C	Hyper King K. Rool	7E111201
-C	Display Hidden Items &amp; Areas	7E088801
+C	Display Hidden Items & Areas	7E088801
 C	Cave (Room) Warp Modifier	7E0565BE
 C	Stage Properties Modifier	7E003200
 C	Press Y for Free Switching	7E00700E
@@ -14394,8 +14394,8 @@ C	Get KONG Letters From Anywhere	6D88-C38C
 C	Get Krem Koins From Anywhere	6D83-125C
 C	Get Life Balloons From Anywhere	6DAE-336A+DDA9-4AA2
 C	Get Midway Barrel From Anywhere	6D3A-42A2
-C	Master Code (For Version &quot;A&quot; Of Game - Must Be Entered)	E6EE-A7D7+6DAF-12EB+6D8D-C33E
-C	Master Code (For Version &quot;B&quot; Of Game - Must Be Entered)	E6EE-A7D7+6DA4-1A8B+6D8F-C33E
+C	Master Code (For Version "A" Of Game - Must Be Entered)	E6EE-A7D7+6DAF-12EB+6D8D-C33E
+C	Master Code (For Version "B" Of Game - Must Be Entered)	E6EE-A7D7+6DA4-1A8B+6D8F-C33E
 C	Infinite Lives	C2A1-CE5B+C2A5-C37B
 C	Start With 3 Lives	D465-3D67+D46C-3D07
 C	Start With 10 Lives	DB65-3D67+DB6C-3D07
@@ -14629,7 +14629,7 @@ C	Infinite Lives	C26E-73CD
 C	When You Get An Extra Life For Collecting 100 Bananas, You Will Only Lose Half Your Bananas Instead of All of Them	0B8A-8E3A
 C	When You get an Extra Life For Collecting 100 Bananas, You Will Only Lose 1 Banana Instead of All of Them	DD8A-8E3A
 G	Doom (USA)
-C	Adds 1 Armor Point Everytime You Select &quot;New Game&quot; From The Main Menu	E3EA-B953
+C	Adds 1 Armor Point Everytime You Select "New Game" From The Main Menu	E3EA-B953
 C	Fake Unlimited Health	7E070064
 C	Fake Unlimited Ammo	7E06F564
 C	Fake Unlimited Armor	7E070264
@@ -14640,10 +14640,10 @@ C	You Start With 1 Ammo	F4EA-B953
 C	Start with MEGA health and MEGA armor!	BDEA-B053+62EA-B953
 C	Start with more ammo	E3EA-B153
 C	Heat vision/color blind mode	CBD3-B17F
-C	Select &quot;The Shores of Hell&quot; or &quot;Inferno&quot; in any skill level	D7CF-F953
+C	Select "The Shores of Hell" or "Inferno" in any skill level	D7CF-F953
 C	Infinite Health	705A-AEC8
 C	Infinite 199 Health	6EDE-955D+C3DE-958D+9CDE-95ED+5DDD-B07D+6DDD-B05D
-C	Go to New Game -&gt; Pick Any Episode -&gt; Go to Selected Level	DDEF-2183+CBEF-2153
+C	Go to New Game -> Pick Any Episode -> Go to Selected Level	DDEF-2183+CBEF-2153
 C	Infinite Health	7E0700E7+7E070103
 C	Infinite Health (&)	E309-64C9+440D-6DC9+060D-DF39
 C	Infinite Armor	7E0702E7+7E070303
@@ -15365,7 +15365,7 @@ C	255 Strength	7E0C1DFF
 C	255 Defense	7E0C3DFF
 C	255 Agility	7E0C21FF
 C	255 of Something	7E0C39FF
-C	Infinite HP Hero (DQ 1 &amp; 2)	7E0C09FF
+C	Infinite HP Hero (DQ 1 & 2)	7E0C09FF
 C	Infinite MP Hero (DQ 1)	7E0C0DFF
 C	Infinite HP Prince of Sumaltria (DQ 2)	7E0C0AFF
 C	Infinite HP Princess of Moonbrook (DQ 2)	7E0C0BFF
@@ -15535,8 +15535,8 @@ C	Many Random Battles	7E1A9AFF
 C	Always Do XXXX Damage	7E10EC00+7E10ED00
 C	Enemies Attack Each Other	7E10F6FF
 C	Battle Command/Result Is Repeated Until The Code Is Turned Off	7E10D7FF
-C	If %% Is Between 50 &amp; Ff	7E10D7FF
-C	If %% Is Between 00 &amp; 27	7E10D7FF
+C	If %% Is Between 50 & Ff	7E10D7FF
+C	If %% Is Between 00 & 27	7E10D7FF
 C	1st Name Digit	7E200101
 C	2nd Name Digit	7E200200
 C	3rd Name Digit	7E200300
@@ -15856,7 +15856,7 @@ C	The Poison Needle And Demon Spear Always Hit An Enemy's Weak Spot	6D57-8D06+DB
 C	All Weapons, While Behaving Normally, Have A Chance To Hit The Enemy's Weak Spot	6D5D-87D6
 C	Each Party Member Will Repeat Their Attack At No Extra Cost (For A Total of 2 Attacks Each)	DD12-5F66+6D1E-54D6
 C	Keep Getting Rewards For End-of-Battle Over And Over Again	6D74-746B+EC74-74AB
-C	After Winning A &quot;Good Enough&quot; Battle, The Character At The Top of The Lineup Will Advance Through All of Their Job Levels Until Mastered, Learning The Appropriate Skills/Spells Along The Way	DD8B-8FD6+688D-EFA6
+C	After Winning A "Good Enough" Battle, The Character At The Top of The Lineup Will Advance Through All of Their Job Levels Until Mastered, Learning The Appropriate Skills/Spells Along The Way	DD8B-8FD6+688D-EFA6
 C	All But The Most Difficult-To-Recruit Monsters Will Always Offer To Join Your Party, Within The Normal Restrictions	DD85-EDD6
 C	Monsters That Are Considered Difficult To Recruit Will Always Offer To Join Your Party, Within The Normal Restrictions	DD84-E766
 C	In Battle, No Attacks By Either The Party Or The Enemy, Physical Or Magical, Are Successful	DD62-540C
@@ -15942,7 +15942,7 @@ C	Enable debug room/menu	6DEE-E488+6DEE-E7A5
 C	The Poison Needle And Demon Spear Always Hit An Enemy's Weak Spot	6D57-8D06+DB57-8D66
 C	Each Party Member Will Repeat Their Attack At No Extra Cost (For A Total of 2 Attacks Each)	DD12-5F66+6D1E-54D6
 C	Keep Getting Rewards For End-of-Battle Over And Over Again	6D74-746B+EC74-74AB
-C	After Winning A &quot;Good Enough&quot; Battle, The Character At The Top of The Lineup Will Advance Through All of Their Job Levels Until Mastered, Learning The Appropriate Skills/Spells Along The Way	DD8B-8FD6+688D-EFA6
+C	After Winning A "Good Enough" Battle, The Character At The Top of The Lineup Will Advance Through All of Their Job Levels Until Mastered, Learning The Appropriate Skills/Spells Along The Way	DD8B-8FD6+688D-EFA6
 C	Any Item That Any Character Gets Becomes A Thief's Key	CB92-842D+E892-87FD+3C92-879D
 C	Walk Through Walls Except On Overworld	1DA0-EDB6+DDAB-E7F6+DDAC-EFF6
 C	Enables Debug Menu	EEEE-E765+EEEE-E7A5+6DEE-E4B8
@@ -16709,10 +16709,10 @@ C	Max Hit	7E4D0A63
 C	999 ATTK	7E4D020F+7E4D0327
 C	999 Def	7E4D040F+7E4D0527
 C	Current Experience Mod	7E4CF200+7E4CF300+7E4CF400
-C	Char 1 pic&amp;name mod	7E474A00
-C	Char 2 pic&amp;name mod	7E474C00
-C	Char 3 pic&amp;name mod	7E474E00
-C	Char 4 pic&amp;name mod	7E475000
+C	Char 1 pic&name mod	7E474A00
+C	Char 2 pic&name mod	7E474C00
+C	Char 3 pic&name mod	7E474E00
+C	Char 4 pic&name mod	7E475000
 C	Message Text Speed Setting	7E514A00
 C	Stereo/Mono	7E514C00
 C	Cursor Memory Setting	7E514E00
@@ -17273,10 +17273,10 @@ C	Freeze Timer	7E198F01
 C	Score Modifier (Team 1)	7E19A900+7EE4C600
 C	Score Modifier (Team 2)	7E19A700+7EE45800
 G	Earth Defense Force (USA)
-C	Score Digits 1&amp;2	7E015A00
-C	Score Digits 3&amp;4	7E015900
-C	Score Digits 5&amp;6	7E015800
-C	Score Digits 7&amp;8	7E015700
+C	Score Digits 1&2	7E015A00
+C	Score Digits 3&4	7E015900
+C	Score Digits 5&6	7E015800
+C	Score Digits 7&8	7E015700
 C	Power Level	7E017D00
 C	Speed Mod	7E017F00
 C	Shield Mod	7E018100
@@ -17314,7 +17314,7 @@ C	Start At Stage 6	D937-DDDD+CB34-D7AD+DD37-DD0D
 C	Infinite Experience Bar	7E018364
 C	Start On Level	7E010600
 C	Start With Satellite Formation	7E01F700
-C	Always Play In Config &acirc;�� Sound Mode	7E13A800
+C	Always Play In Config â�� Sound Mode	7E13A800
 C	Start a New Game to View Ending	D667-6F0D
 G	EarthBound (USA) (Action Replay)
 C	Infinite Money On Hand (A Value Above 9999999 Will Crash The Game)	7E983100+7E9832E1+7E9833F5+7E983405
@@ -17395,7 +17395,7 @@ C	Night Vision	EE67-57A1
 C	Fast Money Code	EE9A-E5F5
 C	Walk Thru All	CB93-746F
 C	Walk Thru Walls	FD93-776F
-C	Go To A Store, Click On &quot;Buy&quot; And Receive A Free Franklin Badge	EE67-54A1
+C	Go To A Store, Click On "Buy" And Receive A Free Franklin Badge	EE67-54A1
 C	Hamburgers Are Free [Instead of $14]	DD92-50F5
 C	Double Burgers Are Free [Instead of $24]	DD5B-E190
 C	Skip Sandwiches Are Free [Instead of $38]	DD57-81B0
@@ -17588,7 +17588,7 @@ C	Enemy #1 Image Modifier (Doesn't Change The Actual Monster)	7E4A8C00+7E4A8D00
 C	Exp After Battle/Amount of Damage You Deal To An Enemy (Fake)	7E9D1200+7E9D1300+7E9D1400
 C	Exp Earned After Battle	7EA97400+7EA97500+7EA97600
 C	Hyper Ness	7E0F0601
-C	When You Sell Anything With Your &quot;For Sale&quot; Sign, You Will Receive $65535	7E866BFF+7E866CFF
+C	When You Sell Anything With Your "For Sale" Sign, You Will Receive $65535	7E866BFF+7E866CFF
 C	Amount of Money You Receive Via Your Father	7E98B900+7E98BA00+7E98BB00
 C	You Will Never Hear A Specific BGM	7EB53B00
 C	Character 1 Slot Modifier	7E986F01
@@ -19083,7 +19083,7 @@ C	Enemy 5 Magic Modifiers	7E162F00+7E163100
 C	Enemy 6 Health Modifiers	7E172E00+7E173000
 C	Enemy 6 Magic Modifiers	7E172F00+7E173100
 G	Fighter's History (Japan)
-C	Enable Clown &amp; Karnov	7E09A401
+C	Enable Clown & Karnov	7E09A401
 C	Player 1's Costume Color Modifier	7E093000
 C	Player 2's Costume Color Modifier	7E093100
 C	P1 9999900 Score Modifier	7E0A5D86+7E0A5E9F+7E0A5F01
@@ -19175,7 +19175,7 @@ C	Enemy 1 Gone	7E112180
 C	Enemy 2 Gone	7E11A180
 C	Enemy 3 Gone	7E122180
 C	Have Morning Star	7E10312C
-C	Have Bow &amp; Arrows	7E10312D
+C	Have Bow & Arrows	7E10312D
 C	Have Throwing Stars	7E10312E
 C	99 Items In Row 1 Slot 1 [Usually Cure Potions]	7E0E9F63
 C	99 Items In Row 1 Slot 2 [Usually Heal Potions]	7E0EA163
@@ -19198,7 +19198,7 @@ C	Maximum Wizard MP 99	7E101D63
 C	Infinite Bombs	7E103063
 C	Have All Weapons	7E1032FF+7E1033FF
 C	Have All Armor	7E1035FF+7E1036FF+7E1037FF
-C	Have All Black&amp;White Magic	7E1038FF
+C	Have All Black&White Magic	7E1038FF
 C	Have All Wizard Magic	7E1039FF
 C	Amount Added to Evade	7E369D00
 C	Amount Added to Magic	7E369C00
@@ -19236,7 +19236,7 @@ C	Maximum Black MP 99	7E109C63
 C	Infinite 99 Wizard MP	7E109A63
 C	Maximum Wizard MP 99	7E109D63
 C	Have Infinite Weapon	7E10B062
-C	Have All Black&amp;White Magic	7E10B8FF
+C	Have All Black&White Magic	7E10B8FF
 C	Have All Wizard Magic	7E10B9FF
 C	Have Maximum Permanant Strength	7E10CC7F
 C	Have Maximum Permanant Defense	7E10CD7F
@@ -19255,7 +19255,7 @@ C	Partner Has Bombs Level 1	7E10B129
 C	Partner Has Bombs Level 2	7E10B12A
 C	Partner Has Bombs Level 3	7E10B12B
 C	Partner Has Morning Star	7E10B12C
-C	Partner Has Bow &amp; Arrows	7E10B12D
+C	Partner Has Bow & Arrows	7E10B12D
 C	Partner Has Throwing Star	7E10B12E
 C	1-Round Battlefields	B36A-04AC+6D6A-076C
 C	1-Action Battles	6D63-04A8
@@ -19301,7 +19301,7 @@ C	Armor Code 3	7E04FB00
 C	Armor Code 4	7E04FB00
 C	Weapon Code 1	7E04FB00
 C	Weapon Code 2	7E04FB00
-C	Have White &amp; Black Spells	7E04FB00
+C	Have White & Black Spells	7E04FB00
 C	Have Wizard Spells	7E04FB00
 C	Attack	7E04FB00
 C	Defense	7E04FB00
@@ -19327,7 +19327,7 @@ C	Armor Code 1	7E04FB00
 C	Armor Code 2	7E04FB00
 C	Armor Code 3	7E04FB00
 C	Armor Code 4	7E04FB00
-C	Have White &amp; Black Spells	7E04FB00
+C	Have White & Black Spells	7E04FB00
 C	Have Wizard Spells	7E04FB00
 C	Attack	7E04FB00
 C	Defense	7E04FB00
@@ -19353,7 +19353,7 @@ C	Armor Code 1	7E04FB00
 C	Armor Code 2	7E04FB00
 C	Armor Code 3	7E04FB00
 C	Armor Code 4	7E04FB00
-C	Have White &amp; Black Spells	7E04FB00
+C	Have White & Black Spells	7E04FB00
 C	Have Wizard Spells	7E04FB00
 C	Attack	7E04FB00
 C	Defense	7E04FB00
@@ -19379,7 +19379,7 @@ C	Armor Code 1	7E04FB00
 C	Armor Code 2	7E04FB00
 C	Armor Code 3	7E04FB00
 C	Armor Code 4	7E04FB00
-C	Have White &amp; Black Spells	7E04FB00
+C	Have White & Black Spells	7E04FB00
 C	Have Wizard Spells	7E04FB00
 C	Attack	7E04FB00
 C	Defense	7E04FB00
@@ -19405,7 +19405,7 @@ C	Armor Code 1	7E04FB00
 C	Armor Code 2	7E04FB00
 C	Armor Code 3	7E04FB00
 C	Armor Code 4	7E04FB00
-C	Have White &amp; Black Spells	7E04FB00
+C	Have White & Black Spells	7E04FB00
 C	Have Wizard Spells	7E04FB00
 C	Attack	7E04FB00
 C	Defense	7E04FB00
@@ -19431,7 +19431,7 @@ C	Armor Code 1	7E04FB00
 C	Armor Code 2	7E04FB00
 C	Armor Code 3	7E04FB00
 C	Armor Code 4	7E04FB00
-C	Have White &amp; Black Spells	7E04FB00
+C	Have White & Black Spells	7E04FB00
 C	Have Wizard Spells	7E04FB00
 C	Attack	7E04FB00
 C	Defense	7E04FB00
@@ -19457,7 +19457,7 @@ C	Armor Code 1	7E04FB00
 C	Armor Code 2	7E04FB00
 C	Armor Code 3	7E04FB00
 C	Armor Code 4	7E04FB00
-C	Have White &amp; Black Spells	7E04FB00
+C	Have White & Black Spells	7E04FB00
 C	Have Wizard Spells	7E04FB00
 C	Attack	7E04FB00
 C	Defense	7E04FB00
@@ -19483,7 +19483,7 @@ C	Armor Code 1	7E04FB00
 C	Armor Code 2	7E04FB00
 C	Armor Code 3	7E04FB00
 C	Armor Code 4	7E04FB00
-C	Have White &amp; Black Spells	7E04FB00
+C	Have White & Black Spells	7E04FB00
 C	Have Wizard Spells	7E04FB00
 C	Attack	7E04FB00
 C	Defense	7E04FB00
@@ -19509,7 +19509,7 @@ C	Armor Code 1	7E04FB00
 C	Armor Code 2	7E04FB00
 C	Armor Code 3	7E04FB00
 C	Armor Code 4	7E04FB00
-C	Have White &amp; Black Spells	7E04FB00
+C	Have White & Black Spells	7E04FB00
 C	Have Wizard Spells	7E04FB00
 C	Attack	7E04FB00
 C	Defense	7E04FB00
@@ -19589,7 +19589,7 @@ C	Have Bombs Level 1	7E103129
 C	Have Bombs Level 2	7E10312A
 C	Have Bombs Level 3	7E10312B
 C	Have Morning Star	7E10312C
-C	Have Bow &amp; Arrows	7E10312D
+C	Have Bow & Arrows	7E10312D
 C	Have Throwing Stars	7E10312E
 C	Have Infinite Of Weapon (Bombs, Arrows, Stars)	7E103063
 C	Friend Has Sword Level 1	7E10B120
@@ -19605,7 +19605,7 @@ C	Friend Has Bombs Level 1	7E10B129
 C	Friend Has Bombs Level 2	7E10B12A
 C	Friend Has Bombs Level 3	7E10B12B
 C	Friend Has Morning Star	7E10B12C
-C	Friend Has Bow &amp; Arrows	7E10B12D
+C	Friend Has Bow & Arrows	7E10B12D
 C	Friend Has Throwing Star	7E10B12E
 C	99 Items In Row 1 Slot 1 (Usually Cure Potions)	7E0E9F63
 C	99 Items In Row 1 Slot 2 (Usually Heal Potions)	7E0EA163
@@ -19638,11 +19638,11 @@ C	P.1 Infinite Bombs	7E103063
 C	P.1 All Weapons	7E1032FF+7E1033FF
 C	P.1 All Armor	7E1035FF+7E1036FF
 C	P.1 Cupid Locket	7E1037FF
-C	P.1 All Black&amp;White Magic	7E1038FF
+C	P.1 All Black&White Magic	7E1038FF
 C	P.1 All Wizard Magic	7E1039FF
 C	P.1 MAX. Perm. Evade	7E369D7F
 C	P.1 MAX. Perm. Magic	7E369C76
-C	P.2 All Black&amp;White Magic	7E10B8FF
+C	P.2 All Black&White Magic	7E10B8FF
 C	P.1 MAX. Perm. Speed	7E369B7B
 C	P.2 All Wizard Magic	7E10B9FF
 C	P.1 MAX. Perm. Defense	7E369A79
@@ -19661,7 +19661,7 @@ C	Maximum Black MP 99	7E109C63
 C	Infinite 99 Wizard MP	7E109A63
 C	Maximum Wizard MP 99	7E109D63
 C	Have Infinite Weapon	7E10B062
-C	Have All Black&amp;White Magic	7E10B8FF
+C	Have All Black&White Magic	7E10B8FF
 C	Have All Wizard Magic	7E10B9FF
 C	Have Maximum Permanent Strength	7E10CC7F
 C	Have Maximum Permanent Defense	7E10CD7F
@@ -19723,7 +19723,7 @@ C	Money doesn't decrease in shops	C2AD-AD69+C3AD-AFA9
 C	Skip Intro	DB64-D0D6+D064-D006
 C	Gain 131,070 Exp. with Each Battle	DFE5-A1AE+8FEB-A00E
 C	Gain 16,646,142 Exp. with Each Battle	DFE5-A1AE+87E6-A1AE+8FEB-A00E
-C	No Random Encounters [Version A &amp; B]	1D60-0704
+C	No Random Encounters [Version A & B]	1D60-0704
 C	Use A Tent, Cabin, And/Or Save Your Game Anywhere!	CBBA-07A4
 C	Walk Thru Walls	6DCE-07D4+DDC7-D704
 G	Final Fantasy III (USA) (Action Replay)
@@ -21423,7 +21423,7 @@ C	Fewer Random Battles + Have Dash	4F13-5937
 C	Characters Will Do STRANGE Things In Battle	A29D-54D8
 C	Deformed World of Ruin Map	D77D-8DDF
 C	No Windows	D27D-8DDF
-C	Use &quot;Warp&quot; Spell Or &quot;Warp Stone&quot; Item ANYWHERE (Except On The Map!)	7DA0-8DDF
+C	Use "Warp" Spell Or "Warp Stone" Item ANYWHERE (Except On The Map!)	7DA0-8DDF
 C	Equip Sprint Shoes And Become Glued To The Ground	AA07-8DD7
 C	Sprint Shoes Are Ineffective	D607-8DD7
 C	All Stats/Level-Up Bonuses Are Maxed On Level Up (128)	EE1B-57A6
@@ -21457,30 +21457,30 @@ C	Mega Sprint Shoes!!!	D007-8DD7
 C	All Relics! Even Cursed Ones!!!	AADB-E768
 C	This One Lets You Equip Any Item As Many Times As You Want; In Other Words You Get Infinite Equipment!	EEBC-576E
 C	When You Equip Something, It Turns Into The Top Item of Your Inventory	3CB7-5D03
-C	&quot;GET 99 OF ANY ITEM!&quot;	108B-E403
-C	&quot;USE ITEMS INFINITELY&quot;	3CBC-576E
-C	&quot;RANDOM EQUIP DIFFERENT ITEMS&quot; (&quot;Gunslinger Code&quot;)	3CB7-5F63
-C	&quot;LEO AND KEFKA CODES&quot;	AA9B-E768+AA9B-E708+AA9B-E7D8+AA9B-E7A8
+C	"GET 99 OF ANY ITEM!"	108B-E403
+C	"USE ITEMS INFINITELY"	3CBC-576E
+C	"RANDOM EQUIP DIFFERENT ITEMS" ("Gunslinger Code")	3CB7-5F63
+C	"LEO AND KEFKA CODES"	AA9B-E768+AA9B-E708+AA9B-E7D8+AA9B-E7A8
 C	Perfect Kefka	DC9B-E7D8
-C	&quot;CONTROL DIFFERENT CHARACTERS&quot; (aka The &quot;MASQUE CODES&quot;)	DC9B-E768+DC9B-E708+DC9B-E7D8+DC9B-E7A8
-C	&quot;MORE CHARACTER CHANGING CODES&quot;	9A9B-E7D8+9E9B-E7D8
-C	Terra &quot;Personality&quot;	D858-7B55
-C	Locke &quot;Personality&quot;	D85A-7CE5
-C	Cyan &quot;Personality&quot;	D853-7655
-C	Shadow &quot;Personality&quot;	D85E-7BE5
-C	Edgar &quot;Personality&quot;	D85D-5855
-C	Sabin &quot;Personality&quot;	D854-56E5
-C	Celes &quot;Personality&quot;	D857-5C55
-C	Strago &quot;Personality&quot;	D850-58E5
-C	Relm &quot;Personality&quot;	D851-5B55
-C	Setzer &quot;Personality&quot;	D855-5CE5
-C	Mog &quot;Personality&quot;	D85B-5655
-C	Gau &quot;Personality&quot;	D85C-5BE5
-C	Umaro &quot;Personality&quot;	D852-56E5
-C	Banon &quot;Personality&quot;	D853-5C55
-C	Leo &quot;Personality&quot;	D85E-58E5
-C	Ghost1 &quot;Personality&quot;	D85F-8B55
-C	Ghost2 &quot;Personality&quot;	D854-8CE5
+C	"CONTROL DIFFERENT CHARACTERS" (aka The "MASQUE CODES")	DC9B-E768+DC9B-E708+DC9B-E7D8+DC9B-E7A8
+C	"MORE CHARACTER CHANGING CODES"	9A9B-E7D8+9E9B-E7D8
+C	Terra "Personality"	D858-7B55
+C	Locke "Personality"	D85A-7CE5
+C	Cyan "Personality"	D853-7655
+C	Shadow "Personality"	D85E-7BE5
+C	Edgar "Personality"	D85D-5855
+C	Sabin "Personality"	D854-56E5
+C	Celes "Personality"	D857-5C55
+C	Strago "Personality"	D850-58E5
+C	Relm "Personality"	D851-5B55
+C	Setzer "Personality"	D855-5CE5
+C	Mog "Personality"	D85B-5655
+C	Gau "Personality"	D85C-5BE5
+C	Umaro "Personality"	D852-56E5
+C	Banon "Personality"	D853-5C55
+C	Leo "Personality"	D85E-58E5
+C	Ghost1 "Personality"	D85F-8B55
+C	Ghost2 "Personality"	D854-8CE5
 C	Jump Up To 12 Times	36F7-7D0C+DCF4-77AC
 C	Offering Hits 16 Times	FEF4-8F0B
 C	Get Enemy's Rage Instead of GP	D59B-E4D8+0C9B-E408
@@ -21507,11 +21507,11 @@ C	Casts Wall, Regen, Float On All Members	8ED8-EF68
 C	Casts Slow, Float, Wall But Gives Less Damage To All (Same As Above With The Starting Off)	30D8-EF68
 C	Your Party Is All Blobs of Color	AA94-74DD
 C	The Enemies Are All Blobs of Color	AAB8-7F69
-C	&quot;GET NOTHING AFTER A BATTLE&quot;	5592-E7D8+5592-E768+5592-E7A8
-C	&quot;GET SOME RAGES AND LORES&quot;	CE17-7DD6
-C	&quot;GET 99 OF ALL ITEMS&quot; (Doesn't Work On All Games)	F194-EDD8
-C	&quot;LEARN SPELLS 10x FASTER&quot;	CE17-77D6
-C	&quot;LEARN SPELLS 50x FASTER&quot;	E317-77D6
+C	"GET NOTHING AFTER A BATTLE"	5592-E7D8+5592-E768+5592-E7A8
+C	"GET SOME RAGES AND LORES"	CE17-7DD6
+C	"GET 99 OF ALL ITEMS" (Doesn't Work On All Games)	F194-EDD8
+C	"LEARN SPELLS 10x FASTER"	CE17-77D6
+C	"LEARN SPELLS 50x FASTER"	E317-77D6
 C	Get A Lot of HP And MP After Battle	E3DB-EDA8
 C	Makes The Enemy Give You Weapons, Items, And Armor (This Code Is Constant)	AA94-E7D8
 C	Makes The Enemy Give You Items/Weapons/Armor (This Code Is Not Constant, It's At Random)	AA94-EF08
@@ -21528,14 +21528,14 @@ C	Only Fight Narshe Guards	B4CD-E798+AA68-E7D8
 C	Run Into Some Bosses, Including The Final Kefka, On The Veldt	DAAE-8F6D
 C	Run Into Enemies From The Zone Eater	8AAE-876D
 C	Run Into Other Bosses During Phase 5 (Random Enemies)	8AA3-846D
-C	Another &quot;Boss Code&quot;...Run Into Different Bosses Than With #3.  Also Fight Io, Which Gives You The Spell &quot;Flare Star&quot; As A Rage	74A3-846D
+C	Another "Boss Code"...Run Into Different Bosses Than With #3.  Also Fight Io, Which Gives You The Spell "Flare Star" As A Rage	74A3-846D
 C	Totally Random Battles On The Veldt!	83A3-846D
 C	After One Battle, Only One Character Is In Party	AD9B-E7D8
 C	Magic Becomes X-Magic (But Isn't Really), Fight Becomes Jump (And Really Works)	DF98-E7D6
 C	In Battle, Fight Becomes MagiTek	ED90-E7D6
 C	In Battle, Terra, Locke, Sabin, Setzer, And Gau Cannot Use Magic	DF9F-E7D6
 C	Mog's Magic Becomes X-Magic, But Isn't Really	E39C-E7D6
-C	&quot;I've Been Playing This Game Too Long Today&quot; Code	E394-E7D1
+C	"I've Been Playing This Game Too Long Today" Code	E394-E7D1
 C	Percentage of Winning Normal Random Items Increases By 12%	3339-07D6
 C	Party Learns 'Bolt' A Few Times Each	E317-54A6
 C	Learn Magic, Rages, Lores 2.1 Times Faster	DF94-7DD6
@@ -21547,7 +21547,7 @@ C	Battle Menu Shuffle  (Toggle The Switch On The GG To Play!)	0D39-E7D6
 C	Updated Palidin Shield Code	AA94-E4D8+AA94-EF08+AA94-E7D8+AA94-E408
 C	Target Anyone!	2694-EFDB
 C	Get All Lores	F19A-8708
-C	Gogo &quot;Personality&quot;	D858-5885
+C	Gogo "Personality"	D858-5885
 C	Esper Code	D6AF-740E
 C	Almost Perfect WTW Code	D5A7-8407
 C	Get An Airship/Esper Bahamut Anywhere, Anytime	DAA7-7FD4
@@ -21561,10 +21561,10 @@ C	Esper World	59A7-7FD4
 C	Better Stories	3C83-5F63
 C	Strange Kombats	DAA4-876D
 C	I'm All Alone	AB28-84DD
-C	&quot;CONSTANT BATTLE!	D0A4-876D
-C	&quot;STRANGE	05C3-5F63
-C	&quot;STRANGE 2	00C3-5F63
-C	&quot;RARE ITEM CHANGE	EE62-E768
+C	"CONSTANT BATTLE!	D0A4-876D
+C	"STRANGE	05C3-5F63
+C	"STRANGE 2	00C3-5F63
+C	"RARE ITEM CHANGE	EE62-E768
 C	All items in shops are free [Switch off to sell items for GP]	108C-EF03+108C-E4A3
 C	Everyone has a hidden Economizer [Not in Battle Mode]	DD97-5FDA
 C	Everyone has a hidden Golden Hairpin [Not in Battle Mode]	DD90-5DDA
@@ -21599,7 +21599,7 @@ C	Start Terra with Mithril vest equipped	6B58-7685
 C	Start Terra with White dress equipped	6858-7685
 C	Start Terra with Genji armor equipped	BC58-7685
 C	Start Terra with Force armor equipped	B058-7685
-C	&quot;TARGET ANYONE!&quot;	2694-EFDB
+C	"TARGET ANYONE!"	2694-EFDB
 C	-Item Modifier Values	7E14FC63
 C	Infinite Time, Gestahl's Banquet	7E118A33
 C	Hp	005C-7675
@@ -21966,49 +21966,49 @@ C	Buying an item gives you 9,999,999 gold	108C-EFD3+108C-E4A3
 C	Makes The EXP, Magic Points, Items, And GP Keep Repeating In A Cycle	6794-E708
 C	Casts Wall, Regen, Float On All Members	8ED8-EF68
 C	Characters Will Do STRANGE Things In Battle	A29D-54D8
-C	&quot;GET SOME RAGES AND LORES&quot;	CE17-7DD6
+C	"GET SOME RAGES AND LORES"	CE17-7DD6
 C	Super Item Codes: Get Paladin's Shield, Offering, Gem Boxes, Economizers And Other Stuff After Battles!	AA94-E7D8+AA94-E4D8+D794-E708+AA94-E408
 C	Weird Code	EE5C-74DD
 C	Enter The Menu Screen And You'll Have 4000 - 5000 HP And 100-500 MP	E3DB-EDA8+E3DB-ED68+E3DB-ED08+E3DB-EDD8
 C	All Relics Equipped, All of It	AA9B-E768
-C	&quot;GET 99 OF ANY ITEM!&quot;	108B-E403
-C	&quot;USE ITEMS INFINITELY&quot;	3CBC-576E
-C	&quot;RANDOM EQUIP DIFFERENT ITEMS&quot;	3CB7-5F63
-C	&quot;LEO AND KEFKA CODES&quot;	AA9B-E768+AA9B-E708+AA9B-E7D8+AA9B-E7A8
+C	"GET 99 OF ANY ITEM!"	108B-E403
+C	"USE ITEMS INFINITELY"	3CBC-576E
+C	"RANDOM EQUIP DIFFERENT ITEMS"	3CB7-5F63
+C	"LEO AND KEFKA CODES"	AA9B-E768+AA9B-E708+AA9B-E7D8+AA9B-E7A8
 C	Perfect Kefka	DC9B-E7D8
-C	&quot;CONTROL DIFFERENT CHARACTERS&quot; (aka The &quot;MASQUE CODES&quot;)	DC9B-E768+DC9B-E708+DC9B-E7D8+DC9B-E7A8
-C	&quot;MORE CHARACTER CHANGING CODES&quot;	9A9B-E7D8+9E9B-E7D8
-C	&quot;GET ALL SPELLS!!!&quot; (MANSON CODE 1)	3037-54A6
-C	&quot;GUNSLINGER CODE&quot; (MANSON CODE 2)	3CB7-5F63
-C	&quot;ESPER CODE&quot; (MANSON CODE 3)	D6AF-740E
-C	&quot;GET AN AIRSHIP /ESPER BAHAMUT ANYWHERE ANY TIME&quot; (MANSON CODE 5)	DAA7-7FD4
-C	&quot;RESET EVENTS&quot; (MANSON CODE 6)	DA24-8F0D
-C	&quot;LEO/KEFKA CODE&quot; (MANSON CODE 8)	D5E5-776D
-C	&quot;NEW RARE ITEMS CODE&quot; (MANSON CODE 9)	5BAE-8F69
-C	&quot;GET OUT OF MY WAY&quot; (MANSON CODE 10)	D5E7-8F0F
-C	&quot;DITCH CHARACTERS&quot; (MANSON CODE 11)	D7E7-776D
-C	&quot;NEW ENEMIES ON VELDT&quot; (MANSON CODE 12)	DAAE-8F6D
-C	&quot;ESPER WORLD&quot; (MANSON CODE 13)	59A7-7FD4
-C	&quot;BETTER STORES&quot; (MANSON CODE 14)	3C83-5F63
-C	&quot;STRANGE COMBATS&quot; (MANSON CODE 15)	DAA4-876D
-C	&quot;I'M ALL ALONE!&quot; (MANSON CODE 16)	AB28-84DD
-C	&quot;CONSTANT BATTLE!&quot; (MANSON CODE 17)	D0A4-876D
-C	&quot;STRANGE&quot; (MANSON CODE 18)	05C3-5F63
-C	&quot;STRANGE 2&quot; (MANSON CODE 19)	00C3-5F63
-C	&quot;RARE ITEM CHANGE&quot; (MANSON CODE 20)	EE62-E768
+C	"CONTROL DIFFERENT CHARACTERS" (aka The "MASQUE CODES")	DC9B-E768+DC9B-E708+DC9B-E7D8+DC9B-E7A8
+C	"MORE CHARACTER CHANGING CODES"	9A9B-E7D8+9E9B-E7D8
+C	"GET ALL SPELLS!!!" (MANSON CODE 1)	3037-54A6
+C	"GUNSLINGER CODE" (MANSON CODE 2)	3CB7-5F63
+C	"ESPER CODE" (MANSON CODE 3)	D6AF-740E
+C	"GET AN AIRSHIP /ESPER BAHAMUT ANYWHERE ANY TIME" (MANSON CODE 5)	DAA7-7FD4
+C	"RESET EVENTS" (MANSON CODE 6)	DA24-8F0D
+C	"LEO/KEFKA CODE" (MANSON CODE 8)	D5E5-776D
+C	"NEW RARE ITEMS CODE" (MANSON CODE 9)	5BAE-8F69
+C	"GET OUT OF MY WAY" (MANSON CODE 10)	D5E7-8F0F
+C	"DITCH CHARACTERS" (MANSON CODE 11)	D7E7-776D
+C	"NEW ENEMIES ON VELDT" (MANSON CODE 12)	DAAE-8F6D
+C	"ESPER WORLD" (MANSON CODE 13)	59A7-7FD4
+C	"BETTER STORES" (MANSON CODE 14)	3C83-5F63
+C	"STRANGE COMBATS" (MANSON CODE 15)	DAA4-876D
+C	"I'M ALL ALONE!" (MANSON CODE 16)	AB28-84DD
+C	"CONSTANT BATTLE!" (MANSON CODE 17)	D0A4-876D
+C	"STRANGE" (MANSON CODE 18)	05C3-5F63
+C	"STRANGE 2" (MANSON CODE 19)	00C3-5F63
+C	"RARE ITEM CHANGE" (MANSON CODE 20)	EE62-E768
 C	Run Into Other Bosses During Phase 5 (Random Enemies)	8AA3-846D
 C	Totally Random Battles On The Veldt!	83A3-846D
 C	After One Battle, Only One Character Is In Party	AD9B-E7D8
-C	&quot;COOL COMMANDS CODES&quot;	DD97-E7D6
-C	&quot;I've Been Playing This Game Too Long Today&quot; Code	E394-E7D1
-C	&Atilde;&not;I canna see what I'm doing!&Atilde;&reg;  Try it!	DD23-E7D6
-C	&quot;BLIND-EYE&quot;	0D39-7DD6
+C	"COOL COMMANDS CODES"	DD97-E7D6
+C	"I've Been Playing This Game Too Long Today" Code	E394-E7D1
+C	Ã¬I canna see what I'm doing!Ã®  Try it!	DD23-E7D6
+C	"BLIND-EYE"	0D39-7DD6
 C	EXPERT PLAYER CODES	F194-54D8+FE94-54D8+AA94-54D8
 C	SUPER-HERO CODE	D4D8-E7D8
 C	All Menu Commands Normally Possible Show On Battle Menu	5592-E7D6
 C	UPDATED SUPER PALADIN SHIELD CODE	AA94-E4D8+AA94-EF08+AA94-E7D8+AA94-E408
-C	&quot;TARGET ANYONE!&quot;	2694-EFDB
-C	&quot;GET ALL LORES&quot;	F19A-8708
+C	"TARGET ANYONE!"	2694-EFDB
+C	"GET ALL LORES"	F19A-8708
 C	All Items In Shops Are Free (Switch Off To Sell Items For Gold)	108C-EF03+108C-E4A3
 C	Party Always Has Sprint Shoes	DDA4-8767
 C	'Tonic' Gives 240 HP	ED30-E944
@@ -22016,7 +22016,7 @@ C	Most Items Can Be Used Infinitely (Not In Battle Mode - Switch off To Exit Men
 C	Weird Battles	A29D-54D8
 C	Deformed World of Ruin Map	D77D-8DDF
 C	No Windows	D27D-8DDF
-C	Use &quot;Warp&quot; Spell Or &quot;Warp Stone&quot; Item ANYWHERE (Except On The Map!)	7DA0-8DDF
+C	Use "Warp" Spell Or "Warp Stone" Item ANYWHERE (Except On The Map!)	7DA0-8DDF
 C	Equip Sprint Shoes And Become Glued To The Ground	AA07-8DD7
 C	Sprint Shoes Are Ineffective	D607-8DD7
 C	Walk Through Walls	6D00-8767+0200-87A7
@@ -23046,7 +23046,7 @@ C	Get 199 Ability Points When You Fight 2 Killer Bees And 1 Goblin (In The Same 
 C	Get 20 Ability Points When You Battle 3 Nut Eaters (In The Same Battle) - You MUST Fight 3 Nut Eaters In The Same Battle Or Else The Code Won't Work	F070-706D
 C	Get 99 Ability Points When You Battle 3 Nut Eaters (In The Same Battle) - You MUST Fight 3 Nut Eaters In The Same Battle Or Else The Code Won't Work	1770-706D
 C	Get 199 Ability Points When You Battle 3 Nut Eaters (In The Same Battle) - You MUST Fight 3 Nut Eaters In The Same Battle Or Else The Code Won't Work	A570-706D
-C	Replace &quot;XX&quot; With A 2 Digit Code From The List Below And You Will ALWAYS Get That Item (For Free) For Every Killer Bee You Defeat In Battle	009D-79AD
+C	Replace "XX" With A 2 Digit Code From The List Below And You Will ALWAYS Get That Item (For Free) For Every Killer Bee You Defeat In Battle	009D-79AD
 C	ALWAYS Get An Elixir For Every Killer Bee You Defeat In Battle	379D-79AD
 C	ALWAYS Get A Coral Ring For Every Killer Bee You Defeat In Battle (You Can Sell The Extra Coral Rings For $25,000 Gil Each!)	839D-79AD
 C	ALWAYS Get A Brave Blade For Every Killer Bee You Defeat In Battle	1F9D-79AD
@@ -23787,7 +23787,7 @@ C	All SwdTechs	7E1CF7FF
 C	All Blitzs	7E1D28FF
 C	All Lores	7E1D29FF+7E1D2AFF
 C	All Dances	7E1D4CFF
-C	Activate &quot;Morph&quot;	7E1DD10C
+C	Activate "Morph"	7E1DD10C
 C	Have 99 Pieces of Coral	7E1FD063
 C	Character Pose Modifier (Works Only On The Map)	7E00F710
 C	Enable All Characters	7E1EDEFF+7E1EDFFF
@@ -25134,7 +25134,7 @@ C	Enemy 1 (And Boss) With No Health	7E075800
 C	Enemy 2 With No Health	7E085800
 C	Enemy 3 With No Health	7E095800
 C	Enemy 4 With No Health	7E0A5800
-C	Stage &quot;Round&quot; Select	7E1F0300
+C	Stage "Round" Select	7E1F0300
 C	Infinite Health	7E055864
 C	Infinite Lives	7E051509
 C	Invincibility	7E052102
@@ -25229,7 +25229,7 @@ C	Enemy 1 (And Boss) With No Health	7E075800
 C	Enemy 2 With No Health	7E085800
 C	Enemy 3 With No Health	7E095800
 C	Enemy 4 With No Health	7E0A5800
-C	Stage &quot;Round&quot; Select	7E1F0300
+C	Stage "Round" Select	7E1F0300
 C	Infinite Health	7E055864
 C	Infinite Lives	7E051509
 C	Invincibility	7E052102
@@ -25278,7 +25278,7 @@ G	Fire Emblem - Thracia 776 (Japan) (Rev 1) (NP)
 C	Max Money	7E07F2FF
 C	Max Exp Hero	7F443563
 C	Infinite Weapons	7F4424FF
-C	Max Health Hero &amp; HP	7F443363+7F443463
+C	Max Health Hero & HP	7F443363+7F443463
 G	Fire Fighting (Japan) (Game Genie)
 C	Infinite Extinguisher	B9C6-1F68
 C	Infinite Air Tank	C9CD-3DD8
@@ -25804,9 +25804,9 @@ G	GP-1 (USA)
 C	P1 Score Modifier	7E112600
 C	P2 No Score	7E112C00
 C	Dont Lose In A Fight When U R Left Side of the screen	7E0F2D00
-C	1 Hit &amp; U Win The Fight When U R Left Side of the screen	7E0F7D0A
+C	1 Hit & U Win The Fight When U R Left Side of the screen	7E0F7D0A
 C	Dont Lose In A Fight When U R Right Side of the screen	7E0F7D00
-C	1 Hit &amp; U Win The Fight When U R Right Side of the screen	7E0F2D0A
+C	1 Hit & U Win The Fight When U R Right Side of the screen	7E0F2D0A
 C	Your Speed Is Always 350 ~ 365 KPH!	7E01C71E+7E01C809
 C	All Frame Upgrades Are Free	7E2A4140
 C	Always Have Enough Money To Buy Anything!	7E2A430F
@@ -25871,7 +25871,7 @@ C	Invincibility 1	C2AD-AF99
 C	Invincibility 2	C26A-DD99
 C	Weapon Modifier	7E009ABE
 C	Gravity Modifier	7E005400
-C	&quot;Glitchoport&quot;	7E008401
+C	"Glitchoport"	7E008401
 C	Level Select	7E024000
 C	Infinite Lives	7E008E09
 C	Music Modifier (00-0A)	7E02D800
@@ -25983,7 +25983,7 @@ C	Infinite Money	7E04C799
 C	Max Bar In Bungee Jumping Boss	7E1C0565
 C	Infinite Energy In Puzzle Dama Boss	7E12B614
 C	Boss Has Zero Energy In Puzzle Dama Boss	7E147600
-C	Max Bar In Track &amp; Field Boss	7E068720
+C	Max Bar In Track & Field Boss	7E068720
 C	Max Bar In Last Boss	7E1C7170
 C	Infinite Lives (Time Pilot '95 Minigame)	7E1C1003
 C	Make Boss Appear Right Away (Time Pilot '95 Minigame)	7E1C1200
@@ -26928,7 +26928,7 @@ C	Set Mega Crush	7E00B007
 C	Set Max. Speed	7E00B205
 C	Set Support Upgrade Modifier	7E00B40B
 C	Set Gun Upgrade Modifier	7E00B602
-C	Stage &quot;Area&quot; Select	7E008600
+C	Stage "Area" Select	7E008600
 C	Destroy Most Bosses With 1 Hit	7E08C601
 C	Start with 1 life instead of 3	DD8B-6DA4
 C	Start with 2 lives	DF8B-6DA4
@@ -28176,7 +28176,7 @@ C	Have 999 Maximum HP	7E0ACAE7+7E0ACB03
 C	Infinite 999 HP	7E0ACEE7+7E0ACDE7
 C	Have 200 Strength	7E0ADEC8
 C	Have 100 Strength	7E0ADE64
-C	Infinite 99 DP &amp; 9 S	7E0AD6E7+7E0AD709
+C	Infinite 99 DP & 9 S	7E0AD6E7+7E0AD709
 C	Defense Modifier	7E0ADC00
 C	Normal Form	7E0AD400
 C	Knight Form	7E0AD401
@@ -28226,7 +28226,7 @@ C	Will Starts With 55 Strength	EE65-4D0D
 C	Will Starts With All The Max HP You Can Get	EE61-440D
 C	Start With ?? Defense	7E15A4BE
 C	Untouchable	7F102803
-C	Infinite &amp; max HP	7E1B8864+7E1B8A64
+C	Infinite & max HP	7E1B8864+7E1B8A64
 C	Mucho infinite gems	7E1B67FF
 C	Strength	7E1B700C+7E1B720C
 C	Defense	7E1B740C+7E1B760C
@@ -28919,7 +28919,7 @@ C	Infinite Lives	7E003F09
 C	Infinite Time	7E0043FF
 C	Infinite Keys	7E003D09
 C	Infinite SB	7E004109
-C	Jump As High As You Want &amp; Fly Thru Walls (Must Turn off To Come Back Down, Though)	7E077E10
+C	Jump As High As You Want & Fly Thru Walls (Must Turn off To Come Back Down, Though)	7E077E10
 C	Hit Anywhere	EE37-C769+EE37-C7A9+C237-3F69
 C	Disable Parallax Scrolling	CE3E-44A7+CEE5-C46D
 C	Moon Jump	EDAE-4767+DDAD-14D7+DDAD-1467
@@ -28967,9 +28967,9 @@ C	Start with 6 lives	CBC8-6404+D9C8-6464
 C	Start with 10 lives	CBC8-6404+DBC8-6464
 C	All food fully restores energy	DDE0-0F6F
 C	No Keys Required To Open Locks	DD37-DFD8+8936-D708
-C	Infinite Health Player 1 &amp; 2	8BBA-64D7
-C	Infinite Lives Player 1 &amp; 2	8936-D46D
-C	Stay Invincible After Getting Hit Player 1 &amp; 2	892C-64D4
+C	Infinite Health Player 1 & 2	8BBA-64D7
+C	Infinite Lives Player 1 & 2	8936-D46D
+C	Stay Invincible After Getting Hit Player 1 & 2	892C-64D4
 C	Infinite Keys	C936-D708
 C	Hit Anywhere	6DC3-0DAD+DDC4-076D+C9E5-DDDD
 C	One Hit Kills	40CC-07DD
@@ -29003,7 +29003,7 @@ C	Spit Bones	7E022744
 C	Hammer Shoots Water	7E022848
 G	Joe _ Mac 2 - Lost in the Tropics (USA) (Beta)
 C	Infinite Money	C2E2-4D0A
-C	Infinite Health Player 1 &amp; 2	B982-176D
+C	Infinite Health Player 1 & 2	B982-176D
 C	Infinite Lives Player 1	893D-3FAD
 G	Joe _ Mac 2 - Lost in the Tropics (USA) (Game Genie)
 C	Unlimited Energy	2BBA-64D7
@@ -29029,7 +29029,7 @@ C	Spit Fire	7E022754
 C	Spit Bones	7E022744
 C	Hammer Shoots Water	7E022848
 C	Infinite Money	C2E2-4D0A
-C	Infinite Health Player 1 &amp; 2	B987-CD6D
+C	Infinite Health Player 1 & 2	B987-CD6D
 C	Infinite Lives Player 1	B9C1-3467
 C	Hit Anywhere	DD66-C7AC+DD33-1707+DD34-3DA7
 C	Skip Intro Screens	F26D-34DF
@@ -30415,7 +30415,7 @@ C	Push Up To Teleport To Right Side (Players Can Walkthrough Each Other!)	64B1-1
 C	Always Fight Whoever CPU Picks To Be First	C265-1467
 C	Play As Eyedol Or Jago	CBEC-37AF
 C	Play As Eyedol ONLY	CBEC-37AF+CDE8-3D0F
-C	Placing The &quot;Non-Moving&quot; Characters Code (Battle Plan)	EDE6-47D2
+C	Placing The "Non-Moving" Characters Code (Battle Plan)	EDE6-47D2
 C	Placing Eyedol Code (Battle Plan)	7E0EF200
 C	Placing Spinal Code (Battle Plan)	7E0EF200
 C	Laser Show During Intro -- Stays That Way Forever (Neat To Watch)	0087-C4D1
@@ -30434,7 +30434,7 @@ C	Hit Anywhere P1	EDB5-3F07+D2B5-3F67+0AB5-3FA7+CFB5-34D7+CFB5-3407
 C	Invincibility P1	3DB6-3467+DDB6-34A7+EDB6-3707+A7B6-3767
 C	Disable Blocking Both Players	6DCA-37DD
 C	Disable CPU Special Moves/Danger Moves	CB24-CFDF+DD24-CF0F
-C	Start a New Game to View Secret Eyedol Code &amp; Credits	876F-4F05+606F-4F65
+C	Start a New Game to View Secret Eyedol Code & Credits	876F-4F05+606F-4F65
 C	Trade Attack Sounds	2DA8-140D
 C	Infinite No Mercy Time	2DB4-340D
 C	CPU Doesn't Attack	6DAD-4FD7
@@ -30705,7 +30705,7 @@ G	King of Dragons (USA)
 C	Infinite Time	DD0E-EF0D
 C	Start at a higher level	6959-ED6D
 C	Infinite Credits	CE05-8F0D
-C	Infinite Lives P1 &amp; P2	C91D-5707
+C	Infinite Lives P1 & P2	C91D-5707
 C	Start With Level 6 Sword	6351-E40D+6955-EDDD
 C	Start With Level 6 Shield	6355-E7AD+6956-EF6D
 C	Start On Stage 5	63F2-546D
@@ -31025,7 +31025,7 @@ C	Only boulders fall	CB60-C737+D169-CD47+D169-CD17
 C	Unlock All Special Custom Mode Options	7E019401
 C	P1 Never Gets Rocks	7E071200
 C	CPU Constantly Gets Rocks	7E0752FF
-C	Disable The &quot;Next&quot; Box	CBB7-4D4D+3CB7-4DCD+CBB7-4F1D+3CB7-4F3D
+C	Disable The "Next" Box	CBB7-4D4D+3CB7-4DCD+CBB7-4F1D+3CB7-4F3D
 C	CPU Gets All Boulders	A3A2-CD4D+94A2-CD1D+D5A2-CDCD
 C	Enemies Can't Drop Dark Beans On You	7E071200+7E073700
 G	Kirby's Dream Course (USA)
@@ -31774,7 +31774,7 @@ C	Item Slot 3	7E093A01
 C	Max Gold	7E09353F+7E093642+7E09370F
 C	255 Exp After Battle	7E1182FF
 G	Lagoon (USA)
-C	Have All Equipment &amp; Magic	7E04D0FF+7E04D1FF+7E04D2FF+7E04D3F8
+C	Have All Equipment & Magic	7E04D0FF+7E04D1FF+7E04D2FF+7E04D3F8
 C	Have All Items	7E04D4FF+7E04D5FF+7E04D6FF+7E04D780
 C	Have Maximum Level	7E052C23
 C	Infinite Maximum HP	7E0520FF
@@ -32039,7 +32039,7 @@ G	Lawnmower Man, The (USA)
 C	After you die, your main weapon is fully powered up from then on	D0B5-CDAD+CBB5-CD6D
 C	Invincible in Cyber Run Level	C268-17AC
 C	Invincible in Cyber Tube Level	C26A-CD6C
-C	Invincible in Cyber &quot;Jobe&quot; Level	C223-1DD5
+C	Invincible in Cyber "Jobe" Level	C223-1DD5
 C	Invincible in Cyber Space Level	C2A2-479C
 C	Infinite lives	40BE-1DAD
 C	Super jump	ECB6-4FD7
@@ -32246,8 +32246,8 @@ C	Follow Modifier	7EF3CC01
 C	Bunny With Link's Head (Can Use Sword)	7E02E001+7E0ACD80+7E0ACF82
 C	Always Do Link's Power Move. Also If Your Hearts Are Full After Your First Shot Press A Immediatly And You'll Throw A Second Larger Shot. Very Cool!	7E007940
 C	Dash With Out Charging	45B8-D49A
-C	1/2 Magic &quot;curse&quot; Enabled	7EF37B01
-C	Sets The &quot;x&quot; On The Map (No Use Really)	7EF3C700
+C	1/2 Magic "curse" Enabled	7EF37B01
+C	Sets The "x" On The Map (No Use Really)	7EF3C700
 C	Turn Rain On (1) Or Off (0)	7E001D00
 C	Invincible / Walk Thru Enemies	7E031F6A
 C	All Hearts	7EF36D9F
@@ -32347,7 +32347,7 @@ C	Walk Through Walls	1D89-0FB3
 C	Free Chest Games, and Can Open All Chests	D738-1DA5
 C	Can Open All Chests In Chest Game	D53C-17A5
 C	100% Enemy Drop Rates	DDE8-142C
-C	Have Bow &amp; Silver Arrows	7EF34004
+C	Have Bow & Silver Arrows	7EF34004
 C	Have 20 Heart Containers which are always full	7EF36DA0
 C	Have all Lift abilities	7EF35403
 C	When Chickens Attack	7E0DAC23+7E0DAE23
@@ -32465,7 +32465,7 @@ C	Infinite Magic! (Doesn't Decrease At All)	7EF36E80
 C	Infinite Arrows (Sets It At 60)	7EF3773C
 C	Bunny With Link's Head	7E02E001+7E0ACD80+7E0ACF82
 C	Zelda Follows You Wherever You Go	7EF3CC01
-C	You Are Always A Bunny But You Can Use Your Sword!!! (Light &amp; Dark Worlds) Walk On Water, But You Can't Use Items.	7E02E001
+C	You Are Always A Bunny But You Can Use Your Sword!!! (Light & Dark Worlds) Walk On Water, But You Can't Use Items.	7E02E001
 C	Invisible	7E031F69
 C	99 Arrows	7EF37763
 C	999 Ruppees	7EF360E7+7EF36103
@@ -33179,7 +33179,7 @@ C	No Energy Loss When You Hit Civilians	3CB2-446C
 C	Keep Weapon Until You Die	6DBF-1FAC
 C	No Damage From Bad Guys	3CB5-140C
 C	Infinite Bullets	3CCE-C4AB
-C	Start a New Game to Enter &quot;Konami Gun System Check Mode&quot;	D562-1F04
+C	Start a New Game to Enter "Konami Gun System Check Mode"	D562-1F04
 C	Start a New Game to Enter Sound Check Mode	FD62-1F04
 C	Start a New Game to Enter Object Test	FF62-1F04
 G	Lethal Enforcers (World) (Action Replay)
@@ -33393,7 +33393,7 @@ C	British Gen. T. Gage 100 Body	7E288864
 C	British Gen. T. Gage 100 Reputation	7E288964
 C	British Gen. T. Gage 100 Loyalty	7E288A64
 C	British Gen. T. Gage is Not C-In-C	7E288C00
-C	British Gen. T. Gage is Not C-In-C &amp; Demoted To Captain	7E288C03
+C	British Gen. T. Gage is Not C-In-C & Demoted To Captain	7E288C03
 C	British Gen. T. Gage Has Both Cannons And Boats	7E288DC8
 C	British Gen. T. Gage 100 Arms	7E288E64
 C	British Gen. T. Gage 500 Troops	7E288FFA
@@ -33938,8 +33938,8 @@ C	4th Item Modifier [3rd Viking]	7E040000
 C	Skip Intro Screens	E1E7-CFD4+DDE7-CF04
 G	Lost Vikings, The (USA)
 C	Infinite HP For All Vikings [Instant Death Still Kills]	1D23-D7AF
-C	Start At Level X [Skips Logos &amp; Intro]	7E31CBDD
-C	Start At Level X (Skips Logos &amp; Intro)	DD62-0FD4
+C	Start At Level X [Skips Logos & Intro]	7E31CBDD
+C	Start At Level X (Skips Logos & Intro)	DD62-0FD4
 C	Infinite HP For All Vikings (Instant Death Still Kills You)	7E0FE908
 C	Level Select	7E19DD00
 C	Erik's Item Slot #1	7E040201
@@ -34454,8 +34454,8 @@ C	Reset Game At Title	EE60-3DDD
 C	Saturated Color Of Town And Dungeon	EEE0-3DDD
 C	Saturated Color Of Town And Dungeon #2	5560-3FDF
 C	Screen Messed Up When You Talk To People	7E62-37DF
-C	Blackout After Using &quot;RESET&quot; Magic In Dungeon	0060-3DDE
-C	Using &quot;RESET&quot; Magic Will Reset The Game	0060-34DE
+C	Blackout After Using "RESET" Magic In Dungeon	0060-3DDE
+C	Using "RESET" Magic Will Reset The Game	0060-34DE
 C	Using Button B or Y (Swing Sword/Shoot Arrow) In Dungeon Will Reset Game	0020-37DE
 C	Auto Select In Menu Sub-Screen (A-Button)	0060-37DC
 C	Auto Select (X-Button)	5561-37DC
@@ -34490,8 +34490,8 @@ C	Group Of 6 Goblin	AA6E-4DD9
 C	Group Of 5 Goblin	556E-44D9
 C	Kill The Enemy And When You Encounter Another There Will Be No Enemy To Fight	556E-47D9
 C	Group Of 6 Goblin	EE6E-4D69
-C	&quot;Fight Certain Number Of Enemy&quot; (Base Code)	7E31CBBE
-C	&quot;Fight Certain Number Of Enemy&quot; (Quantity Digits - Part 1 of X)	7E31CB00
+C	"Fight Certain Number Of Enemy" (Base Code)	7E31CBBE
+C	"Fight Certain Number Of Enemy" (Quantity Digits - Part 1 of X)	7E31CB00
 C	Fight Erim (A Boss)	EEE1-4DD5
 C	Fight Erim (A Boss) #2	EEEB-4D65
 C	Fight Erim (A Boss) #3	EEEB-4F65
@@ -34512,7 +34512,7 @@ C	Some Groups Of Enemy Does Not Attack Your Party Through The Battle #2	EEEE-44D
 C	Some Groups Of Enemy Does Not Attack Your Party Through The Battle #3	EEEE-4405
 C	Fight Gades After Swinging A Sword Or Shooting An Arrow In The Dungeon Or Cave (Not Glitch Free)	EE2E-37DE
 C	Fight Gades After Swinging A Sword Or Shooting An Arrow In The Dungeon Or Cave (Glitch Free)	EE2E-340E
-C	Get 0 &quot;Power Gourd&quot; Or 7 &quot;No Equip&quot; On Certain Lines In The Item List By Selecting The Spell Menu	7E31CB2E
+C	Get 0 "Power Gourd" Or 7 "No Equip" On Certain Lines In The Item List By Selecting The Spell Menu	7E31CB2E
 C	Cannot Select Any Battle Options	EEAE-4DD5
 C	Repeating Damage Number But No Effect	EEB5-C7D5
 C	Automatic Target Yourself When You Use Magic	EEA0-CDD5
@@ -34521,8 +34521,8 @@ C	Swing Sword Or Shoot Arrow Downward No Matter Where You Facing	EE28-37DE
 C	Delay Swing And Shoot	EE28-3D6E
 C	One Star Appears When You Step On The HP/MP Healing Symbols	EE2B-3DDE
 C	Loading Any Game Will Max Out Characters Status (HP/MP Included) #2	EEE0-1701
-C	In Battle: After A Round, It Say &quot;(Enemy Name) Loses Mirrors&quot; And Game Resets	EE60-1FD1
-C	In Battle: After A Round, It Say &quot;(Enemy Name) Normalizes&quot; And Game Resets	EE60-14D1
+C	In Battle: After A Round, It Say "(Enemy Name) Loses Mirrors" And Game Resets	EE60-1FD1
+C	In Battle: After A Round, It Say "(Enemy Name) Normalizes" And Game Resets	EE60-14D1
 C	In Battle: When You Attack, Your Character Uses Some Kind Of Magic And Game Resets Afterward	EE61-1DD1
 C	Grass Reappears	EE60-3FD3
 C	One Blinking Town-Man (in Elcid)	EE60-3DD2
@@ -34532,11 +34532,11 @@ C	Pick Up Vase Turn The Spot Where Vase Was At Into Objects (Road, Bridge, Backg
 C	Duplicating Vase Where It Sat (Vase Turns Real But Cannot Pick Up After Awhile)	EEE1-3DD2
 C	No Damage Number Show When Get Hit But Damage Still Occurs	FF60-34D5
 C	WARNING: Erases ALL Save Slots	EE69-DF6D
-C	Access &quot;RETRY&quot; Option If You Already Have Saved Game	EE69-DFDD
+C	Access "RETRY" Option If You Already Have Saved Game	EE69-DFDD
 C	Warning - Locks Up Game	EE69-D7AD
 C	Warning - Erase All	EE69-DFAD
 C	Warning - Erase All #2	EE64-DFAD
-C	Everybody &quot;MISS&quot; When Attack	EE68-DF6D
+C	Everybody "MISS" When Attack	EE68-DF6D
 C	Party Cannot Attack But Enemy Gives More Damage To Party	EE68-D40D
 C	Infinite 999 MP In Battle And Out Of Battle	EEEE-44D9
 C	??? Magic Store - Buy Any Magic For Any Character	EEEF-4F69
@@ -34552,11 +34552,11 @@ C	Ancient Cave Boss Dies From 1 Hit	DDAD-30B8+DDAD-3028
 C	Enable All Ancient Dungeon Trophies	BAC2-44AD
 C	Debug mode	206A-4FAA
 C	Enemies Always Drops An Item After Battle If They're Carrying An Item	6DE9-34D1+DCE9-3401
-C	&quot;Last Slot&quot; Code	1234-5670
+C	"Last Slot" Code	1234-5670
 C	Increase Stats By Choosing Equip Strongest	EE64-DDDD
 C	Could Give More Damage, Could Heal Enemy	DD68-D7AD
 C	Attack Power, Strength, Defense up to 999	DDE0-DDDD
-C	Get 0 &quot;Power Gourd&quot; Or 7 &quot;No Equip&quot; On Line 02 In The Item List By Selecting The Spell Menu	6E69-37D4
+C	Get 0 "Power Gourd" Or 7 "No Equip" On Line 02 In The Item List By Selecting The Spell Menu	6E69-37D4
 C	No Enemy To Fight	EE65-4F69
 C	No Enemy To Fight (Alternate Code)	A46E-4D09
 C	All Enemies Will Vanish If You Try To Attack	EEB7-1D00
@@ -35516,7 +35516,7 @@ C	Barrier Invincibility	7E06D6FF
 C	Infinite Continues	7E042D09
 C	Auto Jumping	7E8315FF
 C	Zero Gravity	7E8318FF
-C	Stage &quot;Floor&quot; Select	7E040300
+C	Stage "Floor" Select	7E040300
 C	Never Lose Shield	7E043502
 C	Have Item Effect	7E040E04
 C	Maximum Power For Amazon's Crossbow	7E041307
@@ -35833,7 +35833,7 @@ C	Some Enemies On Screen Are Invisible In Bug Swatting Game	7E026700
 C	Invincibility In Bug Swatting Game	CBCF-0769+62C4-0DA9+EECF-07A9
 C	Infinite Lives In Bug Swatting Game	A2C3-6409
 C	Have All Icons In Bug Swatting Game	CBC4-A400
-C	Star Easier To Get Under &quot;P&quot; On Title Screen	DD69-1F52+DD69-1452+DF69-1482
+C	Star Easier To Get Under "P" On Title Screen	DD69-1F52+DD69-1452+DF69-1482
 C	No Score Display In Fly Game	7F001B01
 C	Only Need To Swat Once To Move Around And Kill Flies!	7F001E02
 C	Enable All Rotate/Flip Options	7E099F01
@@ -35900,7 +35900,7 @@ C	Always Have 9 Small Energy Tanks	7FFF1809
 C	Airplane Gets Stuck On A Level	7E025300
 C	Infinite Air	7E009309+7E009509
 C	Infinite Air (Alternate Code)	7E0312FF
-C	Amazon, Asteroid Belt, Boston Aquarium &amp; Training Room	7E3F1464
+C	Amazon, Asteroid Belt, Boston Aquarium & Training Room	7E3F1464
 C	Dr. Doom's Castle	7E026B64
 C	Alaska	7E027B64
 C	Mt. Vesuvius	7E034B64
@@ -35910,7 +35910,7 @@ C	Boston Aquarium	7E042D03+7E042F00
 C	Alaska	7E02CD03+7E02CF00
 C	Dr. Doom's Castle	7E02BD03+7E02BF00
 C	Amazon	7E02FD03+7E02FF00
-C	Magus' Spaceship &amp; Asteroid Belt	7E026D03+7E026F00
+C	Magus' Spaceship & Asteroid Belt	7E026D03+7E026F00
 C	Egypt	7E02DD03+7E02DF00
 C	Arizona Mining Facility	7E031D03+7E031F00
 C	Mt. Vezuvius	7E039D03+7E039F00
@@ -35920,7 +35920,7 @@ C	Boston Aquarium	7E043C01
 C	Alaska	7E02DC01
 C	Dr. Doom's Castle	7E02CC01
 C	Amazon	7E030C01
-C	Magus' Spaceship &amp; Asteroid Belt	7E027C01
+C	Magus' Spaceship & Asteroid Belt	7E027C01
 C	Egypt	7E02EC01
 C	Arizona Mining Facility	7E032C01
 C	Mt. Vezuvius	7E03AC01
@@ -35983,10 +35983,10 @@ C	Infinite lives	C961-146F
 C	Flash longer	EE88-140D
 C	Don't flash at all	DD88-140D
 C	Get hit and you're invincible	82C0-476F
-C	&quot;M's worth 0	C9C4-3467
-C	&quot;M's worth 10	FDCF-37A7
-C	&quot;M's worth 30	7DCF-37A7
-C	&quot;M's worth 100	CDCF-37A7
+C	"M's worth 0	C9C4-3467
+C	"M's worth 10	FDCF-37A7
+C	"M's worth 30	7DCF-37A7
+C	"M's worth 100	CDCF-37A7
 C	Hit Anywhere	40C9-1467+40C9-1767+40C6-14A7+40C6-17A7+40C5-14A7+40C0-47DF+40C9-4F6F
 C	Invincible	40C0-47DF+40C9-4F6F
 C	Walk Through Walls	C287-4DAF
@@ -36289,15 +36289,15 @@ C	Auto Cannon starts at 250	EC00-7928
 C	Large Laser starts at 50	7400-7128+DD00-75F8
 C	Large Laser starts at 1000	3600-7128+D700-75F8
 C	Large Laser starts at 10,000	FD00-7128+4100-75F8
-C	&quot;Inferno&quot; Short-Range Missiles start at 10	DC00-7198
-C	&quot;Inferno&quot; Short-Range Missiles start at 50	7400-7198
-C	&quot;Inferno&quot; Short-Range Missiles start at 250	EC00-7198
-C	&quot;Maelstrom&quot; Long-Range Missiles start at 20	F009-7098
-C	&quot;Maelstrom&quot; Long-Range Missiles start at 100	1009-7098
-C	&quot;Maelstrom&quot; Long-Range Missiles start at 250	EC09-7098
-C	&quot;Thunder&quot; Time-Delay Mines start at 10	DC00-7598
-C	&quot;Thunder&quot; Time-Delay Mines start at 100	1000-7598
-C	&quot;Thunder&quot; Time-Delay Mines start at 250	EC00-7598
+C	"Inferno" Short-Range Missiles start at 10	DC00-7198
+C	"Inferno" Short-Range Missiles start at 50	7400-7198
+C	"Inferno" Short-Range Missiles start at 250	EC00-7198
+C	"Maelstrom" Long-Range Missiles start at 20	F009-7098
+C	"Maelstrom" Long-Range Missiles start at 100	1009-7098
+C	"Maelstrom" Long-Range Missiles start at 250	EC09-7098
+C	"Thunder" Time-Delay Mines start at 10	DC00-7598
+C	"Thunder" Time-Delay Mines start at 100	1000-7598
+C	"Thunder" Time-Delay Mines start at 250	EC00-7598
 C	No Damage	7E2ABF00
 C	No Damage	7E2ABE00+7E2ACC00
 G	MechWarrior 3050 (USA, Europe) (Action Replay)
@@ -36759,9 +36759,9 @@ C	Fall Slowly	CEB3-D714
 C	Start With Max Health Bar	F0B1-676F
 C	Big Energy Pellets Fill Your Energy Bar To Full After Pick-Up	F02F-6469
 C	Small Energy Pellets Fill Your Energy Bar To Full After Pick-Up	F028-D7A1
-C	Start With 3/4 Weapon Energy &amp; 3/4 Max Weapon Energy	F927-6DDF+9927-6FDF+F927-640F+F926-646F
+C	Start With 3/4 Weapon Energy & 3/4 Max Weapon Energy	F927-6DDF+9927-6FDF+F927-640F+F926-646F
 C	Start With 1/2 Weapon Energy & 1/2 Max Weapon Energy	D327-6DDF+0327-6FDF+D327-640F+D326-646F
-C	Start With 1/4 Weapon Energy &amp; 1/4 Max Weapon Energy	D527-6DDF+0527-6FDF+D527-640F+D526-646F
+C	Start With 1/4 Weapon Energy & 1/4 Max Weapon Energy	D527-6DDF+0527-6FDF+D527-640F+D526-646F
 C	Infinite Lives	C2BC-07A4
 C	Infinite Sub T	C2AE-6D6D
 C	Energy Capsules Don't Refill Sub T	C228-07A9+C22A-07D9
@@ -36804,10 +36804,10 @@ C	Flame Stag Starts With 2x Energy	0DA9-DFBD
 C	Flame Stag Starts With 3/4 Energy	F6A9-DFBD
 C	Flame Stag Starts With 1/2 Energy	FDA9-DFBD
 C	Flame Stag Starts With 1/4 Energy	D6A9-DFBD
-C	Agile, Serges &amp; Violen Start With 2x Energy	0D80-6497
-C	Agile, Serges &amp; Violen Start With 3/4 Energy	F680-6497
-C	Agile, Serges &amp; Violen Start With 1/2 Energy	FD80-6497
-C	Agile, Serges &amp; Violen Start With 1/4 Energy	D680-6497
+C	Agile, Serges & Violen Start With 2x Energy	0D80-6497
+C	Agile, Serges & Violen Start With 3/4 Energy	F680-6497
+C	Agile, Serges & Violen Start With 1/2 Energy	FD80-6497
+C	Agile, Serges & Violen Start With 1/4 Energy	D680-6497
 C	Serges (X-Hunter Base Stage 2) Starts With 2x Energy	0DA0-07A8
 C	Serges (X-Hunter Base Stage 2) Starts With 3/4 Energy	F6A0-07A8
 C	Serges (X-Hunter Base Stage 2) Starts With 1/2 Energy	FDA0-07A8
@@ -37038,7 +37038,7 @@ C	Sparkles Behind Level 3-5 Shots Fly In A Straight Line	EE6F-D4A1
 C	Sparkles Behind Level 3-5 Shots Fly Across Screen Twice	EE60-D4A1
 C	Sparkles Behind Level 3-5 Shots Fly Across Screen Twice #2 (Different)	EE60-D401
 C	No Sparkles Behind Level 3-5 Shots	EE60-D701
-C	Sparkles After Level 3-5, Shots Have Pretty &quot;Shimmering&quot; Effect	EE60-DF01
+C	Sparkles After Level 3-5, Shots Have Pretty "Shimmering" Effect	EE60-DF01
 C	Large Life Balls Instantly Fill An Entire Subtank	EE29-D7D1
 C	Both Zero's And X's Lightsaber Weapons Rapid Fire Huge Energy Waves	196A-D405
 C	Makes Your Normal Weapon MUCH More Powerful!	6DA0-ADF7
@@ -37058,7 +37058,7 @@ C	Get All Equipment when you Enter the Start Menu	CBA6-0DD7+EEA6-0D07+62A6-0D67
 C	Get All Robot Rider Parts/Gold Megaman When You Enter The Start Menu	CBA6-0DD7+EEA6-0D07+62A6-0D67+25A6-0DA7
 C	Get Zero Sword When You Enter The Start Menu	CBA6-0DD7+6DA6-0D07+62A6-0D67+84A6-0DA7
 C	Infinite Health	7E09FF1C
-C	Bosses &amp; Enemies 1-Hit Kills	7E0D3F01+7E0D7F01+7E0DFF01+7E0DBF01+7E137F01+7E133F01+7E0E3F01
+C	Bosses & Enemies 1-Hit Kills	7E0D3F01+7E0D7F01+7E0DFF01+7E0DBF01+7E137F01+7E133F01+7E0E3F01
 C	Very Gradual Gliding Up (Jump To Activate)	7E09F500
 C	On Ice, Gradually Be Pushed To The Side, Messed Up Climbing	7E09F301
 C	When Pushing Left, Always Powerslide, Hold Jump (Acts As Auto Jump)	7E0A0F01
@@ -37165,7 +37165,7 @@ C	Infinite Energy	7E19687F
 C	No Time	7E03C500+7E03C700
 C	Infinite Bombs	7E03FE08
 C	Infinite Energy Bolt Charge	7E1B1396
-C	Infinite &quot;Treble Energy Bolts&quot;	7E1B1703
+C	Infinite "Treble Energy Bolts"	7E1B1703
 G	Metal Marines (Europe)
 C	All Buildings Built/Upgraded Work As I.C.B.M.s	CB63-07AC+066E-0DDC
 C	Instant-Maximum Energy	DD29-64DD
@@ -37217,13 +37217,13 @@ C	Anne Max Hp 9999	7E820A0F+7E820B27
 C	Mosq. Inf Hp	7E832840+7E83291F
 C	Mosq. Inf Weight	7E8399FF+7E839AFF
 C	Mosq. Main Cannon Ammo	7E8350FF
-C	Mosq. Special Ammo &amp; Shell	7E8316FF
+C	Mosq. Special Ammo & Shell	7E8316FF
 C	Buggy Inf Hp	7E842840+7E84291F
 C	Buggy Inf Weight	7E8499FF+7E849AFF
 C	Abrams Inf Hp	7E882840+7E88291F
 C	Abrams Inf Weight	7E8899FF+7E889AFF
 C	Abrams Main Cannon	7E8840FF
-C	Abrams Inf Special Ammo &amp; Shell	7E8816FF
+C	Abrams Inf Special Ammo & Shell	7E8816FF
 C	Tiger Inf Hp	7E8728FF+7E8729FF
 C	Tiger Inf Weight	7E8799FF+7E879AFF
 C	Tiger Main Cannon	7E8758FF
@@ -37512,7 +37512,7 @@ C	Sir Felgar Starts With 42 Mgt (Might) Instead of 21	4CAA-0FF2
 C	Sir Felgar Starts With 99 Mgt (Might) Instead of 21	17AA-0FF2
 C	Sir Felgar Starts With $968 Gold Instead of $200	D7AA-0DF2
 C	Sir Felgar Starts With $5064 Gold Instead of $200	F7AA-0DF2
-C	Sir Felgar Starts With $25,032 Gold Instead of $200 (It Shows &quot;25k&quot; Which Means 25,000)	1FAA-0DF2
+C	Sir Felgar Starts With $25,032 Gold Instead of $200 (It Shows "25k" Which Means 25,000)	1FAA-0DF2
 C	Sir Felgar Starts As A Human/Knight Instead of A Half-Orc/Knight	DDA1-04F2
 C	Sir Felgar Starts As An Elf/Knight Instead of A Half-Orc/Knight	DFA1-04F2
 C	Sir Felgar Starts As A Dwarf/Knight Instead of A Half-Orc/Knight	D4A1-04F2
@@ -37527,12 +37527,12 @@ C	Terwin III Starts With 39 HP Instead of 13	45A7-6792+45A7-6722+45A9-6D22
 C	Terwin III Starts With 130 HP Instead of 13	64A7-6792+64A7-6722+64A9-6D22
 C	Terwin III Starts With $968 Gold Instead of $200	D7A0-6FB2
 C	Terwin III Starts With $5064 Gold Instead of $200	F7A0-6FB2
-C	Terwin III Starts With $25,032 Gold Instead of $200 (It Shows &quot;25k&quot; Which Means 25,000)	1FA0-6FB2
+C	Terwin III Starts With $25,032 Gold Instead of $200 (It Shows "25k" Which Means 25,000)	1FA0-6FB2
 C	Sure Valla Starts With 39 HP Instead of 13	45AA-6D22+45AA-6F92+45A2-6492
 C	Sure Valla Starts With 130 HP Instead of 13	64AA-6D22+64AA-6F92+64A2-6492
 C	Sure Valla Starts With $968 Gold Instead of $200	D7AA-67F2
 C	Sure Valla Starts With $5064 Gold Instead of $200	F7AA-67F2
-C	Sure Valla Starts With $25,032 Gold Instead of $200 (It Shows &quot;25k&quot; Which Means 25,000)	1FAA-67F2
+C	Sure Valla Starts With $25,032 Gold Instead of $200 (It Shows "25k" Which Means 25,000)	1FAA-67F2
 C	Gene Eric Starts With 21 SP Instead of 7	F9A0-AD22+F9A0-AF92
 C	Gene Eric Starts With 70 SP Instead of 7	01A0-AD22+01A0-AF92
 C	Item Quantity Digits	7E198A99+7E198B09
@@ -37586,7 +37586,7 @@ C	Max Character 2 Luc	7FE0FCFF
 C	Max Character 2 SL	7FE0FE09
 C	Max Character 2 Thvy	7FE0AB64
 C	Character 2 Age Modifier	7FE0AE00
-C	Character 2 Always In &quot;Good&quot; Conditions	7FE0B300
+C	Character 2 Always In "Good" Conditions	7FE0B300
 C	Character 2 Skills Modifiers	7FE0DD00
 C	Character 2 Sex Modifiers	7FE09900
 C	Character 2 Class Modifiers	7FE09C00
@@ -37617,7 +37617,7 @@ C	Max Character 3 Luc	7FE184FF
 C	Max Character 3 SL	7FE18609
 C	Max Character 3 Thvy	7FE13364
 C	Character 3 Age Modifier	7FE13600
-C	Character 3 Always In &quot;Good&quot; Conditions	7FE13B00
+C	Character 3 Always In "Good" Conditions	7FE13B00
 C	Character 3 Skills Modifiers	7FE16500
 C	Character 3 Sex Modifiers	7FE12100
 C	Character 3 Class Modifiers	7FE12400
@@ -37647,7 +37647,7 @@ C	Max Character 4 Luc	7FE20CFF
 C	Max Character 4 SL	7FE20E09
 C	Max Character 4 Thvy	7FE1BB64
 C	Character 4 Age Modifier	7FE1BE00
-C	Character 4 Always In &quot;Good&quot; Conditions	7FE1C300
+C	Character 4 Always In "Good" Conditions	7FE1C300
 C	Character 4 Skills Modifiers	7FE1ED00
 C	Character 4 Sex Modifiers	7FE1A900
 C	Character 4 Class Modifiers	7FE1AC00
@@ -37678,7 +37678,7 @@ C	Max Character 5 Luc	7FE294FF
 C	Max Character 5 SL	7FE29609
 C	Max Character 5 Thvy	7FE24364
 C	Character 5 Age Modifier	7FE24600
-C	Character 5 Always in &quot;Good&quot; conditions	7FE24B00
+C	Character 5 Always in "Good" conditions	7FE24B00
 C	Character 5 Skills Modifiers	7FE27500
 C	Character 5 Sex Modifiers	7FE23100
 C	Character 5 Class Modifiers	7FE23400
@@ -37709,7 +37709,7 @@ C	Max Character 6 Luc	7FE31CFF
 C	Max Character 6 SL	7FE31E09
 C	Max Character 6 Thvy	7FE2CB64
 C	Character 6 Age Modifier	7FE2CE00
-C	Character 6 Always In &quot;Good&quot; Conditions	7FE2D300
+C	Character 6 Always In "Good" Conditions	7FE2D300
 C	Character 6 Skills Modifiers	7FE2FD00
 C	Character 6 Sex Modifiers	7FE2B900
 C	Character 6 Class Modifiers	7FE2BC00
@@ -37739,7 +37739,7 @@ C	Max Character 7 Luc	7FE3A4FF
 C	Max Character 7 SL	7FE3A609
 C	Max Character 7 Thvy	7FE35364
 C	Character 7 Age Modifier	7FE35600
-C	Character 7 Always in &quot;Good&quot; conditions	7FE35B00
+C	Character 7 Always in "Good" conditions	7FE35B00
 C	Character 7 Skills Modifiers	7FE38500
 C	Character 7 Sex Modifiers	7FE34100
 C	Character 7 Class Modifiers	7FE34400
@@ -37769,7 +37769,7 @@ C	Max Character 8 Luc	7FE42CFF
 C	Max Character 8 SL	7FE42E09
 C	Max Character 8 Thvy	7FE3DB64
 C	Character 8 Age Modifier	7FE3DE00
-C	Character 8 Always In &quot;Good&quot; Conditions	7FE3E300
+C	Character 8 Always In "Good" Conditions	7FE3E300
 C	Character 8 Skills Modifiers	7FE40D00
 C	Character 8 Sex Modifiers	7FE3C900
 C	Character 8 Class Modifiers	7FE3CC00
@@ -38210,14 +38210,14 @@ C	Have Lots of CDs	7E030099
 G	Monopoly (USA) (Rev 1)
 C	Exit Trade Menu To Give Player X All Land, With Y Buildings	CB3E-6DDD+DD3E-6D0D
 G	Monopoly (USA)
-C	Player 1 Has a &quot;Get out of Jail&quot; Card	7E08F201
-C	Player 2 Has a &quot;Get out of Jail&quot; Card	7E08F401
-C	Player 3 Has a &quot;Get out of Jail&quot; Card	7E08F601
-C	Player 4 Has a &quot;Get out of Jail&quot; Card	7E08F801
-C	Player 5 Has a &quot;Get out of Jail&quot; Card	7E08FA01
-C	Player 6 Has a &quot;Get out of Jail&quot; Card	7E08FC01
-C	Player 7 Has a &quot;Get out of Jail&quot; Card	7E08FE01
-C	Player 8 Has a &quot;Get out of Jail&quot; Card	7E090001
+C	Player 1 Has a "Get out of Jail" Card	7E08F201
+C	Player 2 Has a "Get out of Jail" Card	7E08F401
+C	Player 3 Has a "Get out of Jail" Card	7E08F601
+C	Player 4 Has a "Get out of Jail" Card	7E08F801
+C	Player 5 Has a "Get out of Jail" Card	7E08FA01
+C	Player 6 Has a "Get out of Jail" Card	7E08FC01
+C	Player 7 Has a "Get out of Jail" Card	7E08FE01
+C	Player 8 Has a "Get out of Jail" Card	7E090001
 C	Land, rent and some other things are free [all players]	1D85-6FDF
 C	Always throw double 6's	CBB3-AF0D+D1B3-AF6D+D1B3-AFAD
 C	Always throw double 5's	CBB3-AF0D+D9B3-AF6D+D9B3-AFAD
@@ -38270,7 +38270,7 @@ C	Hyper P1	7E03F2FF
 C	Play As Character Modifiers	7E002200
 C	Play As Goro (Very Glitchy, May Freeze Or Cause Graphical Problem)	7E002207+9897C4A9+9897C507
 C	Play As Shang Tsung (Glitchy And Prone To Error)	7E002208
-C	&quot;Play&quot; As Reptile	7E002209+7E02C101+7E197204
+C	"Play" As Reptile	7E002209+7E02C101+7E197204
 C	Character Makes Funny Movements During Battle	7E1959D3
 C	Character Makes Funny Movements During Battle	7E1959EB
 C	No Color Change When Frozen By Sub-Zero	7E192101
@@ -38283,12 +38283,12 @@ C	Sudden Death Mode	EEC9-140A
 C	Player 1 And CPU Start With More Energy	E2BE-3FA4
 C	Player 2 Can Never Win A Round	EEC9-14DA
 C	First Person That Gets Hit Loses [Against The CPU]	DFBE-3FA4
-C	Lets You Start Fighting Before It Says &quot;Fight&quot;	DD62-3464
+C	Lets You Start Fighting Before It Says "Fight"	DD62-3464
 C	First Fight Code	EE31-4DDE
 C	Both Players Are Invisible	7F31-4DDE
 C	Invisible Players	3C6F-3FAF
 C	High Pitched Voices!	DD68-6DD0
-C	Skip Every Other Opponent On The &quot;Battle Plan&quot;	33B6-C4D7
+C	Skip Every Other Opponent On The "Battle Plan"	33B6-C4D7
 C	Everyone Will Vibrate In A 2 Player Game	D2B8-14DD
 C	Character Select Boxes Will Be Black	D6BA-14DD
 C	No Character Select Screen!	EEB3-14DD
@@ -38450,7 +38450,7 @@ C	Almost Always Fight Sonya Blade	CBBA-394F+D1BA-391F
 C	Almost Always Fight Goro (Don't Use Kano's Or Johnny Cage's Finishing Move On Goro)	CBBA-394F+D5BA-391F
 C	Enable High Score Entry (After Any Loss)	676A-47AF
 C	Fight As Goro (Very Glitchy - May Freeze Or Cause Graphical Problems)	7E002207
-C	&quot;Fight&quot; As Reptile (The Name Reptile Appears Above The Life Bar, But You Can't Control Him, And The Game Is Liable To Freeze)	7E002209
+C	"Fight" As Reptile (The Name Reptile Appears Above The Life Bar, But You Can't Control Him, And The Game Is Liable To Freeze)	7E002209
 C	Skip Intro Screens	CE6B-4DAD
 C	Skip VS Screen	CECF-462F+DD8A-36FF
 C	Liu Kang - Press Down	DD2D-146D
@@ -38630,7 +38630,7 @@ C	Unlock Scott's Stuff	7EEC2004
 C	Unlock Sound Test	7EEC2201
 C	Replace Smoke On Character Select Screen With Motaro	7E1C590F
 C	Replace Smoke On Character Select Screen With Shao Kahn	7E1C5910
-C	Fight Before Announcer Says &quot;Fight!&quot;	7E39C001
+C	Fight Before Announcer Says "Fight!"	7E39C001
 C	Can Do Fatalities In Any Round/1-Button Fatalities	7E3AF001
 C	Infinite Continues	A220-3FB6
 C	Pause Enable 2	EE61-4DDD
@@ -38802,10 +38802,10 @@ C	Health Mod, P2	7E30AA00
 C	P1 Cheat Modifier	7E2E9A01
 C	P1 Cheat Modifier (VS)	7E2E9C02
 C	P2 Cheat Modifier (Vs. Codes)	7E2E9A02
-C	Scorpion's &quot;Flame&quot; Fatality Randomly Altered	B584-146F
+C	Scorpion's "Flame" Fatality Randomly Altered	B584-146F
 C	P1 Female Ninja Color Modifier [In-Game]	7EB9E000+7EB9E400+7EB9E500+7EB9E600+7EB9E800+7EB9E900+7EB9F200+7EB9F300
 C	P2 Female Ninja Color Modifier [In-Game]	7EBA0000+7EBA0400+7EBA0500+7EBA0600+7EBA0800+7EBA0900+7EBA1200+7EBA1300
-C	Fight Before Announcer Says &quot;Fight!&quot;	7E325601
+C	Fight Before Announcer Says "Fight!"	7E325601
 C	P1 Body Display Modifier	7E269000
 C	P2 Body Display Modifier	7E269200
 C	P1 Shadow Display Modifier	7E269800
@@ -38900,16 +38900,16 @@ C	Player 2 Untouchable	7E2D483D
 C	Player 1 Fatality Modifier	C2EE-1FDA+DFEE-1F6A
 C	Computer won't Duck or Block incoming projectiles	6DAF-3FD4
 C	Will cause all CPU opponents to Smoke (Rings of smoke like from the Character Smoke)	C2BA-44FD+DFBA-44BD+D3DF-9A76
-C	Character Moveset/Move Extractor (Player 1 &amp; 2)	CBC0-17A1+DDC9-1D01+CBBF-44F4+DDBF-44B4
+C	Character Moveset/Move Extractor (Player 1 & 2)	CBC0-17A1+DDC9-1D01+CBBF-44F4+DDBF-44B4
 C	Enable Finishing Moves to be performed with Secret Characters	CDC5-CFD2+DFC5-CF02+DDC5-CF62
 C	Player 1 Fatality Modifier	C2EE-1FDA+DFEE-1F6A+DDDF-9A76
-C	Character Moveset/Move Extractor (Player 1 &amp; 2)	CBC0-17A1+DDC9-1DD1+DDC9-1D01+CBBF-44F4+DDBF-4494+DDBF-44B4
+C	Character Moveset/Move Extractor (Player 1 & 2)	CBC0-17A1+DDC9-1DD1+DDC9-1D01+CBBF-44F4+DDBF-4494+DDBF-44B4
 C	Player 1 Controlled Modifier	7E2EEE00
 C	Player 2 Controlled Modifier	7E309C00
 C	Disable Throws	1DC9-CDB1+1DCF-37F1+1DC4-44B5
 C	Improved Untouchable P1	6DB1-44F7+DBB1-4497+DDB5-4427+1DC9-CDB1+1DCF-37F1+1DC4-44B5
 C	Improved Untouchable P2	6DB1-44F7+D1B1-4497+DDB5-4FB7+1DC9-CDB1+1DCF-37F1+1DC4-44B5
-C	Computer Opponents have &quot;Access&quot; to Kintaro's moves in addition to their own	EE20-CDDD
+C	Computer Opponents have "Access" to Kintaro's moves in addition to their own	EE20-CDDD
 C	Invincibility	3DAC-57B0+D4AC-5720+DDA8-5DF0+EDA8-5D90
 C	Disable Blocking	40BC-4FF7
 C	Character Profile Modifier	7E32CA0B
@@ -38971,8 +38971,8 @@ C	Enable All 2-Player Rules/Moves When Fighting Computer (MK2 V1.1)	6DCF-4F9D
 C	Extra Audio When Scorpion Wins (See Below)	0065-CD27
 C	Extra Audio When Shang Tsung Wins (See Below)	0061-CD27
 C	Extra Audio When Johhny Cage Wins (See Below)	0069-CD27
-C	Extra Audio With &quot;Flawless Victory&quot; (See Below)	0062-CD27
-C	Extra Audio With &quot;Excellent&quot; (See Below)	006E-CD27
+C	Extra Audio With "Flawless Victory" (See Below)	0062-CD27
+C	Extra Audio With "Excellent" (See Below)	006E-CD27
 C	Infinite Fatality Time	7E023201
 C	Very Easy Difficulty	7E327800
 C	Kombat Zone Select	7E327000
@@ -39009,8 +39009,8 @@ C	Shang Tsung Morph Modifier (Down, Forward, Back, High Kick - Jax)	7E008E00+7E0
 C	Character Moveset/Move Extractor	CBC0-17A1+DDC9-1DD1+DDC9-1D01+CBBF-44F4+DDBF-4494+DDBF-44B4
 C	Player 1 Fatality Modifier	CBEE-1FDA+DDEE-1F0A+DDEE-1F6A
 C	All CPU Opponents Emit Smoke	CBBA-44FD+D3BA-449D+DDBA-44BD
-C	Computer Opponents have &quot;Access&quot; to Shao Khan's Moveset	C220-CDDD
-C	Computer Opponents have &quot;Access&quot; to Kintaro's Moveset	EE20-CDDD
+C	Computer Opponents have "Access" to Shao Khan's Moveset	C220-CDDD
+C	Computer Opponents have "Access" to Kintaro's Moveset	EE20-CDDD
 C	Disable Computer Walk/Follow Routine	EE29-CDAD
 C	Scorpions Spear Dizzy Lasts Forever	406F-470E
 C	Skip Intro Screens	DF60-C7AF+CE65-4FDD
@@ -39345,9 +39345,9 @@ C	Secret Player Modifier, Player 4	7E1D0500+7E1D0600
 G	NBA Jam (USA) (Rev 1)
 C	All players have super dunk ability	D8E7-C448
 C	All players have infinite turbo	D6E1-CF38
-C	All players always &quot;on fire&quot;	D6E9-CD18
+C	All players always "on fire"	D6E9-CD18
 C	All players have super interception ability	D8ED-C418
-C	&quot;Juice&quot; mode	D6E5-C718
+C	"Juice" mode	D6E5-C718
 C	Shot success percentages displayed for non-dunk shots	D6E4-CDC8
 C	Turbo bar never goes up [until next quarter]	DDE1-3C2A
 C	Turbo bar restores very slowly	D3E1-3C2A
@@ -39406,13 +39406,13 @@ C	Home's baskets worth 5	35C6-A7AF
 C	Home's baskets worth 6	36C6-A7AF
 C	Home's baskets worth 7	3CC6-A7AF
 C	Home's baskets worth 8	3AC6-A7AF
-C	Need 4 baskets to be &quot;on fire&quot;	D0BD-3038
-C	Need 5 baskets to be &quot;on fire&quot;	D9BD-3038
-C	Need 6 baskets to be &quot;on fire&quot;	D1BD-3038
-C	Need 7 baskets to be &quot;on fire&quot;	D5BD-3038
-C	Need 8 baskets to be &quot;on fire&quot;	D6BD-3038
-C	Need 9 baskets to be &quot;on fire&quot;	DBBD-3038
-C	Need 10 baskets to be &quot;on fire&quot;	DCBD-3038
+C	Need 4 baskets to be "on fire"	D0BD-3038
+C	Need 5 baskets to be "on fire"	D9BD-3038
+C	Need 6 baskets to be "on fire"	D1BD-3038
+C	Need 7 baskets to be "on fire"	D5BD-3038
+C	Need 8 baskets to be "on fire"	D6BD-3038
+C	Need 9 baskets to be "on fire"	DBBD-3038
+C	Need 10 baskets to be "on fire"	DCBD-3038
 C	Need 2 baskets to be on fire	D4BD-3038
 C	All players have super dunk ability	D8E8-C718
 C	All players have infinite turbo	D6E3-C748
@@ -39694,7 +39694,7 @@ C	Player 1 Has Everything Else	EEEA-1F0C
 C	Player 2 Has Almost Everything	EEE1-C46C
 C	Player 2 Has Everything Else	EEE1-C4AC
 C	Player 2 Has Almost Infinite Turbo	C286-1B2B
-C	Enable Use of &quot;Stud Muffin&quot; Secret Player	7E1E2801
+C	Enable Use of "Stud Muffin" Secret Player	7E1E2801
 C	Dunk and Layup From Anywhere P1	BDE7-CF09+E5E7-CF69
 C	Dunk and Layup From Anywhere P2	6F34-CF68+3E34-CFA8
 C	Skip Intro Screens	CE64-47DD
@@ -40484,7 +40484,7 @@ C	No Health P2 / Opponent (Vs. Fighting)	7E136E00
 C	Infinite Items P1	7E0F0009+7E0F0109+7E0F0209+7E0F0309+7E0F0409
 G	Nichibutsu Arcade Classics (Japan)
 C	Infinite (II) Ships Once You Destroy The (I) Ship	7E095806+7E095A02
-C	Infinite (III) Ships Once You Destroy The (I &amp; II) Ships	7E095804+7E095A04
+C	Infinite (III) Ships Once You Destroy The (I & II) Ships	7E095804+7E095A04
 C	Ship Modifier (Buggy)	7E0A9E01
 C	Always Have 1st Ship	7E095809
 G	Nickelodeon GUTS (USA)
@@ -40668,7 +40668,7 @@ C	Untouchable	DDAB-3FE7
 C	Start With 99 Weapon Points (ignore the counter)	176C-CDE7
 C	Stage select (Use DF-4E)	006B-CF87+FD6B-CFE7
 C	Invincible After 1 Hit, Except For Falling Off Screen	7E009301
-C	99 &amp; Infinite Spiritual Power	7E006463
+C	99 & Infinite Spiritual Power	7E006463
 C	Stage Select For Ninja Gaiden	7E006D00
 C	Invincible, Except For Falling Off Screen	7E006825
 C	Infinite Lives	7E00A503
@@ -40677,8 +40677,8 @@ C	Weapon Always Fireball	7E007D02
 C	Stage Select For Ninja Gaiden II	7E007E00
 C	Infinite Lives	7E00C403
 C	Enemies Can't Touch You	7E00AD05
-C	Spiritual Power 99 &amp; Infinite	7E00CD63
-C	Always Have &quot;Big&quot; Sword	7E00A904
+C	Spiritual Power 99 & Infinite	7E00CD63
+C	Always Have "Big" Sword	7E00A904
 C	Infinite Energy	7E00A710
 C	Weapon Modifier	7E009F01
 C	Stage Select For Ninja Gaiden III	7E005F00
@@ -40799,7 +40799,7 @@ C	Always Do Nunchaku Attack [Ninja]	7E083602
 C	Always Do Sword Slash [Kunoichi] / Always Do Claw [Other Person]	7E083604
 C	Invincibility	EDB0-D768+ED8D-AD0B+2DB1-DDD8+2DB1-DF08+2D8D-A70B
 C	One Hit Kill	CB68-D7AE+DD6A-DDDE+DD6A-DD0E+CBCE-ADD6+DDCE-AD06+DDCE-AD66
-C	Activate Hidden Debug &quot;-TEST-&quot; Menu	7E000007
+C	Activate Hidden Debug "-TEST-" Menu	7E000007
 C	Hit Anywhere	40B2-D462
 C	Stage Modifier	7E080201
 C	Character Modifier	7E082001
@@ -44003,7 +44003,7 @@ G	Panel de Pon (Japan)
 C	Release Date	7E114480
 C	Freeze Puzzle	DDB9-446B
 C	Auto-Compete Levels	D9C7-47F3+D9BA-3F2E
-C	Enable Thanatos &amp; Cordelia for 2-player games	DDE1-CD03
+C	Enable Thanatos & Cordelia for 2-player games	DDE1-CD03
 C	Win at VS Games Easier	33B1-3FA8+BAE0-4FDB
 C	VS Opponent Can't Move Up/Down	62EA-C4AB
 C	Stop Blocks From Moving Up	7E5BBD01
@@ -44150,8 +44150,8 @@ C	Konami Code Speed Modifier	##33-ADDD
 G	Parodius Da! - Shinwa kara Owarai e (Japan)
 C	Infinite lives	8287-DFAD
 C	Infinite Super Bombs Once You Collect One	892A-AFAD
-C	Infinite &quot;Upside-down&quot; Konami Code Use	828A-DFDF
-C	Infinite &quot;Super Bomb&quot; Controller Code Use	8283-D76F
+C	Infinite "Upside-down" Konami Code Use	828A-DFDF
+C	Infinite "Super Bomb" Controller Code Use	8283-D76F
 C	Get Laser Weapon Instead Of Shield With Konami Code	5D3D-D76F+5D3F-DD0F
 C	Konami Code Speed Modifier	7E0DB4DF
 C	Enemies Can't Touch You	7E1CC465
@@ -45182,7 +45182,7 @@ C	Start with 9 Lives	DB6D-1FD6
 C	Start with 99 Continues	176C-C431
 C	Infinite Continues	7E008C63
 G	Primal Rage (USA)
-C	Press down 3 times then start at the &quot;Start/Options&quot; screen for a hidden menu	D925-846F
+C	Press down 3 times then start at the "Start/Options" screen for a hidden menu	D925-846F
 C	Start with less energy	0DA5-876D
 C	Able to select as many credits as you want in the options screen	BB54-87AB
 C	Select different times in the options screen	FD1D-7DD4
@@ -46653,10 +46653,10 @@ C	Ranma Starts With 30 Speed Instead of 11	F383-A707
 C	Ranma Starts With 100 Speed Instead of 11	1083-A707
 C	Ranma Starts With 35 Defense (Instead of 15) And 30 Strength (Instead of 10)	F383-A767
 C	Ranma Starts With 105 Defense (Instead of 15) And 100 Strength (Instead of 10)	1083-A767
-C	Ranma Starts With The &quot;Eagle Sword&quot; Equipped (Instead of Nothing)	D183-A7A7
-C	Ranma Starts With The &quot;Adamant Armor&quot; Equipped (Instead of Nothing)	4C8E-ADD7
-C	Ranma Starts With The &quot;Thunder Armor&quot; Equipped (Instead of Casual Armor)	468E-AD07
-C	Ranma Starts With The &quot;Stardust Armor&quot; Equipped (Instead of Nothing)	7D8E-AD67
+C	Ranma Starts With The "Eagle Sword" Equipped (Instead of Nothing)	D183-A7A7
+C	Ranma Starts With The "Adamant Armor" Equipped (Instead of Nothing)	4C8E-ADD7
+C	Ranma Starts With The "Thunder Armor" Equipped (Instead of Casual Armor)	468E-AD07
+C	Ranma Starts With The "Stardust Armor" Equipped (Instead of Nothing)	7D8E-AD67
 C	Akane Starts With 40 HP Instead of 20	46A0-DDDD
 C	Akane Starts With 80 HP Instead of 20	9DA0-DDDD
 C	Akane Starts With 200 HP Instead of 20	A6A0-DDDD
@@ -46915,7 +46915,7 @@ C	Ending Modifier	7E1ADC00
 C	Stage/Checkpoint Modifier	7E05ED00
 C	Time Machine Stage 1-2, 1st Room is Final Room	7E1AF22A+7FFC607F
 C	Time Machine Stage 2-2 , 1st Room is Final Room	7FFC630C
-C	Time Machine Stage 3-2, 2nd Room is &quot;Exit&quot; Room	7FFC600F
+C	Time Machine Stage 3-2, 2nd Room is "Exit" Room	7FFC600F
 C	Time Machine Stage 4-2 , 1st Room is Final Room	7FFC600E
 C	-Note	7FFC600E
 C	Max Charged Hairballs	0D84-4766
@@ -46934,7 +46934,7 @@ C	Infinite Time	C2CF-D7A9
 C	Infinite Health	C2CD-0FA0
 C	Infinite Lives	C2C5-0460
 C	Powdered Toast Shield Lasts 85x Longer	EEE8-6DD6
-C	&quot;Socks&quot; Power Up Lasts 200x Longer	EEEF-D7AB
+C	"Socks" Power Up Lasts 200x Longer	EEEF-D7AB
 C	Stimpy's Mouth Won't Close	C2C5-0FD9
 C	Money Is Worth 10x More	ECBC-6DA5+ECAB-DDA5
 C	Infinite Lives	7E080603
@@ -47142,8 +47142,8 @@ C	Infinite Lives (Player 2)	7E030F09
 C	Infinite Points (Player 1)	7E022470
 C	Infinite Points (Player 2)	7E02F470
 C	Infinite Continues	7E10F505
-C	Always &quot;Angry&quot; (Player 1)	7E024F03
-C	Always &quot;Angry&quot; (Player 2)	7E031F03
+C	Always "Angry" (Player 1)	7E024F03
+C	Always "Angry" (Player 2)	7E031F03
 C	Stage Select	7E012020
 C	Lower All Enemy Health	7E048700+7E055700+7E024F00+7E03B700
 C	Start With 8 Lives	D5B7-D4A7
@@ -47304,8 +47304,8 @@ C	Start with 100 lives	BBBC-3FD4
 C	Infinite lives	DDB2-4D64
 C	Stay invincible longer after getting hit [Road Runner blinks]	EE8C-C4DD
 C	Stay invincible for less time after getting hit [Road Runner blinks]	0D8C-C4DD
-C	Stay invincible after getting hit until you fall &amp; die [Road Runner blinks]	C2C5-C7AF
-C	Stay invincible after getting hit until you fall &amp; die [Road Runner does not blink]	6DC5-C70F
+C	Stay invincible after getting hit until you fall & die [Road Runner blinks]	C2C5-C7AF
+C	Stay invincible after getting hit until you fall & die [Road Runner does not blink]	6DC5-C70F
 C	Start with more birdseed on the turbo speed meter	7DBD-44D7
 C	Start with less birdseed on the turbo speed meter	FDBD-44D7
 C	Eating birdseed restores turbo speed meter to maximum	7D26-3404
@@ -48124,11 +48124,11 @@ C	Infinite S. Drill	7E0B829F
 C	Infinite L. Bolt	7E0B849F
 C	Infinite C. Vision	7E0B909F
 C	Infinite M. Cards	7E0B8A9F
-C	Infinite Spikestep &amp; Capsule	7E0B97F9
+C	Infinite Spikestep & Capsule	7E0B97F9
 C	Infinite Gospel Booster/Rush Search	7E0B929F
 C	Infinite Beat Energy (Rockman Only!)	7E0B949F
 C	Infinite Eddie (Rockman Only!)	7E0B969F
-C	All &amp; Infinite Subscreen Items	7E0B97FF+7E0B98FF+7E0B99FF
+C	All & Infinite Subscreen Items	7E0B97FF+7E0B98FF+7E0B99FF
 C	Pillar of Fire 1	7E19FD00+7E1A3D00+7E1A7D00+7E1ABD00
 C	Pillar of Fire 2	7E1AFD00+7E1B3D00+7E1B7D00+7E1BBD00
 C	Pillar of Fire 3	7E1BFD00+7E1C3D00+7E1C7D00+7E1CBD00
@@ -49841,7 +49841,7 @@ C	Quicker 'jungle fever' for Rasta	0C83-1707+D48E-1FA7
 C	Able To Pick Same Characters	1D79-EFD4+1D77-E404
 C	CPU Has No Energy	7E0A7900
 C	Time Modifier	7E1A7000
-C	Enable Jumbo &amp; Scorpion in Singles mode	DD79-EDD4+DC70-E7D4
+C	Enable Jumbo & Scorpion in Singles mode	DD79-EDD4+DC70-E7D4
 C	Jumbo to Biff	DDC1-CD0F
 C	Jumbo to Gunloc	DFC1-CD0F
 C	Jumbo to Oni	D4C1-CD0F
@@ -50289,7 +50289,7 @@ C	Dog Levels Up After Battle	678D-C759
 C	Hero Gains More Experience	6D8D-6759
 C	Boy Level Up Only Once After Killing An Enemy	DE81-C759
 C	Different Dog Levels Up Code	EE8D-C759
-C	Level &amp; Status Of Save Game 4 Is Switched With Save Game 1's Stats	0081-CDE9
+C	Level & Status Of Save Game 4 Is Switched With Save Game 1's Stats	0081-CDE9
 C	Raise One Level For Every Enemy Killed (Dog Only!)	DD8D-C759
 C	Protect Both Characters Against Most Creatures But Not Against Magic	8081-CFE3
 C	Number Changed In Defense But Does Not Affect Anything	55C4-CD59
@@ -50690,7 +50690,7 @@ C	Sword Orbs Collected Modifier	7ECFB900
 C	Axe Orbs Collected Modifier	7ECFBA00
 C	Spear Orbs Collected Modifier	7ECFBB00
 C	Whip Orbs Collected Modifier	7ECFBC00
-C	Bow &amp; Arrow Orbs Collected Modifier	7ECFBD00
+C	Bow & Arrow Orbs Collected Modifier	7ECFBD00
 C	Boomerang Orbs Collected Modifier	7ECFBE00
 C	Pole Dart Orbs Collected Modifier	7ECFBF00
 C	Walk Thru Walls Hero	7EE00BFF
@@ -50893,7 +50893,7 @@ C	Warp To A Boss Ontop of The Castle	F866-8748
 C	Warp To The Ancient Temple	FB66-8738
 C	Warp To A Town	FB66-8718
 C	Warp To The Castle of Tasnica	F866-8718
-C	Get The Mana Sword &amp; The 9th Level Sword!!! (It Does Indeed Exist, Just Follow This Procedure!!)	AC26-8738+F36B-8D18
+C	Get The Mana Sword & The 9th Level Sword!!! (It Does Indeed Exist, Just Follow This Procedure!!)	AC26-8738+F36B-8D18
 C	Get The Midge Mallet	7E134900
 C	You Go To The VERY Start of The Game	F06C-8F18
 C	You Can Fly To The Desert Or The Ice Area	FD6C-87C8
@@ -51734,7 +51734,7 @@ C	99,999 Magnatite	7E04099F+7E040A86+7E040B01
 C	Direction Facing	7E040D00
 C	Room Modifier part 1?	7E070D00
 C	Menu Cursor position	7E0E9A00
-C	City Map - Yen/Makka &amp; Magnatite Display	7E0B3B00
+C	City Map - Yen/Makka & Magnatite Display	7E0B3B00
 C	Points Added to STR	7E101000
 C	Points Added to INT	7E101200
 C	Points Added to MAG	7E101400
@@ -52433,7 +52433,7 @@ C	Vertical Cue Stick Strike Position Modifier	7E1440BE
 C	Horizontal Cue Stick Strike Position Modifier	7E1441BE
 C	Simplified Cue Stick Strike Points	7E147501
 C	Ball in hand rules are always off	7E14D800
-C	&quot;NO&quot; on pocket modifier during trick shot mode	7E14CD00
+C	"NO" on pocket modifier during trick shot mode	7E14CD00
 C	Infinite Shots - Pocket Game	C2CE-1FAF
 C	Infinite Shots - Pocket Game	7E109463
 C	Start with 25 Shots - Pocket Game	FB66-CDDD
@@ -52492,7 +52492,7 @@ C	Always Have Power	DD86-070A
 G	SimCity (USA)
 C	Make All Scenarios Completed	7E0042FF
 C	Have Both Extra Scenarios	7E0043FF
-C	Have Bank &amp; View options	7E01E703
+C	Have Bank & View options	7E01E703
 C	Infinite High Cash	7E0B9F0E
 C	Continuously Upgrade 'Your House'	7E0CC901
 C	Special Item 1	7E03F500
@@ -52583,7 +52583,7 @@ C	All Buildings Have Power	DD86-046A
 C	Industry Virus	DD63-6D6A
 G	SimCity 2000 - The Ultimate City Simulator (USA)
 C	Start With $99,999,999 On All The Maps but Freedom	EEF3-8700+3DF3-8760+E9FE-8D60+D9FE-8DA0
-C	Start The &quot;Land of Freedom&quot; Map With $99,999,999	EEF3-8D00+3DF3-8D60+E9F3-8F60+D9F3-8FA0
+C	Start The "Land of Freedom" Map With $99,999,999	EEF3-8D00+3DF3-8D60+E9F3-8F60+D9F3-8FA0
 C	Coal Power Plants Cost Nothing To Purchase	DD9B-77A9+DD9C-7DD9
 C	Hydroelectricn Power Plants Cost Nothing To Purchase	DD9C-7DA9+DD9C-7FD9
 C	Oil Power Plants Cost Nothing To Purchase	DD9C-7FA9+DD9C-74D9
@@ -52594,7 +52594,7 @@ C	Solar Power Plants Cost Nothing To Purchase	DD98-7FA9+DD98-74D9
 C	Microwave Power Plants Cost Nothing To Purchase	DD98-74A9+DD98-77D9
 C	Fusion Power Plants Cost Nothing To Purchase	DD98-77A9+DD9A-7DD9
 C	Make Cash Around 2,120,613,888 Every Update	AEAB-7DF3
-C	To Start With $99,999,999 On All The Maps EXCEPT &quot;Land of Freedom&quot;	EEF3-8700+3DF3-8760+E9FE-8D60+D9FE-8DA0
+C	To Start With $99,999,999 On All The Maps EXCEPT "Land of Freedom"	EEF3-8700+3DF3-8760+E9FE-8D60+D9FE-8DA0
 C	Coal	DD9B-77A9+DD9C-7DD9
 C	Hydroelectric	DD9C-7DA9+DD9C-7FD9
 C	Oil	DD9C-7FA9+DD9C-74D9
@@ -52642,7 +52642,7 @@ C	Infinite bubbles and seeds	89CB-D9B5
 C	Infinite lives [Bartman and Itchy and Scratchy sub-games]	C2BE-60EA
 C	Infinite Z's [main game]	C2C3-6925+C2C3-61B5
 C	Untouchable	6D2C-6120
-C	Untouchable - Bartman &amp; Itchy &amp; Scratchy stages	7E146509
+C	Untouchable - Bartman & Itchy & Scratchy stages	7E146509
 C	Infinite Z's (Main Game)	C2C3-6925+C2C3-61B5
 C	Infinite Watermelon Seeds	7E013705
 C	Infinite Bubblegum	7E013D05
@@ -52846,7 +52846,7 @@ C	Set 99 Leaves	7E04DE09+7E04DF09
 C	Infinite Lives	7E04E104
 C	Infinite Stars	7E04E709
 C	Switch F/X On To Levitate Jump	7E005E9F
-C	Stage &quot;Act&quot; Select	7E049000
+C	Stage "Act" Select	7E049000
 C	Invincible	7E04467E
 C	Moon Jump	7B39-3FA7+C931-3707+C93A-4F66+6D3B-3707+D4E9-C4DD+DD61-C7D7
 C	Invincibility	DD61-C7D7
@@ -53238,7 +53238,7 @@ C	8,600 EXP required instead of 9,600 for level 11	61E3-ADA1
 C	10,000 EXP required instead of 12,400 for level 12	DDE3-AFA1
 C	13,000 EXP required instead of 15,000 for level 13	7DE3-A4A1
 C	15,000 EXP required instead of 19,000 for level 14	9DE3-A7A1
-C	Infinite &amp; max HP	7E1B8864+7E1B8A64
+C	Infinite & max HP	7E1B8864+7E1B8A64
 C	Mucho infinite gems	7E1B67FF
 C	Strength	7E1B700C+7E1B720C
 C	Defense	7E1B740C+7E1B760C
@@ -53652,7 +53652,7 @@ C	Stronger Punching (All Enemies Take Only 1-Hit To Kill)	EEA6-1F67
 C	Infinite Health	7E0B7C2C
 C	Infinite Lives	7E099005
 C	Infinite Accuracy	7E1CCA58
-C	&quot;Power Hit&quot; Lasts Longer	D06A-4F09
+C	"Power Hit" Lasts Longer	D06A-4F09
 C	Infinite Lives (Alternate Code)	C2BB-1D61
 C	Jump Higher Maximum	7D80-3F61
 C	Infinite Lives (Alternate Code #2)	C2BB-0D61+BDBB-0DA1+DBBB-0FD1
@@ -53663,8 +53663,8 @@ C	Infinite Time To Continue	7E1CCC09
 C	Play As A Bloodied Venom	7E0B5401
 C	Level Modifier	7E0A0E00
 C	Have 7 Black Cats And Infinite Usage of Them	7E0B1807
-C	Have 7 Cloaks (of Cloak &amp; Dagger)  And Infinite Usage of Them	7E0B1A07
-C	Have 7 Dagger (of Cloak &amp; Dagger) And Infinite Usage of Them	7E0B1C07
+C	Have 7 Cloaks (of Cloak & Dagger)  And Infinite Usage of Them	7E0B1A07
+C	Have 7 Dagger (of Cloak & Dagger) And Infinite Usage of Them	7E0B1C07
 C	Have 7 Morbius And Infinite Usage of Them	7E0B1E07
 C	Have 7 FireStar And Infinite Usage of Them	7E0B2007
 C	Have 7 Captain Americas And Infinite Usage of Them	7E0B2207
@@ -53761,7 +53761,7 @@ C	1 Hit To Kill 1st Stage Boss (Gambit)	7E065201
 C	1 Hit To Kill 2nd Stage Boss Part A (Gambit)	7E067C01
 C	1 Hit To Kill 2nd Stage Boss Part B (Gambit)	7E06A601
 C	Stop Giant Spiked Wheel In 1st Stage (Gambit)	7E11F9FF
-C	Remove All Enemies In 1st &amp; 2nd Stages (Gambit)	7E0998FF
+C	Remove All Enemies In 1st & 2nd Stages (Gambit)	7E0998FF
 C	Levitate Jump (Gambit)(NOTE2)	7E063FFF
 C	Levitate Jump (Wolverine/Cyclops/Storm)	7E0A15FF
 C	Levitate Jump (SpiderMan)(NOTE2)	7E0637FF
@@ -54632,7 +54632,7 @@ C	P1 Infinite Projectiles	7E07AC00+7E07AD00
 C	P2 Infinite Projectiles	7E0A2C00+7E0A2D00
 C	P1 Shotokan Eyes Are Red	7E06CE1E+7E06CF00
 C	P2 Shotokan Eyes Are Red	7E06EE1E+7E06EF00
-C	P1 Shotokan/Chun-Li/Classic Chun-Li Skin &amp; Hair Color Modifier (Ryu, Ken, Akuma/Shin Akuma, and Dan) In-Game	7E06C000+7E06C100+7E06C400+7E06C500+7E06C600+7E06C700+7E06C800+7E06C900+7E06CA00+7E06CB00
+C	P1 Shotokan/Chun-Li/Classic Chun-Li Skin & Hair Color Modifier (Ryu, Ken, Akuma/Shin Akuma, and Dan) In-Game	7E06C000+7E06C100+7E06C400+7E06C500+7E06C600+7E06C700+7E06C800+7E06C900+7E06CA00+7E06CB00
 C	P2 Shotokan/Chun-Li/Classic Chun-Li Skin Color Modifier (Ryu, Ken, Akuma/Shin Akuma, and Dan) In-Game	7E06E000+7E06E100+7E06E400+7E06E500+7E06E600+7E06E700+7E06E800+7E06E900+7E06EA00+7E06EB00
 C	Character Modifier P2	7E0A2200
 C	Easier Special Moves[See Notes]	DDD7-849C+6DDE-54B8+4EDC-ED9C+DAD4-8D28+DED4-8FF8
@@ -54746,7 +54746,7 @@ C	Makes Blocking A HK Worthless	D023-6764
 C	Your Blows Do Various Amounts Of Damage	0F23-AD64
 C	The Computer Cannot Block Low Attacks	D524-07D7
 C	Slows Ken/Ryu's Fireball Down (This Effect Starts On The Second FB)	DD20-6407
-C	To Cause Your Blows To Make The &quot;Hit&quot; Sound Even When The Moves Are Blocked	0B21-6767
+C	To Cause Your Blows To Make The "Hit" Sound Even When The Moves Are Blocked	0B21-6767
 C	Slows Ken/Ryu's Fireball Down (This Effect Starts On The Second FB) #2	0B2B-6767
 C	Some Special Moves Are Faster	D965-DF00
 C	Allows Both Players To Perform Special Moves In Mid-Air	DD61-6DA9
@@ -54801,7 +54801,7 @@ C	Medium Sumo Head Butts And Rolling Attacks Are Super Fast	F1B1-D4B3+33B5-DDF3
 C	Hard Sumo Head Butts And Rolling Attacks Are Slower	DDB1-D7F3+EEB5-DDB3
 C	Hard Sumo Head Butts And Rolling Attacks Are Faster	D8B1-D7F3+E9B5-DDB3
 C	Hard Sumo Head Butts And Rolling Attacks Are Super Fast	F5B1-D7F3+32B5-DDB3
-C	Ryu/Ken Do A &quot;Dragon-Hurricane-Kick&quot; When You Performed A Normal DP With The Strong Buttons	C163-D4CD+C163-D74D
+C	Ryu/Ken Do A "Dragon-Hurricane-Kick" When You Performed A Normal DP With The Strong Buttons	C163-D4CD+C163-D74D
 C	Mid-Air Moves	C163-D4CD+C163-D74D
 C	Ultra Slow Fireballs	C163-D4CD+C163-D74D
 C	Ultra Fast Fireballs	C163-D4CD+C163-D74D
@@ -54980,7 +54980,7 @@ C	Character Modifier P1	7E0CD100
 C	Character Modifier P2	7E0ED100
 C	Background Modifier	7E1A5A00
 C	Infinite Time	7E1AC899
-C	No Horizontal Charging &amp; Instant Fire Balls	7E0D9200
+C	No Horizontal Charging & Instant Fire Balls	7E0D9200
 C	Easy Dragon Punches After First	7E0D9600
 C	Easy Flash Kicks	7E0D9608
 C	Easy Sonic Booms	1D11-32E2
@@ -55776,11 +55776,11 @@ C	Invincibility (Player 2)	7E024F05
 C	Hit Anywhere (Standard gunfire only)	4021-D46F+4021-D7AF+6D33-ADDF+6D33-A4DF+6D33-ADDF+403E-A4AF
 C	Player 1's Shot Power Goes To Max On Pick-Up Of 1 Shot-Power Unit	CBAA-640A+DBAA-64AA
 C	Player 2's Shot Power Goes To Max On Pick-Up Of 1 Shot-Power Unit	CBAA-640A+DBA2-64AA
-C	Start With 25 Lives (Player 1 &amp; 2)	7E023819
-C	Start With 50 Lives (Player 1 &amp; 2)	7E023832
-C	Infinite Continues (Player 1 &amp; 2)	7E023505
-C	Start With 99 Lives (Player 1 &amp; 2)	7E023863
-C	Infinite Time To Select Special Weapon (Instead Of Only 10 Seconds) (Player 1 &amp; 2)	7E1BE10A
+C	Start With 25 Lives (Player 1 & 2)	7E023819
+C	Start With 50 Lives (Player 1 & 2)	7E023832
+C	Infinite Continues (Player 1 & 2)	7E023505
+C	Start With 99 Lives (Player 1 & 2)	7E023863
+C	Infinite Time To Select Special Weapon (Instead Of Only 10 Seconds) (Player 1 & 2)	7E1BE10A
 C	Infinite Lives	7E023A09
 C	Infinite Special Weapon Ammo (Works On Most Special Weapons)	7E023EFF
 C	Infinite Special Weapon Ammo (Works On All Special Weapons)	7E023EFF+7E023FFF
@@ -55914,8 +55914,8 @@ C	Always Have Two Guns	7E014604
 C	Always Have Powered Shots	7E014A06
 C	Moon Jump	7E02E201
 C	Character Mod	7E1F6A00
-C	Start a New Game to View &quot;GAMEPAK SUPER FAMICOM&quot; Warning	D265-44A4
-C	Start a New Game to View Stage Select &amp; Sound Test	F065-44A4
+C	Start a New Game to View "GAMEPAK SUPER FAMICOM" Warning	D265-44A4
+C	Start a New Game to View Stage Select & Sound Test	F065-44A4
 C	Faster Walk Animation - Player 1	7E012D01
 C	Player 1 is Invincible (Alternate)	7E014101
 C	Faster Walk Animation - Player 2	7E012F01
@@ -56150,15 +56150,15 @@ C	More "HR" Points To Distribute (Moderate Game)	DF3F-07AC+BD3F-076C
 C	More "R" Points To Distribute (Moderate Game)	1634-0DDC+DF34-0D0C
 G	Super Baseball Simulator 1.000 (USA)
 C	Infinite added points	DDCD-646C
-C	Fewer &quot;HR&quot; points to distribute [standard game]	783E-DF6C
-C	Fewer &quot;R&quot; points to distribute [standard game]	9D3E-D4DC
-C	Fewer &quot;F&quot; points to distribute [standard game]	F03E-D46C
-C	More &quot;AV&quot; points to distribute [moderate game]	DB3F-070C
-C	More &quot;HR&quot; points to distribute [moderate game]	DF3F-07AC+BD3F-076C
-C	More &quot;R&quot; points to distribute [moderate game]	1634-0DDC+DF34-0D0C
-C	More &quot;F&quot; points to distribute [moderate game]	1034-0D6C
-C	More &quot;HR&quot; Points To Distribute (Moderate Game)	DF3F-07AC+BD3F-076C
-C	More &quot;R&quot; Points To Distribute (Moderate Game)	1634-0DDC+DF34-0D0C
+C	Fewer "HR" points to distribute [standard game]	783E-DF6C
+C	Fewer "R" points to distribute [standard game]	9D3E-D4DC
+C	Fewer "F" points to distribute [standard game]	F03E-D46C
+C	More "AV" points to distribute [moderate game]	DB3F-070C
+C	More "HR" points to distribute [moderate game]	DF3F-07AC+BD3F-076C
+C	More "R" points to distribute [moderate game]	1634-0DDC+DF34-0D0C
+C	More "F" points to distribute [moderate game]	1034-0D6C
+C	More "HR" Points To Distribute (Moderate Game)	DF3F-07AC+BD3F-076C
+C	More "R" Points To Distribute (Moderate Game)	1634-0DDC+DF34-0D0C
 C	Strike Modifier	7E092500
 C	Ball Modifier	7E092600
 C	Out Modifier	7E092700
@@ -56405,15 +56405,15 @@ C	Invincibility (Player 2)	7E1390FF
 C	Invincibility (Player 3)	7E1391FF
 C	Invincibility (Player 4)	7E1392FF
 C	Invincibility (Player 5)	7E1393FF
-C	Set Abilities &amp; Bombs Modifier (Player 1)	7E48D100
-C	Set Abilities &amp; Bombs Modifier (Player 2)	7E48D200
-C	Set Abilities &amp; Bombs Modifier (Player 3)	7E48D300
-C	Set Abilities &amp; Bombs Modifier (Player 4)	7E48D400
-C	Set Abilities &amp; Bombs Modifier (Player 5)	7E48D500
-C	Stage &quot;Scene&quot; Select	7E290A0B
+C	Set Abilities & Bombs Modifier (Player 1)	7E48D100
+C	Set Abilities & Bombs Modifier (Player 2)	7E48D200
+C	Set Abilities & Bombs Modifier (Player 3)	7E48D300
+C	Set Abilities & Bombs Modifier (Player 4)	7E48D400
+C	Set Abilities & Bombs Modifier (Player 5)	7E48D500
+C	Stage "Scene" Select	7E290A0B
 C	1 Hit To Kill All Bosses	7E12EC01+7E12ED01
-C	Auto Select &quot;SuperStar&quot; Battle Stage	7E6C6E0B
-C	Auto Select &quot;Happy Happy&quot; Battle Stage	7E6C6E0C
+C	Auto Select "SuperStar" Battle Stage	7E6C6E0B
+C	Auto Select "Happy Happy" Battle Stage	7E6C6E0C
 G	Super Bomber Man 3 (Japan)
 C	Infinite Time	C29C-77DC
 C	Start With 8 Bombs	D6DB-EF2D
@@ -56454,10 +56454,10 @@ C	Set Abilities (Player 2)	7E48D200
 C	Set Abilities (Player 3)	7E48D300
 C	Set Abilities (Player 4)	7E48D400
 C	Set Abilities (Player 5)	7E48D500
-C	Stage &quot;Scene&quot; Select	7E290A0B
+C	Stage "Scene" Select	7E290A0B
 C	1 Hit To Kill All Bosses	7E12EC01+7E12ED01
-C	Auto Select &quot;SuperStar&quot; Battle Stage	7E6C6E0B
-C	Auto Select &quot;Happy Happy&quot; Battle Stage	7E6C6E0C
+C	Auto Select "SuperStar" Battle Stage	7E6C6E0B
+C	Auto Select "Happy Happy" Battle Stage	7E6C6E0C
 C	Enable Extra Battle Mode Stages	DAFF-EDD7
 G	Super Bomber Man 4 (Japan) (Action Replay)
 C	Infinite Lives	7E1D2309
@@ -56775,7 +56775,7 @@ C	Stage Select	7E001A10
 C	Auto Select Hidden Battle Stage #11	7E1CCD0A
 C	Auto Select Hidden Battle Stage #12	7E1CCD0B
 C	Enable Extra Battle Modes	DF4C-ED7D
-C	Battle Mode &quot;Hurry&quot; Wall Never Stops Building	DD2F-8F6F
+C	Battle Mode "Hurry" Wall Never Stops Building	DD2F-8F6F
 C	Can Jump During Battle Mode	DD1E-5F6F
 C	Add 30 Seconds to Timer Value in Battle Mode	F3DB-57D7
 C	Change Computer Players' #9 Difficulty Pattern	DDAC-8FD5
@@ -57121,7 +57121,7 @@ C	Set Abilities (Player 2)	7E48D200
 C	Set Abilities (Player 3)	7E48D300
 C	Set Abilities (Player 4)	7E48D400
 C	Set Abilities (Player 5)	7E48D500
-C	Stage &quot;Scene&quot; Select	7E290A0B
+C	Stage "Scene" Select	7E290A0B
 G	Super Bombliss (Japan)
 C	Always Have Full Orange Pieces	DDA9-3DA5
 C	Drop One Piece to Clear Level	DDA4-3FA1
@@ -57294,7 +57294,7 @@ C	Walk on air	7E008060
 C	Walk through enemies	7E00BC0A
 C	Stop all enemies	7E13FAFF
 C	Can jump High and Float [Switch Effects Off]	7E056400
-C	No Music &amp; Sound Effects	7E006A9E
+C	No Music & Sound Effects	7E006A9E
 C	Fully Powered Up Whip with first Power Up	DD24-AFD7
 C	Continue With 99 Hearts	BBB0-0F6F
 C	Continue With Whip Power-Ups	DFB0-07AF
@@ -57876,7 +57876,7 @@ C	Infinite Time	7E02A901
 C	Infinite Lives	7E02A403
 C	Infinite Double Jumps	C2A5-A4A5
 C	Starting Weapon Modifier	CBC3-D4D5+FCC3-D465+DDC3-D405
-C	Infinite Armor/Invincibility &amp; Armor Modifier	C2EC-0F08+C22B-AFD9+C22E-AD09+622A-D460+C228-DFA5+D4C8-A7D1+D42B-D461
+C	Infinite Armor/Invincibility & Armor Modifier	C2EC-0F08+C22B-AFD9+C22E-AD09+622A-D460+C228-DFA5+D4C8-A7D1+D42B-D461
 C	Invincible	DD21-0FD0
 C	Start Each Life With Gold Armor	DDC6-0405+D0C6-04A5
 C	Start Each Life With Selected Weapon	CB24-0DA1
@@ -57900,7 +57900,7 @@ C	Start with 9 minutes on timer	DBC3-0465
 C	Infinite Armor	7E044A01+7E046366+7E0464EE
 C	Hit Anywhere	1DEF-0708+C2E5-D708+C2EA-A40C
 C	Starting Weapon Modifier	CBC3-D4D5+FCC3-D465
-C	Infinite Armor/Invincibility &amp; Armor Modifier	C2EC-0F08+C22B-AFD9+C22E-AD09+622A-D460+C228-DFA5
+C	Infinite Armor/Invincibility & Armor Modifier	C2EC-0F08+C22B-AFD9+C22E-AD09+622A-D460+C228-DFA5
 C	Most Zombies Carry A Basket	DF65-DFA8
 C	Stage Select (Use DD-D6)	CBBD-AF9F+FCBD-AF2F
 C	Start With Gold Armor, Be Invicible, Always Have Upgraded Weapons, And Can Always Use Special Charge Magic	7E046AAA+7E14B201+7E14B804+7E14BA04+7E14DD04+7E10EE01
@@ -58032,7 +58032,7 @@ C	You can fly for as long as you want, until you land	EEA4-AB63
 C	Start and continue as Big Mario	E1A3-D60A
 C	Collisions turn you into Big Mario	D4A8-6CAA
 C	Collisions turn you into Fire Mario	D7A8-6CAA
-C	Collisions turn you into Raccoon Mario [can make him get &quot;tangled&quot; in collisions, turn off effects to get loose]	D0A8-6CAA
+C	Collisions turn you into Raccoon Mario [can make him get "tangled" in collisions, turn off effects to get loose]	D0A8-6CAA
 C	Collisions turn you into Frog Mario	D9A8-6CAA
 C	Collisions turn you into Tanooki Mario	D1A8-6CAA
 C	Collisions turn you into Sledgehammer Mario	D5A8-6CAA
@@ -58703,7 +58703,7 @@ G	Super Mario Kart (USA)
 C	Drive Thru Walls	4FEB-CDA4
 C	Player Shrink Modifiers [Player 1]	7E019200+7E103100
 C	Player Shrink Modifiers [Player 2]	7E019400+7E103200
-C	&quot;Choose Your Driver&quot; Message Stop Go	7E006002
+C	"Choose Your Driver" Message Stop Go	7E006002
 C	Debug Options	C2BC-C7A9+D0BC-C4A9
 C	Beat 50cc Mushroom Cup To Get Gold Cup On All Courses, And 150cc Courses	DDEF-1D97+D4EF-1D27+F9EF-1FB7+F9EF-1F27
 C	Random Effects On Impact	0EEB-CDA4
@@ -58783,12 +58783,12 @@ C	Other Karts Spin Out	3DEB-CDA4
 C	Invisible	41A3-CDA4
 C	Feather Jumping Repeatedly (Game Usually Freezes)	3FEB-CDA4
 C	400 cc Driving	94C4-44D7
-C	Character &quot;Morph&quot; Codes	33B6-44DD
+C	Character "Morph" Codes	33B6-44DD
 C	Pipes Shoot Out of Your Car	1FEB-CDA4
 C	Karts Shoot Off Screen	3EEB-CDA4
 C	Front Wheels May Be Broken	7DC4-CDA4
 C	Odd Drivers	F7C4-CDA4
-C	Hit The &quot;X&quot; Button To Drive In Reverse	1A6E-CDA4
+C	Hit The "X" Button To Drive In Reverse	1A6E-CDA4
 C	Slow Motion Code	6286-4F6D
 C	Stupid Opponents!	2282-44DD
 C	Stop Your Opponents	DF80-44DD
@@ -58818,7 +58818,7 @@ C	Nobody Can Start	DFC2-47DF
 C	Your Cart Can't Start	DFC9-47DF
 C	Mushrooms Don't Work (Extra Challenging)	B285-47DF
 C	Drive Without Obstacles (Only For P1)	C965-44DD
-C	With This Code You Can &quot;Pause&quot; The Game Without Buggy Effects	DFCE-47DF
+C	With This Code You Can "Pause" The Game Without Buggy Effects	DFCE-47DF
 C	Yoshi's Twin	DF6B-47DF
 C	Turbo On Each Control Pad Button	DF61-47DF
 C	Hard To Drive Only For Mario And Toad Drivers	DFCF-47DF
@@ -59460,8 +59460,8 @@ C	Magikoopa's Magic Treasure Chest Gives Frog Coins	53D7-56D4+D6D7-5604
 C	Magikoopa's Magic Treasure Chest Gives Flowers	5DD7-56D4+D6D7-5604
 C	Press Left To Go Right	FD51-ED31+DD51-EF41
 C	Play Culex Victory Music (Final Fantasy) Instead of Standard Victory Music	7A0B-77D8
-C	Auto-Select &quot;Special&quot; Option In Battle	0082-57DB
-C	Skip Exp. &amp; Coin Screen	0086-57DB
+C	Auto-Select "Special" Option In Battle	0082-57DB
+C	Skip Exp. & Coin Screen	0086-57DB
 C	Mario Turn Into Number	0080-7DDB
 C	Go In Order Of Speed During Battle	0080-77DB
 C	No Key Buttons	0083-7DDB
@@ -59482,7 +59482,7 @@ C	Effect Letter On Overworld Map	5560-7FD2
 C	Look Like Messed Up Japanese Text/Words	5560-8DD2
 C	Effect Battle	5560-5DD8
 C	Repeat The Crocodile Chase	5560-5767
-C	Have &quot;Game&quot; And Other Options	5560-5F07
+C	Have "Game" And Other Options	5560-5F07
 C	Stuck Half-Screen At Mario Place	5561-5DD7
 C	AVOID THESE CODES - ERASES THE SAVE SLOT	5560-7FD8+5560-7708+0061-54D8+3065-54D8+006A-54D8
 C	Repeat The Story (Weird)	5560-5467
@@ -59754,7 +59754,7 @@ C	If You Hold Down The B Button, You Float Around!	EE2C-AF6F
 C	Little Yoshie Only Has To Eat 13 Enemies To Get Big	DECE-64A0
 C	Little Yoshie Only Has To Eat 25 Enemies To Get Big	F8CE-64A0
 C	Extra Life After Each Coin, Even Yoshi Coins	DD64-A7D7+DD67-AFA7
-C	&quot;Gem&quot; Mario	0032-6DAD
+C	"Gem" Mario	0032-6DAD
 C	If You Die, Restart At The Halfway Point	6267-AF97
 C	As Soon As You Start A Level, You'll Automatically Exit Thru The 2nd Exit	62C3-64DF
 C	Activates The Green Blocks In The Level	B286-07E9
@@ -59764,7 +59764,7 @@ C	Continue With A Yoshi If You Die While On One	62C2-DF0D
 C	Start Most Stages With A Flying Yoshi (Must Have Yoshi Collect A Turtle Shell To Fly)	62C1-ADAB
 C	4000 Points Kicking An Empty Turtle Shell	62C0-AFA1
 C	Nintendo's Debug	DDC1-64DD+DDC5-6DAD
-C	Enable Item Window's &quot;Goal Point&quot; (Quit)	7E0D-C2D7
+C	Enable Item Window's "Goal Point" (Quit)	7E0D-C2D7
 C	Skip Worlds	EECD-AF6F
 C	Black Mario	9E32-6DAD
 C	No Enemies	3E32-6DAD
@@ -59932,7 +59932,7 @@ C	If You Hold Down The B Button, You Float Around!	EE2C-AF6F
 C	Little Yoshie Only Has To Eat 13 Enemies To Get Big	DECE-64A0
 C	Little Yoshie Only Has To Eat 25 Enemies To Get Big	F8CE-64A0
 C	Extra Life After Each Coin, Even Yoshi Coins	DD64-A7D7+DD67-AFA7
-C	&quot;Gem&quot; Mario	0032-6DAD
+C	"Gem" Mario	0032-6DAD
 C	If You Die, Restart At The Halfway Point	6267-AF97
 C	As Soon As You Start A Level, You'll Automatically Exit Thru The 2nd Exit	62C3-64DF
 C	Activates The Green Blocks In The Level	B286-07E9
@@ -59942,7 +59942,7 @@ C	Continue With A Yoshi If You Die While On One	62C2-DF0D
 C	Start Most Stages With A Flying Yoshi (Must Have Yoshi Collect A Turtle Shell To Fly)	62C1-ADAB
 C	4000 Points Kicking An Empty Turtle Shell	62C0-AFA1
 C	Nintendo's Debug	DDC1-64DD+DDC5-6DAD
-C	Enable Item Window's &quot;Goal Point&quot; (Quit)	7E0D-C2D7
+C	Enable Item Window's "Goal Point" (Quit)	7E0D-C2D7
 C	Skip Worlds	EECD-AF6F
 C	Black Mario	9E32-6DAD
 C	No Enemies	3E32-6DAD
@@ -60083,13 +60083,13 @@ C	Enable Special Stage Mode	7E1EEB80
 C	Disable Special Stage Mode	7E1EEB00
 C	Invincibility (mostly)	6DE8-040F
 C	Disable X and Y Buttons Running	6D2F-AFAF
-C	&quot;Nintendo Presents&quot; flashes by in a single frame	DFBA-AF6D
+C	"Nintendo Presents" flashes by in a single frame	DFBA-AF6D
 C	every pre-level fade-in is instant	DEB4-A7A7
 C	every pre-level fade-out is instant	EFB7-ADD7
 C	the title screen stops pausing before the circle starts opening	DFBA-6D04
 C	the title screen's circle irises open in 3 frames instead of 59	7AB7-D4AF
 C	the title screen's opening circle is skipped — boot goes straight to file select	2DB4-DD0F
-C	&quot;MARIO START!&quot; never appears	6DBB-67AF
+C	"MARIO START!" never appears	6DBB-67AF
 C	level transitions are instant — entering a level costs 98 frames instead of 154	DEB4-A7A7+FDB7-AD07+EFB7-ADD7+EDB7-AD67
 C	Cleared Switch Palaces stay on the map and can be re-entered	5538-0D9F+5B38-0DBF
 C	Beat current level with Start+Select (while paused)	EDC5-6D6D
@@ -60102,7 +60102,7 @@ C	Fireball throwing pose duration 3x as long	F3E8-64A7
 C	Low gravity when jump button released, normal when pressed	DF2C-AF0F
 C	Fireball launch Y speed (launches about 3x as high as normal)	8DEA-6F07
 C	Kicked-shell speed (shells kicked either way rocket off)	5EB1-A7D5+6FB1-A4A5
-C	Overworld-&gt;level handoff: lives loaded from the saved coin count	81B8-072D
+C	Overworld->level handoff: lives loaded from the saved coin count	81B8-072D
 C	General terminal velocity (gentle long falls)	FD2C-A7AF
 C	Mario exhales bubbles on dry land (out-of-water bubble breathing)	F930-67D4+6DBF-AF08
 C	A mushroom turns small Mario straight into Fire Mario	D0A4-0FD9
@@ -60154,7 +60154,7 @@ C	Enemies can't knock Mario off Yoshi (and Yoshi never runs off scared)	6DEF-AD0
 C	Mario/Yoshi walks and runs much faster	6627-0F0F+5627-0F6F+6627-0FAF+5627-04DF+6627-040F+5627-046F
 C	Every sprite counts as already killed, so nothing ever spawns (including level goals)	6DC9-D40C
 C	Every level loads the next level's terrain, enemies and enemy graphics together	D72A-DD21+D02A-D4F1+D92A-D791+D423-D7F1+D72E-DD91
-C	Yoshi's House is replaced by the unused &quot;No Yoshi&quot; sign level	033D-A7F0
+C	Yoshi's House is replaced by the unused "No Yoshi" sign level	033D-A7F0
 C	Enemies disappear after they scroll offscreen	EECB-DD65
 C	Multiple copies spawn of each enemy, all at once	82C9-D70C
 C	Most enemies can't be stomped	DDCA-D701
@@ -60494,7 +60494,7 @@ C	After The Title Screen The Game Will Black Out And Then Play A Really Weird So
 C	Plays The Title Screen Music Over And Over While You Are Playing The Game	0162-3D67
 C	After The Title Screen The Game Blacks Out And A Charge Beam Sound Repeats	A960-176C
 C	Most Sounds Repeat Over And Over, Can't Change Rooms Unless GG Is Off	4467-C4AC
-C	Warp From Crateria To An Area In One Of The Places Below When You Go To Load Saved Game &quot;A&quot;	DFD1-93DD
+C	Warp From Crateria To An Area In One Of The Places Below When You Go To Load Saved Game "A"	DFD1-93DD
 C	Samus Dies In One Hit	8F25-3005
 C	Shoot Beam To Crumble Invisible Mid-Air Blocks (Strange)	C3CA-19FD
 C	Shoot Beam To The Right Near A Wall For A Missile-Type Impact	A4C5-C007
@@ -60509,7 +60509,7 @@ C	Pixelizes Screen When Going Into Different Rooms	9123-C7DC
 C	Shoot A Super Missile And The Menu Bar At The Top Of The Screen Will Vanish	108F-40DD
 C	When You Land From A Jump Or Walk Along Uneven Terrain The Screen Will Scroll Downwards	2BCD-1F64
 C	Screen Scrolls Left	A9C8-C7AF
-C	WARNING! -- Displays The &quot;Don't Copy Video Games&quot; Message After The Title Screen And Erases The Saved Games	076A-C4DF
+C	WARNING! -- Displays The "Don't Copy Video Games" Message After The Title Screen And Erases The Saved Games	076A-C4DF
 C	Game Runs MUCH Faster, But May Often Glitch Or Freeze	4560-3FDD
 C	Screen Flickers A Lot And Does Other Weird Things	DEB6-4D04
 C	Samus Has Underwater Animations (Bubbles) In Areas Without Water	9866-406D
@@ -61471,7 +61471,7 @@ C	Enemy Distance From Your Ship Modifier	7E034600
 C	Stage Modifier	7E16D800
 C	Have Double Lasers	7E14D901
 C	Have See-Through Ship	7E14D902
-C	Have Double Lasers &amp; Impervious To Enemy Fire Ship	7E14D903
+C	Have Double Lasers & Impervious To Enemy Fire Ship	7E14D903
 C	Freezer Level Scrolling	7E0347FE
 G	Super Star Wars (U) (V1.1) [!]
 C	Hit Anywhere	AD89-1F07+DD89-1F67+DD89-1FA7+2D89-14D7+1D89-1407+DD81-1DA7
@@ -61529,10 +61529,10 @@ C	Small hearts restore half as much health as usual [Jedi Difficulty]	DF3B-C400
 C	Small hearts restore twice as much health as usual [Jedi Difficulty]	D03B-C400
 C	Small hearts restore 4 times as much health as usual [Jedi Difficulty]	D63B-C400
 C	Begin the game with the lightsaber	DDB0-C767
-C	Han Solo &amp; Chewbacca begin with a blaster	DD88-37A5
-C	Han Solo &amp; Chewbacca begin with a seeker gun	D488-37A5
-C	Han Solo &amp; Chewbacca begin with a rapid ion gun	D788-37A5
-C	Han Solo &amp; Chewbacca begin with a plasma gun	D088-37A5
+C	Han Solo & Chewbacca begin with a blaster	DD88-37A5
+C	Han Solo & Chewbacca begin with a seeker gun	D488-37A5
+C	Han Solo & Chewbacca begin with a rapid ion gun	D788-37A5
+C	Han Solo & Chewbacca begin with a plasma gun	D088-37A5
 C	Blaster power-ups remain after dying	553A-1764
 C	All 3 characters selectable at the beginning of the game	DDB9-CF67
 C	Only 1 Jawa needed to pass landspeeder levels	DF67-4FAF+DF60-4D6F
@@ -61848,7 +61848,7 @@ C	Have Invisible Force Power	7E032401
 C	Have Heal Force Power	7E032601
 C	Infinite thermal detonators	6DE9-47AF
 C	Start with all force abilities	6D23-47F9
-C	Elevation &amp; Freeze don't drain force bar	C229-14F9
+C	Elevation & Freeze don't drain force bar	C229-14F9
 C	Saber control doesn't drain force bar	DDCC-1DDA
 C	Mind control, Slow, Deflect, and Invisible don't drain force bar	C22F-C7F9
 C	Infinite lives	C238-C70F
@@ -62234,7 +62234,7 @@ C	M. Bison does his psycho crusher in one place [fierce]	1086-5D00
 C	Invincibility	6D9C-8D67+DF9C-8DA7+6DA1-8FD5+D4A1-8F05+6DAF-7405+D4AF-7465
 C	Hit Anywhere P1	3D1D-5DDF+0D1D-5D0F+D51D-5D6F+8D1D-5DAF
 C	Don't Take Damage Except From Throws Or Grabs (Both Players)	3C10-7467+3C10-74A7
-C	Every Hit Is A &quot;Hard Hit&quot; (Opponent Almost Never Gets Knocked Down)	CB17-8FAD+DC17-84DD
+C	Every Hit Is A "Hard Hit" (Opponent Almost Never Gets Knocked Down)	CB17-8FAD+DC17-84DD
 C	Do Tricks In Midair	7E2A-5409
 C	Players Jump Slower	CB79-EF61+D579-EFA1
 C	Players Jump Faster	CB79-EF61+D879-EFA1
@@ -62290,92 +62290,92 @@ C	Win One Round To Win Match P2	7E07D002
 C	99 Wins	7E1B6799
 C	0 Losses	7E1B7F00
 C	No Draws	7E1B9700
-C	Special KO&acirc;��s	7E1BAF99
+C	Special KOâ��s	7E1BAF99
 C	99 Wins	7E1B6899
 C	0 Losses	7E1B8000
 C	No Draws	7E1B9800
-C	Special KO&acirc;��s	7E1BB199
+C	Special KOâ��s	7E1BB199
 C	99 Wins	7E1B6999
 C	0 Losses	7E1B8100
 C	No Draws	7E1B9900
-C	Special KO&acirc;��s	7E1BB399
+C	Special KOâ��s	7E1BB399
 C	99 Wins	7E1B6A99
 C	0 Losses	7E1B8200
 C	No Draws	7E1B9A00
-C	Special KO&acirc;��s	7E1BB599
+C	Special KOâ��s	7E1BB599
 C	99 Wins	7E1B6B99
 C	0 Losses	7E1B8300
 C	No Draws	7E1B9B00
-C	Special KO&acirc;��s	7E1BB799
+C	Special KOâ��s	7E1BB799
 C	99 Wins	7E1B6C99
 C	0 Losses	7E1B8400
 C	No Draws	7E1B9C00
-C	Special KO&acirc;��s	7E1BB999
+C	Special KOâ��s	7E1BB999
 C	99 Wins	7E1B6D99
 C	0 Losses	7E1B8500
 C	No Draws	7E1B9D00
-C	Special KO&acirc;��s	7E1BBB99
+C	Special KOâ��s	7E1BBB99
 C	99 Wins	7E1B6E99
 C	0 Losses	7E1B8600
 C	No Draws	7E1B9E00
-C	Special KO&acirc;��s	7E1BBD99
+C	Special KOâ��s	7E1BBD99
 C	99 Wins	7E1B6F99
 C	0 Losses	7E1B8700
 C	No Draws	7E1B9F00
-C	Special KO&acirc;��s	7E1BBF99
+C	Special KOâ��s	7E1BBF99
 C	99 Wins	7E1B7099
 C	0 Losses	7E1B8800
 C	No Draws	7E1BA000
-C	Special KO&acirc;��s	7E1BC199
+C	Special KOâ��s	7E1BC199
 C	99 Wins	7E1B7199
 C	0 Losses	7E1B8900
 C	No Draws	7E1BA100
-C	Special KO&acirc;��s	7E1BC399
+C	Special KOâ��s	7E1BC399
 C	99 Wins	7E1B7299
 C	0 Losses	7E1B8B00
 C	No Draws	7E1BA200
-C	Special KO&acirc;��s	7E1BC599
+C	Special KOâ��s	7E1BC599
 C	99 Wins	7E1B7399
 C	0 Losses	7E1B8D00
 C	No Draws	7E1BA300
-C	Special KO&acirc;��s	7E1BC799
+C	Special KOâ��s	7E1BC799
 C	99 Wins	7E1B7499
 C	0 Losses	7E1B8F00
 C	No Draws	7E1BA400
-C	Special KO&acirc;��s	7E1BC999
+C	Special KOâ��s	7E1BC999
 C	99 Wins	7E1B7599
 C	0 Losses	7E1B9100
 C	No Draws	7E1BA500
-C	Special KO&acirc;��s	7E1BCB99
+C	Special KOâ��s	7E1BCB99
 C	99 Wins	7E1B7699
 C	0 Losses	7E1B9300
 C	No Draws	7E1BA600
-C	Special KO&acirc;��s	7E1BCD99
+C	Special KOâ��s	7E1BCD99
 C	99 Wins	7E1B7799
 C	0 Losses	7E1B9500
 C	No Draws	7E1BA700
-C	Special KO&acirc;��s	7E1BCF99
+C	Special KOâ��s	7E1BCF99
 C	99 Wins	7E1B7899
 C	No Draws	7E1BA800
-C	Special KO&acirc;��s	7E1BD199
+C	Special KOâ��s	7E1BD199
 C	99 Wins	7E1B7999
 C	No Draws	7E1BA900
-C	Special KO&acirc;��s	7E1BD399
+C	Special KOâ��s	7E1BD399
 C	99 Wins	7E1B7A99
 C	No Draws	7E1BAA00
-C	Special KO&acirc;��s	7E1BD599
+C	Special KOâ��s	7E1BD599
 C	99 Wins	7E1B7B99
 C	No Draws	7E1BAB00
-C	Special KO&acirc;��s	7E1BD799
+C	Special KOâ��s	7E1BD799
 C	99 Wins	7E1B7C99
 C	No Draws	7E1BAC00
-C	Special KO&acirc;��s	7E1BD999
+C	Special KOâ��s	7E1BD999
 C	99 Wins	7E1B7D99
 C	No Draws	7E1BAD00
-C	Special KO&acirc;��s	7E1BDB99
+C	Special KOâ��s	7E1BDB99
 C	99 Wins	7E1B7E99
 C	No Draws	7E1BAE00
-C	Special KO&acirc;��s	7E1BDD99
+C	Special KOâ��s	7E1BDD99
 C	Difficulty (1-7)	7E1C6F00
 C	Time Limit	7E1C7000
 C	Sound (Stereo) Mode	7E1C7FF7
@@ -62400,7 +62400,7 @@ C	Some Special Moves Can Be Done In The Air	DDC7-8DD1
 C	Dizzy Effect Is Over Almost Instantly	1087-7F61
 C	No Charging Required For Some Special Moves	D0A2-EDD5
 C	Zangief's Spinning Piledriver Can Be Performed From Anywhere	52EA-EF09
-C	Every Hit Is A &quot;Hard Hit&quot; - Opponent Almost Never Gets Knocked Down	CB37-8FAD+DC37-84DD
+C	Every Hit Is A "Hard Hit" - Opponent Almost Never Gets Knocked Down	CB37-8FAD+DC37-84DD
 C	Every Hit Sets The Opponent On Fire And Knocks Him Down	CB37-8FAD+F637-84DD
 C	Every Hit Zaps The Opponent And Knocks Him Down	CB37-8FAD+FC37-84DD
 C	Every Hit Knocks The Opponent Down	CB37-8FAD+FA37-84DD
@@ -62755,16 +62755,16 @@ C	Never change weapon type [use with Code 19 or 20 for blue or yellow, or by its
 C	Infinite wheel time	C22D-0404
 C	Invincibility [falling in a hole still kills you]	C226-DDD4
 C	Level timer doesn't count down [infinite time]	6D28-ADDF
-C	Start with no &quot;smart lines&quot;	DD8E-6DDD
-C	Start with 1 &quot;smart line&quot;	DF8E-6DDD
-C	Start with 2 &quot;smart lines&quot;	D48E-6DDD
-C	Start with 4 &quot;smart lines&quot; [only 3 shown at once]	D08E-6DDD
-C	Start with 5 &quot;smart lines&quot; [only 3 shown at once]	D98E-6DDD
-C	Start with 10 &quot;smart lines&quot; [only 3 shown at once]	DC8E-6DDD
-C	Start with 25 &quot;smart lines&quot; [only 3 shown at once]	FB8E-6DDD
-C	Start with 50 &quot;smart lines&quot; [only 3 shown at once]	748E-6DDD
-C	Start with 99 &quot;smart lines&quot; [only 3 shown at once]	178E-6DDD
-C	Infinite &quot;smart lines&quot;	C226-D704
+C	Start with no "smart lines"	DD8E-6DDD
+C	Start with 1 "smart line"	DF8E-6DDD
+C	Start with 2 "smart lines"	D48E-6DDD
+C	Start with 4 "smart lines" [only 3 shown at once]	D08E-6DDD
+C	Start with 5 "smart lines" [only 3 shown at once]	D98E-6DDD
+C	Start with 10 "smart lines" [only 3 shown at once]	DC8E-6DDD
+C	Start with 25 "smart lines" [only 3 shown at once]	FB8E-6DDD
+C	Start with 50 "smart lines" [only 3 shown at once]	748E-6DDD
+C	Start with 99 "smart lines" [only 3 shown at once]	178E-6DDD
+C	Infinite "smart lines"	C226-D704
 C	Start on level 2	D46D-64DD
 C	Start on level 3	D76D-64DD
 C	Start on level 4	D06D-64DD
@@ -63206,9 +63206,9 @@ C	Always Have Maximum Food	7E1484FF+7E14857F+7E1486FF+7E14877F
 C	Always Have All Special Items	7E1593FF+7E1594FF+7E1595FF
 C	Time Period Modifier	7E14A500
 C	Have Wagasumi	7E709401
-C	Have Tiger Teeth &amp; Learned at 100%	7E709181+7E715664
+C	Have Tiger Teeth & Learned at 100%	7E709181+7E715664
 C	Have Gale Shield	7E709301
-C	Have Psion Bolt &amp; Learned at 100%	7E709281+7E715764
+C	Have Psion Bolt & Learned at 100%	7E709281+7E715764
 C	Have Soul Strike	7E70B581
 C	Have Cinder Hawk	7E70B381
 C	Have Burning Soul	7E70B281
@@ -63217,21 +63217,21 @@ C	Have Tempest	7E70AE81
 C	Have Thor's Wrath	7E70AD81
 C	Have Bolt Crash	7E70AC81
 C	Have Lion Flare	7E70AB81
-C	Have Blade Storm &amp; Learned at 100%	7E709581+7E715864
-C	Have Phoenix &amp; Learned at 100%	7E709C81+7E715A64
-C	Have Lionheart &amp; Learned at 100%	7E709781+7E715964
+C	Have Blade Storm & Learned at 100%	7E709581+7E715864
+C	Have Phoenix & Learned at 100%	7E709C81+7E715A64
+C	Have Lionheart & Learned at 100%	7E709781+7E715964
 C	Have Firebrand	7E709801
 C	Have Eir's Love	7E709901
 C	Have Focus More	7E709A01
 C	Have Focus	7E709B01
 C	Have Lion Teeth	7E70A981
-C	Have Soul Edge &amp; Learned at 100%	7E70A381+7E715F64
+C	Have Soul Edge & Learned at 100%	7E70A381+7E715F64
 C	Have Psion Kick	7E70A481
 C	Have Mecha Blade	7E70A581
 C	Have Psion Storm	7E70A681
-C	Have Duel Kick &amp; Learned at 100%	7E709D81+7E715B64
-C	Have Lightning Bolt &amp; Learned at 100%	7E709E81+7E715C64
-C	Have Magma Rift &amp; Learned at 100%	7E709F81+7E715D64
+C	Have Duel Kick & Learned at 100%	7E709D81+7E715B64
+C	Have Lightning Bolt & Learned at 100%	7E709E81+7E715C64
+C	Have Magma Rift & Learned at 100%	7E709F81+7E715D64
 C	Have Flare Talon	7E70B081
 C	Have Soul Forge	7E70B481
 C	Have Earth's Rage	7E70AF81
@@ -63240,7 +63240,7 @@ C	Have Lion Claws	7E70AA81
 C	Have Lion Lunge	7E70A881
 C	Have Soul Wave	7E70A081
 C	Have Magma Bolt	7E70A781
-C	Have Teleport &amp; Learned at 100%	7E70A181+7E715E64
+C	Have Teleport & Learned at 100%	7E70A181+7E715E64
 C	Mint Has First Aid	7E70B601
 C	Mint Has Deep Mist	7E70B701
 C	Mint Has Hammer	7E70B801
@@ -64006,16 +64006,16 @@ C	Character 1	7E6AD00F+7E6AD127
 C	Character 2	7E6BD00F+7E6BD127
 C	Character 3	7E6CD00F+7E6CD127
 C	Character 4	7E6DD00F+7E6DD127
-C	Have Tiger Teeth &amp; Learned At 100%	7E709181+7E715664
-C	Have Psion Bolt &amp; Learned At 100%	7E709281+7E715764
-C	Have Blade Storm &amp; Learned At 100%	7E709581+7E715864
-C	Have Phoenix &amp; Learned At 100%	7E709C81+7E715A64
-C	Have Lionheart &amp; Learned At 100%	7E709781+7E715964
-C	Have Soul Edge &amp; Learned At 100%	7E70A381+7E715F64
-C	Have Duel Kick &amp; Learned At 100%	7E709D81+7E715B64
-C	Have Lightning Bolt &amp; Learned At 100%	7E709E81+7E715C64
-C	Have Magma Rift &amp; Learned At 100%	7E709F81+7E715D64
-C	Have Teleport &amp; Learned At 100%	7E70A181+7E715E64
+C	Have Tiger Teeth & Learned At 100%	7E709181+7E715664
+C	Have Psion Bolt & Learned At 100%	7E709281+7E715764
+C	Have Blade Storm & Learned At 100%	7E709581+7E715864
+C	Have Phoenix & Learned At 100%	7E709C81+7E715A64
+C	Have Lionheart & Learned At 100%	7E709781+7E715964
+C	Have Soul Edge & Learned At 100%	7E70A381+7E715F64
+C	Have Duel Kick & Learned At 100%	7E709D81+7E715B64
+C	Have Lightning Bolt & Learned At 100%	7E709E81+7E715C64
+C	Have Magma Rift & Learned At 100%	7E709F81+7E715D64
+C	Have Teleport & Learned At 100%	7E70A181+7E715E64
 C	999 Real Maximum HP	7E6ACCE7+7E6ACD03
 C	999 Current HP	7E6AD0E7+7E6AD103
 C	999 Real Maximum TP	7E6AD2E7+7E6AD303
@@ -64226,7 +64226,7 @@ C	Enemy Attacks Heal You	AED3-D8F7
 C	Characters Win The Battle Instantly	EA7D-AAE2
 C	Experience/Gold Code	EE2A-DDD7
 C	Able To Save In Battle	2542-8E53
-C	Get Lots Of Gold &amp; More	2542-A701
+C	Get Lots Of Gold & More	2542-A701
 C	Store Modifier	2542-A701
 C	Get A Free Evaluation Of Your Items	2542-D706
 C	Enemy Dies In One Hit	FE2B-DDD7
@@ -64529,7 +64529,7 @@ C	Infinite Time	7E008E99
 C	No Health P2	7E1AFE00
 C	Infinite Health (P1 - Alternate Code)	7E0EE46E
 C	Enemy 1 Hit Death (Player 2's Health)	7E0FC401
-C	Level Modifier (1P &amp; VS Mode)	7E008200
+C	Level Modifier (1P & VS Mode)	7E008200
 C	Character Modifier P1	7E1AB000
 C	P1 Character Modifier (Fighter Selection)	7E1ACE00
 C	P2 Character Modifier (Fighter Selection)	7E1B1E00
@@ -64639,8 +64639,8 @@ C	Infinite Lives	7E1AA009
 C	Enable Round Select On Start	AFCF-6D6F
 C	Character Modifier P1	7E041402
 C	Invincible P1 (Flashes)	7E046E20
-C	Player 1 Has &quot;X&quot; Lives	7E1AA000
-C	Player 2 Has &quot;X&quot; Lives	7E1AE000
+C	Player 1 Has "X" Lives	7E1AA000
+C	Player 2 Has "X" Lives	7E1AE000
 C	Player 1 Has Health Restored When PAR Is Turned On	7E044A50
 C	Player 2 Has Health Restored When PAR Is Turned On	7E04BA50
 C	Start From Any Level	7E008201
@@ -65062,7 +65062,7 @@ G	Tetris Attack (USA) (En,Ja)
 C	Infinite Stop	7E52EF01
 C	Stage Modifier	7E033E00
 C	Master Code	3C65-47AD
-C	Freeze Timer In VS., Stage Clear, Puzzle &amp; Endless Modes	C2C0-44D4
+C	Freeze Timer In VS., Stage Clear, Puzzle & Endless Modes	C2C0-44D4
 C	Freeze Timer In Time Trial Mode	C2CB-4D64
 C	Start With 99 Minutes In Time Trial Mode	172D-14D4
 C	Credits Don't Increase In VS. Mode	CEE9-4DF3
@@ -65842,7 +65842,7 @@ C	Set Max. Boost (Player 1)	7E039785
 C	Set Jump Upgrade (Player 1)	7E039881
 C	Set Attractor Upgrade (Player 1)	7E039981
 C	Set Warp Upgrade (Player 1)	7E039A81
-C	Set &quot;P&quot; Upgrade? (Player 1)	7E039B81
+C	Set "P" Upgrade? (Player 1)	7E039B81
 C	Set Infra-Red Upgrade (Player 1)	7E039C81
 C	Infinite Attractor (Player 1)	7E025009
 C	Infinite Attractor (Player 2)	7E030309
@@ -65984,7 +65984,7 @@ C	Max/Inf Lives	7E001E99
 C	Inf Lives	7E001E03
 C	Inf Health	7E001C04
 C	Invincible	7E01A202
-C	Buzz Has 1 Health In &quot;Buzz Battle&quot;	7E296E00
+C	Buzz Has 1 Health In "Buzz Battle"	7E296E00
 C	Buzz Never Pushes Woody In Food Abd Drink Level	7E292C01
 C	View Credits	7E001A11
 C	Has Something To Do With Staff Roll	7E005001
@@ -65996,12 +65996,12 @@ C	Claw Machine Has 0 Health	7E294A00
 C	Quiet Army Men	7E020A6A
 C	Brings You To The End Of The Level	7E1780FF
 C	Moon Jump	7E178FFF
-C	Inf Time On &quot;Red Alert&quot;	7E292805
-C	1 Hit To Kill Buzz In &quot;Buzz Nightmare&quot; Battle	7E29D200
+C	Inf Time On "Red Alert"	7E292805
+C	1 Hit To Kill Buzz In "Buzz Nightmare" Battle	7E29D200
 C	Inf Time On Rc Levels	7E29F36A
-C	Inf Time In &quot;Really Inside The Claw Machine&quot; Level	7E004501
-C	Woody Never Yells &quot;Hello&quot; In &quot;Really Inside The Claw Machine&quot; Level	7E024408
-C	Woody Constantly Yells &quot;Hello&quot; In &quot;Really Inside The Claw Machine&quot; Level	7E024400
+C	Inf Time In "Really Inside The Claw Machine" Level	7E004501
+C	Woody Never Yells "Hello" In "Really Inside The Claw Machine" Level	7E024408
+C	Woody Constantly Yells "Hello" In "Really Inside The Claw Machine" Level	7E024400
 C	Inf Time On Intros And Level Endings	7E292800
 C	Unused Song 1 plays at title screen (You've Got a Friend in me)	F4A4-C7C4
 C	Unused Song 2 plays at title screen (Roller Bob)	D8A4-C7C4
@@ -66542,7 +66542,7 @@ C	P2 Body Display Modifier	7E553A20
 C	P1 Shadow Display Modifier	7E554020
 C	P2 Shadow Display Modifier	7E554220
 C	Game Speed Modifier	7E1A0EFE
-C	P1 &amp; P2 Speed/Gravity Modifier	7E1A1200
+C	P1 & P2 Speed/Gravity Modifier	7E1A1200
 C	Both Players Can Walk Through Each Other	7E3A6202+7E3A6301
 C	Infinite Health Player 1	7E36D4A6
 C	Infinite Health Player 2	7E3898A6
@@ -66862,7 +66862,7 @@ C	You get a Z-Flip City For Doing A Z-Flip	38B4-CDDB
 C	Faster Timer	C2AE-C469
 C	Slow Uni's (Sunday Drivers)	DE2D-4DD8
 C	Grandma Speed	DD2D-4D08
-C	There Is No &GT To Tell You Who's In The Lead	BBBB-3DDB
+C	There Is No > To Tell You Who's In The Lead	BBBB-3DDB
 G	Uniracers (USA)
 C	No Timer In Almost Every Race	3CA4-3F69
 C	CPU Uniracer Brakes On The Starting Line From Start To Finish	EE6A-C7A8
@@ -66879,7 +66879,7 @@ C	You get a Z-Flip City For Doing A Z-Flip	38B4-CDDB
 C	Faster Timer	C2AE-C469
 C	Slow Uni's (Sunday Drivers)	DE2D-4DD8
 C	Grandma Speed	DD2D-4D08
-C	There Is No &gt; To Tell You Who's In The Lead	BBBB-3DDB
+C	There Is No > To Tell You Who's In The Lead	BBBB-3DDB
 C	Seconds Modifier	7E0E1700
 C	Always Win In Qualifying Score Missions	EED8-23AF+DFD8-2EDF
 C	Quick Win In Lap Missions	7E0EF101
@@ -67399,7 +67399,7 @@ C	Royal Rumble rules are always on	7E00E401
 C	Pinfalls are disabled	7E00DC01
 C	Extremely hard to beat the CPU in a grapple	7E00CC01
 C	Player 1 is immune to strike attacks / Can't pick up steel chair	7E00C800
-C	Ref is always &quot;up&quot;	7E00C601
+C	Ref is always "up"	7E00C601
 C	CPU stands still most of the time	7E00CE01
 C	Discolored graphics (Greenish)	7E00B001
 C	CPU doesn't always kick out of pins / Easy grapple win	7E00B201
@@ -67520,8 +67520,8 @@ C	Headbutts Do More Damage	D1BB-0407
 C	Headbutts Do A Lot More Damage	DBBB-0407
 G	WWF WrestleMania - The Arcade Game (Europe)
 C	Opponent Modifier Player 2	7E1C4900
-C	Health Modifier Player 2 &amp; 5	7EB8BAA4
-C	Health Modifier Player 3 &amp; 4	7EB8BCA4
+C	Health Modifier Player 2 & 5	7EB8BAA4
+C	Health Modifier Player 3 & 4	7EB8BCA4
 C	Always win | Win the match in one fight	7E1CB702
 C	Health Modifier Player 1	7EB8B6A4
 C	Opponent Modifier Player 3	7E1C4A00
@@ -67949,16 +67949,16 @@ G	Wile E's Revenge (Europe) (Proto)
 C	Infinite Energy	7E08D240
 C	Infinite Lives	7E093C09
 G	Williams Arcade's Greatest Hits (USA)
-C	Start With 99 Lives P1 &amp; P2	17C5-376F
-C	Infinite Lives P1 &amp; P2	8969-14D3
-C	Infinite Bombs P1 &amp; P2	8984-4F0E
-C	Start With 99 Lives P1 &amp; P2	17CC-346F
-C	Infinite Lives P1 &amp; P2	896C-3DB4
-C	Infinite Bombs P1 &amp; P2	8921-17BD
-C	Start With 99 Lives P1 &amp; P2	17C2-370F
-C	Infinite Lives P1 &amp; P2	8268-C7B2
-C	Start With 99 Lives P1 &amp; P2	17CE-370F
-C	Infinite Lives P1 &amp; P2	826A-1F78
+C	Start With 99 Lives P1 & P2	17C5-376F
+C	Infinite Lives P1 & P2	8969-14D3
+C	Infinite Bombs P1 & P2	8984-4F0E
+C	Start With 99 Lives P1 & P2	17CC-346F
+C	Infinite Lives P1 & P2	896C-3DB4
+C	Infinite Bombs P1 & P2	8921-17BD
+C	Start With 99 Lives P1 & P2	17C2-370F
+C	Infinite Lives P1 & P2	8268-C7B2
+C	Start With 99 Lives P1 & P2	17CE-370F
+C	Infinite Lives P1 & P2	826A-1F78
 C	Start on Wave 25	FB65-1788
 C	Start on Wave 50	7465-1788
 C	Start on Wave 99	1765-1788
@@ -67968,9 +67968,9 @@ C	7 Lives	7E002D08
 C	7 Bombs	7E002F08
 C	9 Lives	7EBDEC09
 C	9 Lives	7E030109
-C	Start With 99 Lives P1 &amp; P2	17C4-4F04
-C	Infinite Lives P1 &amp; P2	C2E7-CF3F
-C	Infinite Sinibombs P1 &amp; P2	C237-3744
+C	Start With 99 Lives P1 & P2	17C4-4F04
+C	Infinite Lives P1 & P2	C2E7-CF3F
+C	Infinite Sinibombs P1 & P2	C237-3744
 C	Start With 99 Ships	7E010063
 C	Bonus Ship At 1,000	7E010210
 C	Difficulty Increase Modifier	7E010400
@@ -68384,7 +68384,7 @@ C	99 Luck	7E124663
 C	Enemy Energy (03E7-0000)	7E11D400+7E11D500
 C	Day # (0000-03E7)	7E125000+7E125100
 G	Wordtris (USA)
-C	All pieces are the &quot;?&quot;	7E0141FF
+C	All pieces are the "?"	7E0141FF
 G	World Cup Striker (Europe) (En,Fr,De)
 C	Score From Anywhere Goalline	C224-C767+0C24-C7A7+FB27-CDD7+1F27-CD67
 G	World Heroes (Europe)
@@ -68463,7 +68463,7 @@ C	Infinite Time	7E052C99
 C	No Health Player 2	7E057600
 C	P1 Automatically Wins The Match With One Win	7E057002
 C	Gives Each Player A Win	7E057C02
-C	Character Modifier P1 (1P &amp; Vs Modes)	7E04B600
+C	Character Modifier P1 (1P & Vs Modes)	7E04B600
 C	Character Modifier P2 (Vs Mode)	7E04BA00
 C	Background Modifier (VS Mode Only)	7E042400
 C	Makes Dragon punch easy todo	1D61-A73B+1D6E-A74B+1D6B-AF38+1DBD-D746
@@ -68800,7 +68800,7 @@ C	Start With 16 Full Hearts	FD8B-C001
 C	Respawn With Full Energy Instead of Half	3C6A-1DB1
 C	All Types of Water Refill Full Energy	DD34-4464
 C	Start With An Empty Bottle [But Can't Select It]	4429-3F63
-C	Start A New Game And It Says &quot;Error In Check_Item_.....?	B68B-C70D
+C	Start A New Game And It Says "Error In Check_Item_.....?	B68B-C70D
 C	Faster Merlin	D9B7-14F9
 C	Slower mine cart	D46B-1030
 C	Start with 6 heart containers-new game only	D186-C1D1
@@ -69212,15 +69212,15 @@ C	Infinite Dummy Clown [Player 1]	7E1D2009
 C	Infinite Dummy Clown [Player 2]	7E1D4009
 C	Infinite Radios [Player 1]	7E1D2209
 C	Infinite Radios [Player 2]	7E1D4209
-C	Always Have &quot;Shoes&quot; Effect [Player 1]	7E0155FF
-C	Always Have &quot;Shoes&quot; Effect [Player 2]	7E02D5FF
+C	Always Have "Shoes" Effect [Player 1]	7E0155FF
+C	Always Have "Shoes" Effect [Player 2]	7E02D5FF
 C	Invincible [Player 1]	7E0174FF
 C	Invincible [Player 2]	7E02F4FF
 C	Only Rescue 1 Neighbor To Advance	7E1D5201
 C	Stage Select	7E1E7C01
 C	Skip Konami And LucasArts Intro Screens	7E0C7C01
 C	Finish The Game By Finishing Level 1	7E1E7509+7E1E7C30
-C	Removes &quot;Lower Class&quot; Monsters	7E00DEAD
+C	Removes "Lower Class" Monsters	7E00DEAD
 C	Max Objects/Weapons By Standing On Them	C9AE-C404
 C	Start with 10 lives	DB66-4DD4
 C	Start with 7 lives	D166-4DD4
@@ -69235,7 +69235,7 @@ C	Start with bazookas	216B-4704
 C	Start with tomatoes	2C6B-4704
 C	Start with fire extinguishers	A36B-4704
 C	Start with ice pops	2A6B-4704
-C	Start with &quot;peppers&quot;	236B-4704
+C	Start with "peppers"	236B-4704
 C	Start with martian bubble guns	2D6B-4704
 C	Start with weed-eaters	246B-4704
 C	Start with ancient artifacts	206B-4704

@@ -4,7 +4,6 @@
 
 use std::collections::HashMap;
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -47,9 +46,10 @@ pub struct GameSpec {
     pub rom: PathBuf,
     pub system_dir: PathBuf,
     pub save_dir: PathBuf,
-    /// Where per-game notebooks live: `<title>/01.png`..`15.png` (fixed
-    /// slots, plan revision) plus `<title>/notas.txt` for free text
-    /// (plan §3.4).
+    /// Where per-game notebooks live: `<title>/01.png`..`15.png` for the
+    /// photo slots, `<title>/01.txt`..`15.txt` for the text-note slots
+    /// (both fixed at 15, plan revision — numbered independently of each
+    /// other) (plan §3.4).
     pub notes_dir: PathBuf,
     /// Speculative frames past the shown one; `None` = take the config value.
     pub runahead: Option<u32>,
@@ -490,9 +490,13 @@ const SLOT_NAME_LIMIT: usize = 40;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum NoteEdit {
     None,
-    /// Appending a page to the free-text notebook (`notas.txt`).
+    /// Editing the notebook's currently-shown text-note slot (plan
+    /// revision — used to always append a fresh, blank page to an
+    /// unbounded, unreadable log; now edits whichever of the 15 slots the
+    /// left page is showing, pre-filled with its saved content). Saving an
+    /// empty draft deletes the slot instead of writing one.
     Text,
-    /// Renaming the notebook's currently-shown slot caption (from
+    /// Renaming the notebook's currently-shown print slot's caption (from
     /// "Nomear print" on the notebook's right page).
     SlotName,
     /// Naming the print just captured into this slot (plan revision — the
@@ -500,6 +504,13 @@ enum NoteEdit {
     /// one also writes `runner::print_capture`'s image to disk for the
     /// first time — the capture and the name land together.
     PrintName(u8),
+    /// Typing the Cheats modal's search filter (plan revision — the
+    /// libretro-database expansion made some games' lists long enough that
+    /// finding one by eye/scroll alone stopped being practical). Unlike
+    /// every other `NoteEdit`, committing this one writes nothing to
+    /// disk — it just updates `Cabinet`'s in-memory filter and returns to
+    /// the Cheats modal's row grid rather than closing it.
+    CheatSearch,
 }
 
 impl NoteEdit {
@@ -507,16 +518,17 @@ impl NoteEdit {
         match self {
             NoteEdit::None => 0,
             NoteEdit::Text => NOTE_CHAR_LIMIT,
-            NoteEdit::SlotName | NoteEdit::PrintName(_) => SLOT_NAME_LIMIT,
+            NoteEdit::SlotName | NoteEdit::PrintName(_) | NoteEdit::CheatSearch => SLOT_NAME_LIMIT,
         }
     }
 
     fn heading(self) -> &'static str {
         match self {
             NoteEdit::None => "",
-            NoteEdit::Text => "escrevendo anotacao (clique fora cancela)",
+            NoteEdit::Text => "editando anotacao (vazio apaga, clique fora cancela)",
             NoteEdit::SlotName => "renomeando o print (clique fora cancela)",
             NoteEdit::PrintName(_) => "nome do print (opcional)",
+            NoteEdit::CheatSearch => "buscar cheat (vazio mostra todos)",
         }
     }
 }
@@ -551,18 +563,26 @@ struct SlotMeta {
     label: String,
 }
 
-/// `notes_dir/<title>/slots.json`'s shape: which of the 15 slots are pinned
-/// or captioned, keyed by slot number. Absent entries mean the default
+/// `notes_dir/<title>/slots.json`'s shape: which of the 15 photo slots and
+/// which of the 15 text-note slots (plan revision — the two are numbered
+/// independently, slot 3's photo and slot 3's text share nothing but a
+/// number) are pinned or captioned. Absent entries mean the default
 /// (`SlotMeta::default()`) — most slots never need a real entry.
 #[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
 struct NotesMeta {
     #[serde(default)]
     slots: std::collections::BTreeMap<u8, SlotMeta>,
+    #[serde(default)]
+    text_slots: std::collections::BTreeMap<u8, SlotMeta>,
 }
 
 impl NotesMeta {
     fn slot(&self, slot: u8) -> SlotMeta {
         self.slots.get(&slot).cloned().unwrap_or_default()
+    }
+
+    fn text_slot(&self, slot: u8) -> SlotMeta {
+        self.text_slots.get(&slot).cloned().unwrap_or_default()
     }
 }
 
@@ -632,10 +652,22 @@ fn note_slot_path(notes_dir: &Path, title: &str, slot: u8) -> PathBuf {
     note_dir(notes_dir, title).join(format!("{slot:02}.png"))
 }
 
-/// `notes_dir/<title>/notas.txt` — free-text pages (plan revision), separate
-/// from the slotted images, one plain-text file per game.
-fn note_text_path(notes_dir: &Path, title: &str) -> PathBuf {
+/// `notes_dir/<title>/notas.txt` — the old, pre-revision unbounded
+/// free-text append log. Nothing writes here any more (see
+/// `note_text_slot_path`, the 15-slot replacement) — this path only still
+/// exists so `migrate_legacy_text_notes` can find and split up whatever an
+/// earlier version of the app already wrote there.
+fn legacy_note_text_path(notes_dir: &Path, title: &str) -> PathBuf {
     note_dir(notes_dir, title).join("notas.txt")
+}
+
+/// `notes_dir/<title>/01.txt` .. `15.txt` — 1-indexed to match the slot
+/// numbers shown on screen, numbered independently of the photo slots
+/// (`note_slot_path`) even though they share the same range: a `.png` and
+/// a `.txt` never collide, so slot 3's photo and slot 3's text are just two
+/// unrelated files that happen to both say "3".
+fn note_text_slot_path(notes_dir: &Path, title: &str, slot: u8) -> PathBuf {
+    note_dir(notes_dir, title).join(format!("{slot:02}.txt"))
 }
 
 /// Save the current frame into note `slot` (1..=15), overwriting whatever
@@ -650,26 +682,66 @@ fn save_note_image(notes_dir: &Path, title: &str, slot: u8, frame: &EmuFrame) ->
         .with_context(|| format!("saving note image {}", path.display()))
 }
 
-/// Append a free-text page to `notas.txt` (plan revision) — plain text, one
-/// paragraph per entry, no slot of its own (unbounded, unlike the images).
-fn append_note_text(notes_dir: &Path, title: &str, text: &str) -> Result<()> {
-    let dir = note_dir(notes_dir, title);
-    fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
-    let path = note_text_path(notes_dir, title);
-    let mut f = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
-        .with_context(|| format!("opening {}", path.display()))?;
-    writeln!(f, "{text}\n")?;
-    Ok(())
+/// Text-note `slot`'s saved content (plan revision — one of the 15,
+/// mirroring the photo slots), or `None` for an empty slot — a
+/// whitespace-only file counts as empty too, same as an empty draft never
+/// got saved as one to begin with.
+fn read_text_slot(notes_dir: &Path, title: &str, slot: u8) -> Option<String> {
+    fs::read_to_string(note_text_slot_path(notes_dir, title, slot))
+        .ok()
+        .filter(|s| !s.trim().is_empty())
 }
 
-/// How many of the 15 note slots actually hold an image.
-fn count_filled_slots(notes_dir: &Path, title: &str) -> usize {
-    (1..=NOTE_SLOTS)
-        .filter(|&s| note_slot_path(notes_dir, title, s).is_file())
-        .count()
+/// Save `text` into note-text `slot` (1..=15), overwriting whatever was
+/// there before — same "pick a slot, it replaces what's in it" model
+/// `save_note_image` already uses for the photo slots.
+fn save_text_slot(notes_dir: &Path, title: &str, slot: u8, text: &str) -> Result<()> {
+    let dir = note_dir(notes_dir, title);
+    fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
+    let path = note_text_slot_path(notes_dir, title, slot);
+    fs::write(&path, text).with_context(|| format!("saving text note {}", path.display()))
+}
+
+/// Clear note-text `slot` — a missing file already means "empty", so this
+/// is not an error either way.
+fn delete_text_slot(notes_dir: &Path, title: &str, slot: u8) {
+    let _ = fs::remove_file(note_text_slot_path(notes_dir, title, slot));
+}
+
+/// One-time upgrade from the old unbounded `notas.txt` append log into the
+/// new 15 numbered slots (plan revision — "I wrote something and can't see
+/// it again" was a real complaint: the old log had no viewer at all, just
+/// a button that always appended a blank page). A no-op the moment any
+/// text slot already exists, so a game already using the new format is
+/// never re-split or overwritten. Entries in the old log were separated by
+/// a blank line (`append_note_text` used to write `"{text}\n\n"`); the
+/// first 15 non-empty ones become slots 1..=15, in the order they were
+/// written. `notas.txt` itself is left in place afterward rather than
+/// deleted — cheap insurance against a bug here losing anyone's notes
+/// outright — but nothing reads it again once this has run once.
+fn migrate_legacy_text_notes(notes_dir: &Path, title: &str) {
+    if (1..=NOTE_SLOTS).any(|s| note_text_slot_path(notes_dir, title, s).is_file()) {
+        return;
+    }
+    let Ok(contents) = fs::read_to_string(legacy_note_text_path(notes_dir, title)) else {
+        return;
+    };
+    let pages: Vec<&str> = contents
+        .split("\n\n")
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .collect();
+    if pages.is_empty() {
+        return;
+    }
+    let mut migrated = 0;
+    for (slot, page) in (1..=NOTE_SLOTS).zip(pages) {
+        match save_text_slot(notes_dir, title, slot, page) {
+            Ok(()) => migrated += 1,
+            Err(e) => log::warn!("migrating legacy note into slot {slot} failed: {e}"),
+        }
+    }
+    log::info!("notas.txt: migrated {migrated} page(s) into numbered text-note slots");
 }
 
 /// Recompute the panel's notebook block from what's actually on disk: how
@@ -715,6 +787,16 @@ fn show_note_slot(cab: &mut Cabinet, notes_dir: &Path, title: &str, slot: u8, me
         &m.label,
         thumb.as_ref().map(|(w, h, d)| (*w, *h, d.as_slice())),
     );
+}
+
+/// Push text-note `slot`'s saved content and pin state onto the pause
+/// book's left page (plan revision, mirrors `show_note_slot`) — the
+/// `set_pause_text_page` call every slot-change (or pin/write/delete)
+/// site needs.
+fn show_text_slot(cab: &mut Cabinet, notes_dir: &Path, title: &str, slot: u8, meta: &NotesMeta) {
+    let content = read_text_slot(notes_dir, title, slot);
+    let pinned = meta.text_slot(slot).pinned;
+    cab.set_pause_text_page((slot - 1) as usize, pinned, content.as_deref());
 }
 
 /// Load the core + ROM and run until the player leaves, drawing into `cab` (the
@@ -770,6 +852,11 @@ pub fn run_game(
     // there, and picking a print's destination in the Printscreen modal
     // moves it too, so the notebook opens on whatever was captured last.
     let mut note_slot: u8 = 1;
+    // Text-note slot (plan revision) — same idea as `note_slot`, but for
+    // the left page's 15 text notes; the two cursors are independent, so
+    // paging through prints never moves which text slot is shown, or the
+    // other way around.
+    let mut text_slot: u8 = 1;
 
     if let Ok(bytes) = fs::read(&sram_path) {
         let n = core.load_sram(&bytes);
@@ -796,6 +883,9 @@ pub fn run_game(
     // Which note slots are pinned/captioned (plan revision) — loaded once,
     // mutated and re-saved in place on every pin toggle or rename.
     let mut notes_meta = load_notes_meta(&spec.notes_dir, &title);
+    // One-time, no-op after the first run for this game — see the
+    // function's own doc comment.
+    migrate_legacy_text_notes(&spec.notes_dir, &title);
 
     // --- cheats: the full libretro-database slice for this title (plan
     // §4.4, revision) --- Matched by the ROM's own title (same string
@@ -867,9 +957,9 @@ pub fn run_game(
     // --debug-note-capture run first).
     if spec.debug_shot_pause {
         if let Some((path, _)) = &spec.shot {
-            let filled = count_filled_slots(&spec.notes_dir, &title);
-            cab.set_pause_note(&title, NOTE_SLOTS as usize, filled);
+            cab.set_pause_note(&title, NOTE_SLOTS as usize);
             show_note_slot(cab, &spec.notes_dir, &title, note_slot, &notes_meta);
+            show_text_slot(cab, &spec.notes_dir, &title, text_slot, &notes_meta);
             cab.capture_pause_bmp(path)
                 .map_err(|e| anyhow!(e.to_string()))?;
             log::info!("wrote {} (pause book preview)", path.display());
@@ -900,13 +990,27 @@ pub fn run_game(
                         NoteEdit::PrintName(1).heading(),
                     );
                 }
-                "cheats" => cab.set_modal(
-                    "Cheats",
-                    &cheat_modal_rows(&cheat_rows(&cheat_defs, &cheat_state)),
-                ),
+                "cheats" => {
+                    cab.set_modal(
+                        "Cheats",
+                        &cheat_modal_rows(&cheat_rows(&cheat_defs, &cheat_state)),
+                    );
+                    cab.set_modal_searchable(true);
+                }
+                // Previews the search box already filtered, without a live
+                // GUI to type into it — the filter word is fixed (dev/
+                // testing only, not configurable from the CLI).
+                "cheats-search" => {
+                    cab.set_modal(
+                        "Cheats",
+                        &cheat_modal_rows(&cheat_rows(&cheat_defs, &cheat_state)),
+                    );
+                    cab.set_modal_searchable(true);
+                    cab.set_modal_search("infinit");
+                }
                 other => {
                     log::warn!(
-                        "--debug-shot-modal {other}: unknown, expected save/load/print/print-name/cheats"
+                        "--debug-shot-modal {other}: unknown, expected save/load/print/print-name/cheats/cheats-search"
                     )
                 }
             }
@@ -979,7 +1083,7 @@ pub fn run_game(
         if note_edit != NoteEdit::None {
             // Naming a fresh print (plan revision) renders in the modal, not
             // the notebook — everything else about polling/typing is shared.
-            let in_modal = matches!(note_edit, NoteEdit::PrintName(_));
+            let in_modal = matches!(note_edit, NoteEdit::PrintName(_) | NoteEdit::CheatSearch);
             let te = plat.poll_text_entry();
             if te.quit {
                 break 'run GameExit::Quit;
@@ -1020,11 +1124,18 @@ pub fn run_game(
             }
             if save {
                 match note_edit {
-                    NoteEdit::Text if !note_draft.trim().is_empty() => {
-                        match append_note_text(&spec.notes_dir, &title, note_draft.trim()) {
-                            Ok(()) => log::info!("note: text page saved"),
-                            Err(e) => log::warn!("note text failed: {e}"),
+                    NoteEdit::Text => {
+                        let trimmed = note_draft.trim();
+                        if trimmed.is_empty() {
+                            delete_text_slot(&spec.notes_dir, &title, text_slot);
+                            log::info!("text slot {text_slot}: cleared (saved empty)");
+                        } else {
+                            match save_text_slot(&spec.notes_dir, &title, text_slot, trimmed) {
+                                Ok(()) => log::info!("text slot {text_slot}: saved"),
+                                Err(e) => log::warn!("text slot {text_slot}: save failed: {e}"),
+                            }
                         }
+                        show_text_slot(cab, &spec.notes_dir, &title, text_slot, &notes_meta);
                     }
                     NoteEdit::SlotName => {
                         notes_meta.slots.entry(note_slot).or_default().label =
@@ -1054,15 +1165,24 @@ pub fn run_game(
                             }
                         }
                     }
+                    NoteEdit::CheatSearch => cab.set_modal_search(note_draft.trim()),
                     _ => {}
                 }
             }
             if save || cancel {
                 if in_modal {
-                    modal = Modal::None;
-                    print_capture = None;
                     cab.set_modal_draft(None, 0, "");
-                    cab.clear_modal();
+                    if matches!(note_edit, NoteEdit::CheatSearch) {
+                        // Searching narrows the same Cheats modal rather
+                        // than acting on a pick — stay in it, just back on
+                        // the (maybe newly filtered) row grid, unlike
+                        // every other in-modal edit here, which is always
+                        // a one-shot action that closes the dialog.
+                    } else {
+                        modal = Modal::None;
+                        print_capture = None;
+                        cab.clear_modal();
+                    }
                 } else {
                     cab.set_pause_draft(None, 0, "");
                 }
@@ -1097,15 +1217,16 @@ pub fn run_game(
                 UiEvent::Click(x, y) => {
                     let (ox, oy) = cab.window_to_output(x, y);
                     if modal != Modal::None {
-                        // Not reachable during the naming step — that's
-                        // `NoteEdit::PrintName`, polled via `poll_text_entry`
-                        // instead (above), so `Click` never comes through
-                        // `plat.poll()` while it's open.
+                        // Not reachable during the naming/searching step —
+                        // that's `NoteEdit::PrintName`/`CheatSearch`, polled
+                        // via `poll_text_entry` instead (above), so `Click`
+                        // never comes through `plat.poll()` while it's open.
                         match cab.hit_modal_button(ox, oy) {
                             Some(PanelButton::ModalSlot(i)) => Some(UiEvent::ModalPick(i)),
                             Some(PanelButton::ModalCancel) => Some(UiEvent::ModalCancel),
                             Some(PanelButton::ModalScrollUp) => Some(UiEvent::ModalScrollUp),
                             Some(PanelButton::ModalScrollDown) => Some(UiEvent::ModalScrollDown),
+                            Some(PanelButton::ModalSearchStart) => Some(UiEvent::ModalSearchStart),
                             _ => None,
                         }
                     } else if paused {
@@ -1120,6 +1241,10 @@ pub fn run_game(
                             Some(PanelButton::PauseWrite) => Some(UiEvent::NoteWriteStart),
                             Some(PanelButton::PauseNotePin) => Some(UiEvent::NotePinToggle),
                             Some(PanelButton::PauseNoteName) => Some(UiEvent::NoteNameStart),
+                            Some(PanelButton::PauseTextPrev) => Some(UiEvent::TextPrev),
+                            Some(PanelButton::PauseTextNext) => Some(UiEvent::TextNext),
+                            Some(PanelButton::PauseTextPin) => Some(UiEvent::TextPinToggle),
+                            Some(PanelButton::PauseTextDelete) => Some(UiEvent::TextDelete),
                             _ => None,
                         }
                     } else {
@@ -1143,13 +1268,18 @@ pub fn run_game(
                             | PanelButton::PauseWrite
                             | PanelButton::PauseNotePin
                             | PanelButton::PauseNoteName
+                            | PanelButton::PauseTextPrev
+                            | PanelButton::PauseTextNext
+                            | PanelButton::PauseTextPin
+                            | PanelButton::PauseTextDelete
                             | PanelButton::PauseDraftSave
                             | PanelButton::PauseDraftCancel
                             | PanelButton::ModalSlot(_)
                             | PanelButton::ModalConfirm
                             | PanelButton::ModalCancel
                             | PanelButton::ModalScrollUp
-                            | PanelButton::ModalScrollDown => None,
+                            | PanelButton::ModalScrollDown
+                            | PanelButton::ModalSearchStart => None,
                         })
                     }
                 }
@@ -1201,10 +1331,10 @@ pub fn run_game(
                     if paused {
                         // Load once on the way in; present_pause just
                         // redraws it every frame (plan §3.2/§3.4) — on
-                        // whichever note slot was last selected.
-                        let filled = count_filled_slots(&spec.notes_dir, &title);
-                        cab.set_pause_note(&title, NOTE_SLOTS as usize, filled);
+                        // whichever slots were last selected.
+                        cab.set_pause_note(&title, NOTE_SLOTS as usize);
                         show_note_slot(cab, &spec.notes_dir, &title, note_slot, &notes_meta);
+                        show_text_slot(cab, &spec.notes_dir, &title, text_slot, &notes_meta);
                     }
                     log::info!("{}", if paused { "paused" } else { "resumed" });
                 }
@@ -1216,10 +1346,15 @@ pub fn run_game(
                     note_slot += 1;
                     show_note_slot(cab, &spec.notes_dir, &title, note_slot, &notes_meta);
                 }
-                UiEvent::NoteWriteStart if paused => {
+                UiEvent::NoteWriteStart if paused && !notes_meta.text_slot(text_slot).pinned => {
                     note_edit = NoteEdit::Text;
-                    note_draft.clear();
-                    cab.set_pause_draft(Some(""), NoteEdit::Text.limit(), NoteEdit::Text.heading());
+                    note_draft =
+                        read_text_slot(&spec.notes_dir, &title, text_slot).unwrap_or_default();
+                    cab.set_pause_draft(
+                        Some(&note_draft),
+                        NoteEdit::Text.limit(),
+                        NoteEdit::Text.heading(),
+                    );
                     plat.start_text_input(cab);
                 }
                 UiEvent::NotePinToggle if paused => {
@@ -1248,6 +1383,30 @@ pub fn run_game(
                     );
                     plat.start_text_input(cab);
                 }
+                UiEvent::TextPrev if paused && text_slot > 1 => {
+                    text_slot -= 1;
+                    show_text_slot(cab, &spec.notes_dir, &title, text_slot, &notes_meta);
+                }
+                UiEvent::TextNext if paused && text_slot < NOTE_SLOTS => {
+                    text_slot += 1;
+                    show_text_slot(cab, &spec.notes_dir, &title, text_slot, &notes_meta);
+                }
+                UiEvent::TextPinToggle if paused => {
+                    let m = notes_meta.text_slots.entry(text_slot).or_default();
+                    m.pinned = !m.pinned;
+                    let now_pinned = m.pinned;
+                    save_notes_meta(&spec.notes_dir, &title, &notes_meta);
+                    show_text_slot(cab, &spec.notes_dir, &title, text_slot, &notes_meta);
+                    log::info!(
+                        "text slot {text_slot}: {}",
+                        if now_pinned { "pinned" } else { "unpinned" }
+                    );
+                }
+                UiEvent::TextDelete if paused && !notes_meta.text_slot(text_slot).pinned => {
+                    delete_text_slot(&spec.notes_dir, &title, text_slot);
+                    show_text_slot(cab, &spec.notes_dir, &title, text_slot, &notes_meta);
+                    log::info!("text slot {text_slot}: deleted");
+                }
                 UiEvent::OpenSaveModal if powered => {
                     modal = Modal::SaveSlot;
                     cab.set_modal("Salvar estado", &save_slot_rows(&spec.save_dir, &title));
@@ -1262,6 +1421,7 @@ pub fn run_game(
                         "Cheats",
                         &cheat_modal_rows(&cheat_rows(&cheat_defs, &cheat_state)),
                     );
+                    cab.set_modal_searchable(true);
                 }
                 UiEvent::OpenPrintModal if powered => {
                     if all_slots_pinned(&notes_meta) {
@@ -1355,6 +1515,16 @@ pub fn run_game(
                 }
                 UiEvent::ModalScrollUp if modal != Modal::None => cab.scroll_modal(-1),
                 UiEvent::ModalScrollDown if modal != Modal::None => cab.scroll_modal(1),
+                UiEvent::ModalSearchStart if modal == Modal::Cheats => {
+                    note_edit = NoteEdit::CheatSearch;
+                    note_draft = cab.modal_search_query().to_string();
+                    cab.set_modal_draft(
+                        Some(&note_draft),
+                        NoteEdit::CheatSearch.limit(),
+                        NoteEdit::CheatSearch.heading(),
+                    );
+                    plat.start_text_input(cab);
+                }
                 // The rest only make sense with the console on (or, for the
                 // pause-book trio, only while actually paused); ignored
                 // otherwise. `Click` never reaches this match — it's already
@@ -1367,11 +1537,16 @@ pub fn run_game(
                 | UiEvent::OpenPrintModal
                 | UiEvent::ModalScrollUp
                 | UiEvent::ModalScrollDown
+                | UiEvent::ModalSearchStart
                 | UiEvent::NotePrev
                 | UiEvent::NoteNext
                 | UiEvent::NoteWriteStart
                 | UiEvent::NotePinToggle
                 | UiEvent::NoteNameStart
+                | UiEvent::TextPrev
+                | UiEvent::TextNext
+                | UiEvent::TextPinToggle
+                | UiEvent::TextDelete
                 | UiEvent::Click(..) => {}
             }
         }
@@ -1528,8 +1703,9 @@ pub fn run_game(
 #[cfg(test)]
 mod tests {
     use super::{
-        append_note_text, cheat_state_path, count_filled_slots, frame_to_rgb8, game_dir,
-        load_cheat_state, note_dir, save_cheat_state, save_note_image, sram_file, state_file,
+        cheat_state_path, delete_text_slot, frame_to_rgb8, game_dir, legacy_note_text_path,
+        load_cheat_state, migrate_legacy_text_notes, note_dir, note_slot_path, note_text_slot_path,
+        read_text_slot, save_cheat_state, save_note_image, save_text_slot, sram_file, state_file,
         EmuFrame,
     };
     use xperience_emulation::PixelFormat as EmuFormat;
@@ -1581,7 +1757,7 @@ mod tests {
     }
 
     #[test]
-    fn note_slots_save_independently_and_count_correctly() {
+    fn note_slots_save_independently() {
         let dir = scratch_dir("notes");
         let frame = EmuFrame {
             width: 2,
@@ -1591,29 +1767,100 @@ mod tests {
             pixels: vec![0u8; 4 * 2],
         };
 
-        assert_eq!(count_filled_slots(&dir, "Aladdin"), 0);
+        assert!(!note_slot_path(&dir, "Aladdin", 1).is_file());
         save_note_image(&dir, "Aladdin", 1, &frame).unwrap();
         save_note_image(&dir, "Aladdin", 15, &frame).unwrap();
-        assert_eq!(count_filled_slots(&dir, "Aladdin"), 2);
-        // Re-saving the same slot overwrites, doesn't add a second file.
-        save_note_image(&dir, "Aladdin", 1, &frame).unwrap();
-        assert_eq!(count_filled_slots(&dir, "Aladdin"), 2);
-
         assert!(note_dir(&dir, "Aladdin").join("01.png").is_file());
         assert!(note_dir(&dir, "Aladdin").join("15.png").is_file());
+        // Slot 2 is untouched — the two saves above didn't spill into it.
+        assert!(!note_slot_path(&dir, "Aladdin", 2).is_file());
 
         std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
-    fn note_text_appends_to_its_own_txt_file() {
-        let dir = scratch_dir("notes-text");
-        append_note_text(&dir, "Aladdin", "primeira pagina").unwrap();
-        append_note_text(&dir, "Aladdin", "segunda pagina").unwrap();
+    fn text_slot_round_trips_and_deletes() {
+        let dir = scratch_dir("notes-text-slot");
 
-        let text = std::fs::read_to_string(note_dir(&dir, "Aladdin").join("notas.txt")).unwrap();
-        assert!(text.contains("primeira pagina"));
-        assert!(text.contains("segunda pagina"));
+        assert_eq!(read_text_slot(&dir, "Aladdin", 1), None);
+        save_text_slot(&dir, "Aladdin", 1, "primeira nota").unwrap();
+        save_text_slot(&dir, "Aladdin", 15, "outra nota").unwrap();
+        assert_eq!(
+            read_text_slot(&dir, "Aladdin", 1),
+            Some("primeira nota".to_string())
+        );
+        assert_eq!(
+            read_text_slot(&dir, "Aladdin", 15),
+            Some("outra nota".to_string())
+        );
+        // Slot 2 was never written — reading it back is empty, not an error.
+        assert_eq!(read_text_slot(&dir, "Aladdin", 2), None);
+
+        // Overwriting a slot replaces its content, doesn't append to it.
+        save_text_slot(&dir, "Aladdin", 1, "nota substituida").unwrap();
+        assert_eq!(
+            read_text_slot(&dir, "Aladdin", 1),
+            Some("nota substituida".to_string())
+        );
+
+        delete_text_slot(&dir, "Aladdin", 1);
+        assert_eq!(read_text_slot(&dir, "Aladdin", 1), None);
+        assert!(!note_text_slot_path(&dir, "Aladdin", 1).is_file());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn whitespace_only_text_slot_reads_back_as_empty() {
+        let dir = scratch_dir("notes-text-blank");
+        save_text_slot(&dir, "Aladdin", 1, "   \n  ").unwrap();
+        assert_eq!(read_text_slot(&dir, "Aladdin", 1), None);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn legacy_notas_txt_migrates_into_numbered_slots() {
+        let dir = scratch_dir("notes-migrate");
+        let legacy_dir = note_dir(&dir, "Aladdin");
+        std::fs::create_dir_all(&legacy_dir).unwrap();
+        std::fs::write(
+            legacy_note_text_path(&dir, "Aladdin"),
+            "primeira pagina\n\nsegunda pagina\n\n",
+        )
+        .unwrap();
+
+        migrate_legacy_text_notes(&dir, "Aladdin");
+
+        assert_eq!(
+            read_text_slot(&dir, "Aladdin", 1),
+            Some("primeira pagina".to_string())
+        );
+        assert_eq!(
+            read_text_slot(&dir, "Aladdin", 2),
+            Some("segunda pagina".to_string())
+        );
+        // The original file survives the migration untouched.
+        assert!(legacy_note_text_path(&dir, "Aladdin").is_file());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn migration_is_a_noop_once_any_text_slot_exists() {
+        let dir = scratch_dir("notes-migrate-noop");
+        std::fs::create_dir_all(note_dir(&dir, "Aladdin")).unwrap();
+        std::fs::write(legacy_note_text_path(&dir, "Aladdin"), "pagina antiga\n\n").unwrap();
+        save_text_slot(&dir, "Aladdin", 1, "ja no formato novo").unwrap();
+
+        migrate_legacy_text_notes(&dir, "Aladdin");
+
+        // Migration must not have touched slot 1 (already occupied) or
+        // spilled the legacy page into slot 2.
+        assert_eq!(
+            read_text_slot(&dir, "Aladdin", 1),
+            Some("ja no formato novo".to_string())
+        );
+        assert_eq!(read_text_slot(&dir, "Aladdin", 2), None);
 
         std::fs::remove_dir_all(&dir).ok();
     }
