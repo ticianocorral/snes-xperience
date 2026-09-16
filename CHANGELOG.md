@@ -7,6 +7,59 @@ versionamento segue [SemVer](https://semver.org/lang/pt-BR/). Enquanto a versão
 for `0.x`, a API das crates e a interface de linha de comando podem mudar sem
 aviso — só o incremento de _minor_ marca um conjunto de mudanças.
 
+## [Não lançado]
+
+### Adicionado
+
+- **Cheats ganharam seu próprio menu**: um botão "Cheats" na lista de
+  comandos (ausente quando a cartucho não tem nenhum código curado) abre
+  uma modal com a lista de códigos — clicar num deles liga/desliga na
+  hora, sem fechar a modal, igual ao antigo checklist do caderno.
+- **Sistema de pin no painel**: o bloco "notas" do painel lateral só
+  aparece quando pelo menos um dos 15 slots está fixado — antes mostrava
+  a miniatura do slot mais recentemente visto/capturado mesmo sem
+  ninguém ter pedido pra featurar aquilo ali.
+- **Rolagem na modal de Cheats** (e, embutido de graça, em qualquer
+  modal futura com muitas linhas): listas de até ~1200 linhas por coluna
+  mostram só uma página por vez, com botões "Cima"/"Baixo" e um contador
+  ("1-12/1209") — necessário depois da base de cheats crescer (ver
+  Alterado).
+
+### Alterado
+
+- **Base de cheats cresceu de ~20 jogos curados pra base inteira do
+  `libretro-database`** (~2400 jogos, ~67 mil códigos) — antes só um
+  punhado de jogos escolhidos a dedo tinham cheat nenhum; agora qualquer
+  ROM cujo nome de arquivo bate com a convenção usual
+  (`Titulo (Regiao).sfc`) tem uma chance real de ter cheats prontos. Como
+  a base não tem como saber o título interno do cabeçalho de 2000+
+  cartuchos sem possuí-los, o casamento mudou de "título do cabeçalho
+  SNES" pra "título do arquivo da ROM" (mesma string que `saves/`/`notes/`
+  já usam) — ver `crates/domain/src/cheats.rs`.
+- **Cheats saíram do caderno de anotações**: a lista de códigos (com
+  checkbox) que vivia na página esquerda do caderno agora é a modal
+  acima — o caderno voltou a ser só "anotacoes" (texto livre + álbum de
+  prints).
+- **Corrigido: desligar um cheat não desligava o efeito.** Um único
+  `retro_cheat_set(indice, false, ...)` não é suficiente pra desfazer um
+  patch de memória sustentado em todo core — a linha aparecia como
+  desligada mas o jogo continuava com o cheat ativo. Agora todo toggle
+  reseta e reaplica o estado inteiro de cheats (mesma sequência que o
+  carregamento inicial já usava).
+- **Corrigido: um código de cheat longo o bastante travava o app** —
+  reproduzido de verdade durante o desenvolvimento (`SIGABRT`, estouro de
+  buffer na pilha dentro do `retro_cheat_set` do core snes9x-libretro,
+  com um código de 602 caracteres/67 endereços encadeados). A geração da
+  base agora descarta qualquer código acima de 96 caracteres, e
+  `cheats.rs` tem um teste de regressão fixando esse limite.
+
+### Removido
+
+- **"Avancar quadro" do caderno de anotações** — um botão de depuração
+  (avançar um quadro com o jogo pausado) que não tinha uso real pra quem
+  joga; o "Continuar" que sobrou ocupa a largura toda no lugar dos dois
+  meio-a-meio.
+
 ## [0.6.0] - 2026-09-15
 
 ### Adicionado
