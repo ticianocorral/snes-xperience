@@ -135,6 +135,12 @@ pub enum UiEvent {
     /// 1000+-cheat lists). Polled via `Platform::poll_text_entry`, same
     /// keyboard-typing exception as the notebook's own editors.
     ModalSearchStart,
+    /// On a searchable modal (today only Cheats): switch its on/off state
+    /// filter to show every row, only the ones checked on, or only the
+    /// ones off (plan revision).
+    ModalFilterAll,
+    ModalFilterOn,
+    ModalFilterOff,
     /// Open the Cheats modal — a checklist of curated codes for this
     /// cartridge (plan revision: its own menu, split out of the notebook,
     /// which was getting crowded and had no room for a "pausar pra editar"
