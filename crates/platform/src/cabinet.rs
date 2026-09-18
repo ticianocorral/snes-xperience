@@ -1573,9 +1573,13 @@ impl Cabinet {
         let cab_w = ww.saturating_sub(panel.width());
         self.screen = screen_area(cab_w, wh);
         self.ensure_bezel(cab_w, wh, self.screen);
+        self.ensure_mesh(self.screen);
         self.update_noise_tex(level);
 
-        let mesh = build_crt_mesh(self.screen, 1.0);
+        // The mesh is cached like the gameplay path's — rebuilding 1,089
+        // vertices every frame for a screen that only changes on
+        // window-resize was pure waste.
+        let mesh = self.mesh.take().unwrap();
         self.canvas
             .set_draw_color(Color::RGB(RECESS.0, RECESS.1, RECESS.2));
         self.canvas.clear();
@@ -1590,6 +1594,7 @@ impl Cabinet {
             .canvas
             .render_geometry(&bezel.verts, None, &bezel.indices[..]);
         self.bezel = Some(bezel);
+        self.mesh = Some(mesh);
         draw_brand(
             &mut self.canvas,
             &mut self.font,

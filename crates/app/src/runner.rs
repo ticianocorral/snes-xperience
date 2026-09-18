@@ -1093,6 +1093,9 @@ pub fn run_game(
     // "Done!" flash for otherwise-silent actions (Nota/Salvar/Carregar) —
     // see `flashed`/`FLASH_DURATION`.
     let mut flash: HashMap<PanelButton, Instant> = HashMap::new();
+    // The command legend's last drawn signature (a "(feito!)" flash active?
+    // all print slots pinned?) — `None` forces the first frame to draw it.
+    let mut prev_sig: Option<(bool, bool)> = None;
     let commands = command_rows(
         &flash,
         !cheat_defs.is_empty(),
@@ -1829,11 +1832,16 @@ pub fn run_game(
                 | UiEvent::Click(..) => {}
             }
         }
-        cab.set_commands(&command_rows(
-            &flash,
-            !cheat_defs.is_empty(),
-            all_slots_pinned(&notes_meta),
-        ));
+        // The command legend only changes when a "(feito!)" flash starts or
+        // ends, or the print-slots-pinned state flips — rebuilding its
+        // Strings at 60fps for an unchanged panel was churn (perf pass).
+        let flashing_now = flash.values().any(|t| t.elapsed() < FLASH_DURATION);
+        let all_pinned = all_slots_pinned(&notes_meta);
+        let sig = (flashing_now, all_pinned);
+        if Some(sig) != prev_sig {
+            cab.set_commands(&command_rows(&flash, !cheat_defs.is_empty(), all_pinned));
+            prev_sig = Some(sig);
+        }
         cab.set_reset_pressed(reset_pressed(&flash));
 
         if !powered {
