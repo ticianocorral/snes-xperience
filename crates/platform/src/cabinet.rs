@@ -81,10 +81,23 @@ const SWITCH_DIM: (u8, u8, u8) = (58, 55, 62);
 const SWITCH_TRACK_BG: (u8, u8, u8) = (24, 22, 26);
 const SWITCH_TRACK_BORDER: (u8, u8, u8) = (60, 58, 64);
 
+/// Power LED (plan revision: "luz vermelha led indicando o power... igual o
+/// console original") — a real SNES has one lit red next to its switches
+/// whenever the console is on. `LED_ON_HI` is a small glossy highlight dot
+/// drawn on top when lit, the same "cheap bevel via a flat rect" trick
+/// `draw_rocker`'s thumb highlight already uses.
+const LED_ON: (u8, u8, u8) = (214, 44, 40);
+const LED_ON_HI: (u8, u8, u8) = (255, 150, 140);
+const LED_OFF: (u8, u8, u8) = (56, 26, 26);
+
 /// The set's own nameplate: a small wordmark printed into the chin, left of
 /// the cartridge — a touch lighter than the cabinet plastic, like an embossed
 /// badge rather than a lit label.
-const BRAND: &str = "SNES Xperience";
+/// The console's own brand name — the nameplate's default text before the
+/// app calls `Cabinet::set_nameplate` with its own version appended, and
+/// what the idle screen's panel falls back to in plain text when there's no
+/// logo image loaded (`draw_panel`'s idle branch).
+pub const BRAND: &str = "SNES Xperience";
 const BRAND_TEXT: (u8, u8, u8) = (92, 86, 78);
 
 /// Glyph cell (Noto Sans Mono, anti-aliased, rasterized once at boot into an
@@ -195,6 +208,12 @@ pub struct Cabinet {
     /// Clickable buttons on the modal dialog drawn last frame —
     /// `hit_modal_button` scans this, same pattern as `pause_buttons`.
     modal_buttons: Vec<(PanelButton, Rect)>,
+    /// The shelf's own flat side panel content (plan revision) — `None`
+    /// outside the shelf (game/idle screens keep using `panel` instead).
+    shelf_panel: Option<ShelfPanelInfo>,
+    /// Clickable buttons on the shelf's flat panel drawn last frame —
+    /// `hit_shelf_button` scans this, same pattern as `panel_buttons`.
+    shelf_buttons: Vec<(ShelfButton, Rect)>,
     /// Where the cabinet actually drew last frame, in real window/output
     /// pixels — always 16:9, letterboxed/pillarboxed to fit whatever the
     /// window's own shape is (plan: don't distort on an ultrawide monitor).
@@ -202,6 +221,24 @@ pub struct Cabinet {
     /// rect's own local space; `window_to_output` subtracts its offset
     /// before any hit-test runs.
     canvas_rect: Rect,
+    /// The cabinet's own nameplate, printed into the chin by `draw_brand` on
+    /// every screen (plan revision: "mostrar versao do app e do snes9x, onde
+    /// esta o nome do app na tv") — starts as just `BRAND`, but the app sets
+    /// it once at startup (and again after a core swap) to also carry the
+    /// app/core version, via `set_nameplate`.
+    nameplate: String,
+    /// Whether the top-left "fechar app" button is drawn/clickable this
+    /// screen (plan revision: "criar botao de fechar app no canto superior
+    /// esquerdo") — the idle/shelf/settings/history screens turn it on;
+    /// gameplay never does (Desligar/Ejetar already cover backing out of a
+    /// running game, and a stray click there quitting the whole app outright
+    /// would be a much bigger surprise than on a menu screen). Explicitly
+    /// set on every screen's own entry, not just left over from whatever ran
+    /// before — same pattern `clear_panel`/`set_powered` already follow.
+    show_close: bool,
+    /// Where the close button drew last frame, in output/canvas coordinates
+    /// — `hit_close_button` scans this, same pattern as `panel_buttons`.
+    close_button: Rect,
 }
 
 /// A clickable spot in the side panel: the idle screen's "Inserir cartucho"
@@ -291,6 +328,23 @@ pub enum PanelButton {
     /// Pause book: clear the left page's shown text-note slot (plan
     /// revision) — dimmed/unclickable while it's pinned.
     PauseTextDelete,
+}
+
+/// A clickable spot on the shelf's own flat info panel (plan revision: the
+/// shelf used to draw its details column *inside* the warped screen buffer
+/// alongside the grid — "o painel nao pode estar dentro da TV" — so it now
+/// sits flat next to the tube, like the in-game side panel, with its own
+/// tiny button set). Separate from `PanelButton`: the shelf isn't a loaded
+/// game, so none of that enum's meaning applies here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ShelfButton {
+    Back,
+    Settings,
+    /// The shelf panel's own scroll buttons (plan revision: "criar rolagem
+    /// no painel quando necessario") — drawn only while the focused game's
+    /// art/info overflows the panel; see `draw_shelf_panel`.
+    PanelScrollUp,
+    PanelScrollDown,
 }
 
 /// The pause book: `captures` is the fixed slot count (plan revision, 15),
@@ -421,6 +475,46 @@ struct PanelInfo {
     /// snippet-length by the time it gets here (see `runner::
     /// panel_text_snippet`) — the panel itself doesn't truncate anything.
     text_note: Option<String>,
+    /// How much of the cartridge art is revealed right now (plan revision:
+    /// "criar animacao da insercao do cartucho e ejetar cartucho") — 1.0
+    /// (fully shown) except during the brief top-down wipe `runner`'s
+    /// insert/eject animations drive via `Cabinet::set_cartridge_reveal`.
+    /// Always 1.0 outside of those, so every screen that doesn't know about
+    /// the animation (dev-shot previews included) still shows the art
+    /// exactly as it always has.
+    cartridge_reveal: f32,
+}
+
+/// What the shelf's flat side panel shows for the currently-selected game
+/// (plan revision — moved out of the warped screen buffer so its text reads
+/// crisp and its logo doesn't bow with the tube curvature, same as the
+/// in-game panel already did). `logo_img`/`cartridge_img`/`backcover_img`
+/// are texture ids the shelf already cached via `Cabinet::set_image` (its
+/// own per-game local art, hashed from the ROM's sha1) — `None` falls back
+/// to the title in text for the logo, and simply draws nothing for the
+/// other two (plan revision: "abaixo da logo... colocar o back cover
+/// tambem" — a second, independent local image under the cartridge art,
+/// same `assets/<kind>/<rom>.*` convention, just its own folder,
+/// `assets/backcover/`). `release` is the game's release year from the
+/// No-Intro DAT, if one was loaded and had it (plan revision — replaces the
+/// play count here; `info` is whatever else the DAT carried beyond the bare
+/// title, plus the shelf's own file/play facts ("se o DAT tiver
+/// informacoes do jogo, preencher no painel") — label/value pairs, empty
+/// when the DAT has nothing extra or wasn't loaded at all.
+pub struct ShelfPanelInfo {
+    pub title: String,
+    pub logo_img: Option<u64>,
+    pub cartridge_img: Option<u64>,
+    pub backcover_img: Option<u64>,
+    pub release: Option<String>,
+    pub info: Vec<(String, String)>,
+    /// How many of the scrollable blocks below the logo/title header
+    /// (back cover, cartridge, release, `info`) to skip before drawing —
+    /// the caller's own running counter (plan revision: "criar rolagem no
+    /// painel quando necessario"), reset to 0 whenever the focused game
+    /// changes. `draw_shelf_panel` clamps this itself, so an over-large
+    /// value (scrolled past the end) is harmless.
+    pub scroll: usize,
 }
 
 struct SrcTexture {
@@ -500,8 +594,20 @@ impl Cabinet {
             panel_buttons: Vec::new(),
             pause_buttons: Vec::new(),
             modal_buttons: Vec::new(),
+            shelf_panel: None,
+            shelf_buttons: Vec::new(),
             canvas_rect,
+            nameplate: BRAND.to_string(),
+            show_close: false,
+            close_button: Rect::new(0, 0, 0, 0),
         })
+    }
+
+    /// Replace the cabinet's nameplate text (plan revision) — the app calls
+    /// this once at startup with its own version, and again whenever the
+    /// installed snes9x core changes (a download/update via settings).
+    pub fn set_nameplate(&mut self, text: &str) {
+        self.nameplate = text.to_string();
     }
 
     pub fn toggle_fullscreen(&mut self) {
@@ -533,6 +639,24 @@ impl Cabinet {
         (ox - self.canvas_rect.x(), oy - self.canvas_rect.y())
     }
 
+    /// Show/hide the top-left "fechar app" button (plan revision) — call
+    /// once on entering a screen that should offer it (idle/shelf/settings/
+    /// history), and with `false` on entering one that shouldn't
+    /// (gameplay) — the flag has no default that fits every screen, so it's
+    /// never implicitly reset between them.
+    pub fn set_close_button(&mut self, show: bool) {
+        self.show_close = show;
+    }
+
+    /// Whether an output-space point lands on the close button drawn last
+    /// frame — always `false` while `set_close_button(false)` is in effect,
+    /// even if a stale rect from an earlier screen is still sitting in
+    /// `close_button`. Coordinates from a click go through
+    /// `window_to_output` first.
+    pub fn hit_close_button(&self, out_x: i32, out_y: i32) -> bool {
+        self.show_close && self.close_button.contains_point((out_x, out_y))
+    }
+
     /// Which panel button, if any, sits under an output-space point — the
     /// idle screen's "Inserir cartucho" or one of the in-game commands drawn
     /// last frame. Coordinates from a click go through `window_to_output`
@@ -552,6 +676,23 @@ impl Cabinet {
             .iter()
             .find(|(_, r)| r.contains_point((out_x, out_y)))
             .map(|(b, _)| *b)
+    }
+
+    /// Same as `hit_panel_button`, for the shelf's own flat panel (plan
+    /// revision) — a separate list since the shelf isn't a loaded game.
+    pub fn hit_shelf_button(&self, out_x: i32, out_y: i32) -> Option<ShelfButton> {
+        self.shelf_buttons
+            .iter()
+            .find(|(_, r)| r.contains_point((out_x, out_y)))
+            .map(|(b, _)| *b)
+    }
+
+    /// Show the shelf's flat side panel content for whatever game is
+    /// selected right now (plan revision) — rebuilt every frame the
+    /// selection might have changed, same as the shelf already rebuilds its
+    /// own grid draw closure; the struct is small enough that this is cheap.
+    pub fn set_shelf_panel(&mut self, info: ShelfPanelInfo) {
+        self.shelf_panel = Some(info);
     }
 
     /// Map an output/canvas-space click into the 2D screen buffer's local
@@ -610,7 +751,19 @@ impl Cabinet {
             note_count: 0,
             has_note_thumb: false,
             text_note: None,
+            cartridge_reveal: 1.0,
         });
+    }
+
+    /// Drive the cartridge insert/eject animation (plan revision) — 0.0 is
+    /// fully hidden, 1.0 fully shown, mid-values wipe from the top down (see
+    /// `draw_image_absolute_revealed`). `runner`'s two animation functions
+    /// are the only callers; every other frame drawn leaves this at the
+    /// `set_panel` default of 1.0. A no-op before `set_panel`.
+    pub fn set_cartridge_reveal(&mut self, reveal: f32) {
+        if let Some(panel) = &mut self.panel {
+            panel.cartridge_reveal = reveal;
+        }
     }
 
     /// Refresh the command legend's labels (plan revision: a "(feito!)"
@@ -1021,6 +1174,20 @@ impl Cabinet {
         (s.width(), s.height())
     }
 
+    /// Like [`Cabinet::screen_size`], but for the shelf specifically (plan
+    /// revision): the tube's own area minus the flat side panel, since the
+    /// shelf's grid and the game's video now share the exact same split
+    /// (`panel_rect` carved out of `cabinet_canvas_rect` first) instead of
+    /// the panel living inside the warped buffer.
+    pub fn shelf_screen_size(&self) -> (u32, u32) {
+        let (real_w, real_h) = self.canvas.output_size().unwrap_or((1280, 720));
+        let rect = cabinet_canvas_rect(real_w, real_h);
+        let (out_w, out_h) = (rect.width(), rect.height());
+        let cab_w = out_w.saturating_sub(panel_rect(out_w, out_h).width());
+        let s = screen_area(cab_w, out_h);
+        (s.width(), s.height())
+    }
+
     // --- game path -------------------------------------------------------
 
     /// Draw one frame to the window. `aspect_ratio <= 0` means "use 4:3".
@@ -1061,7 +1228,13 @@ impl Cabinet {
         self.mesh = Some(mesh);
         self.bezel = Some(bezel);
 
-        draw_brand(&mut self.canvas, &mut self.font, self.screen, out_h);
+        draw_brand(
+            &mut self.canvas,
+            &mut self.font,
+            self.screen,
+            out_h,
+            &self.nameplate,
+        );
         self.panel_buttons = draw_panel(
             &mut self.canvas,
             &mut self.font,
@@ -1113,6 +1286,7 @@ impl Cabinet {
         let session = self.session;
         let font = &mut self.font;
         let images = &self.images;
+        let nameplate = self.nameplate.as_str();
         let mut saved: Result<(), PlatformError> = Ok(());
         let outcome = self.canvas.with_texture_canvas(&mut target, |c| {
             c.set_draw_color(Color::RGB(RECESS.0, RECESS.1, RECESS.2));
@@ -1120,7 +1294,7 @@ impl Cabinet {
             c.set_viewport(Some(canvas_rect));
             let _ = c.render_geometry(&mesh.verts, Some(&src.tex), &mesh.indices[..]);
             let _ = c.render_geometry(&bezel.verts, None, &bezel.indices[..]);
-            draw_brand(c, font, screen, out_h);
+            draw_brand(c, font, screen, out_h, nameplate);
             draw_panel(c, font, images, panel_info, panel, session);
             c.set_viewport(None);
             saved = c
@@ -1213,6 +1387,16 @@ impl Cabinet {
         self.canvas.present();
     }
 
+    /// Like [`Cabinet::frame_2d`], but for the shelf specifically (plan
+    /// revision): `draw` only ever sees the narrower grid area (the panel
+    /// column is reserved first), and the shelf's own info panel is drawn
+    /// flat, outside the tube's warp, right after it.
+    pub fn frame_shelf<F: FnOnce(&mut Screen)>(&mut self, bg: (u8, u8, u8), draw: F) {
+        self.paint_shelf(bg, draw);
+        self.composite_shelf();
+        self.canvas.present();
+    }
+
     /// Like [`Cabinet::frame_2d`] but composited into an offscreen target and
     /// saved as a BMP (headless — a background window never composites on macOS).
     pub fn capture_2d<F: FnOnce(&mut Screen)>(
@@ -1234,6 +1418,9 @@ impl Cabinet {
         let st = self.screen_tex.take().unwrap();
         let bezel = self.bezel.take().unwrap();
         let font = &mut self.font;
+        let nameplate = self.nameplate.as_str();
+        let show_close = self.show_close;
+        let mut close_button = self.close_button;
         let mut saved: Result<(), PlatformError> = Ok(());
         let outcome = self.canvas.with_texture_canvas(&mut target, |c| {
             c.set_draw_color(Color::RGB(RECESS.0, RECESS.1, RECESS.2));
@@ -1241,13 +1428,71 @@ impl Cabinet {
             c.set_viewport(Some(canvas_rect));
             let _ = c.render_geometry(&mesh.verts, Some(&st.tex), &mesh.indices[..]);
             let _ = c.render_geometry(&bezel.verts, None, &bezel.indices[..]);
-            draw_brand(c, font, screen, canvas_rect.height());
+            draw_brand(c, font, screen, canvas_rect.height(), nameplate);
+            if show_close {
+                close_button = draw_close_button(c, font);
+            }
             c.set_viewport(None);
             saved = c
                 .read_pixels(None::<Rect>)
                 .and_then(|s| s.save_bmp(path))
                 .map_err(|e| PlatformError::Sdl(e.to_string()));
         });
+        self.close_button = close_button;
+        self.screen_tex = Some(st);
+        self.bezel = Some(bezel);
+        outcome.map_err(|e| PlatformError::Sdl(e.to_string()))?;
+        saved
+    }
+
+    /// Like [`Cabinet::capture_2d`], but for the shelf specifically (plan
+    /// revision) — reserves the panel column like `frame_shelf` does, and
+    /// draws the flat info panel into the same offscreen target so the BMP
+    /// matches what a real window would show.
+    pub fn capture_shelf<F: FnOnce(&mut Screen)>(
+        &mut self,
+        bg: (u8, u8, u8),
+        draw: F,
+        path: &std::path::Path,
+    ) -> Result<(), PlatformError> {
+        self.paint_shelf(bg, draw);
+
+        let (ww, wh) = self.canvas.output_size().unwrap_or((1280, 720));
+        let canvas_rect = self.canvas_rect;
+        let panel = panel_rect(canvas_rect.width(), canvas_rect.height());
+        let screen = self.screen;
+        let mesh = build_crt_mesh(screen, 1.0);
+        let mut target = self
+            .canvas
+            .create_texture_target(SdlFormat::RGBA32, ww, wh)
+            .map_err(|e| PlatformError::Sdl(e.to_string()))?;
+        let st = self.screen_tex.take().unwrap();
+        let bezel = self.bezel.take().unwrap();
+        let font = &mut self.font;
+        let images = &self.images;
+        let shelf_panel = self.shelf_panel.as_ref();
+        let nameplate = self.nameplate.as_str();
+        let show_close = self.show_close;
+        let mut close_button = self.close_button;
+        let mut saved: Result<(), PlatformError> = Ok(());
+        let outcome = self.canvas.with_texture_canvas(&mut target, |c| {
+            c.set_draw_color(Color::RGB(RECESS.0, RECESS.1, RECESS.2));
+            c.clear();
+            c.set_viewport(Some(canvas_rect));
+            let _ = c.render_geometry(&mesh.verts, Some(&st.tex), &mesh.indices[..]);
+            let _ = c.render_geometry(&bezel.verts, None, &bezel.indices[..]);
+            draw_brand(c, font, screen, canvas_rect.height(), nameplate);
+            let _ = draw_shelf_panel(c, font, images, shelf_panel, panel);
+            if show_close {
+                close_button = draw_close_button(c, font);
+            }
+            c.set_viewport(None);
+            saved = c
+                .read_pixels(None::<Rect>)
+                .and_then(|s| s.save_bmp(path))
+                .map_err(|e| PlatformError::Sdl(e.to_string()));
+        });
+        self.close_button = close_button;
         self.screen_tex = Some(st);
         self.bezel = Some(bezel);
         outcome.map_err(|e| PlatformError::Sdl(e.to_string()))?;
@@ -1283,7 +1528,13 @@ impl Cabinet {
             .canvas
             .render_geometry(&bezel.verts, None, &bezel.indices[..]);
         self.bezel = Some(bezel);
-        draw_brand(&mut self.canvas, &mut self.font, self.screen, wh);
+        draw_brand(
+            &mut self.canvas,
+            &mut self.font,
+            self.screen,
+            wh,
+            &self.nameplate,
+        );
         self.panel_buttons = draw_panel(
             &mut self.canvas,
             &mut self.font,
@@ -1292,6 +1543,9 @@ impl Cabinet {
             panel,
             self.session,
         );
+        if self.show_close {
+            self.close_button = draw_close_button(&mut self.canvas, &mut self.font);
+        }
         self.canvas.set_viewport(None);
         self.canvas.present();
     }
@@ -1326,6 +1580,9 @@ impl Cabinet {
         let session = self.session;
         let font = &mut self.font;
         let images = &self.images;
+        let nameplate = self.nameplate.as_str();
+        let show_close = self.show_close;
+        let mut close_button = self.close_button;
         let mut saved: Result<(), PlatformError> = Ok(());
         let outcome = self.canvas.with_texture_canvas(&mut target, |c| {
             c.set_draw_color(Color::RGB(RECESS.0, RECESS.1, RECESS.2));
@@ -1333,14 +1590,18 @@ impl Cabinet {
             c.set_viewport(Some(canvas_rect));
             let _ = c.render_geometry(&mesh.verts, Some(&nt.tex), &mesh.indices[..]);
             let _ = c.render_geometry(&bezel.verts, None, &bezel.indices[..]);
-            draw_brand(c, font, screen, wh);
+            draw_brand(c, font, screen, wh, nameplate);
             draw_panel(c, font, images, panel_info, panel, session);
+            if show_close {
+                close_button = draw_close_button(c, font);
+            }
             c.set_viewport(None);
             saved = c
                 .read_pixels(None::<Rect>)
                 .and_then(|s| s.save_bmp(path))
                 .map_err(|e| PlatformError::Sdl(e.to_string()));
         });
+        self.close_button = close_button;
         self.noise_tex = Some(nt);
         self.bezel = Some(bezel);
         outcome.map_err(|e| PlatformError::Sdl(e.to_string()))?;
@@ -1395,7 +1656,74 @@ impl Cabinet {
             &mut self.font,
             self.screen,
             canvas_rect.height(),
+            &self.nameplate,
         );
+
+        self.canvas.set_viewport(None);
+        self.canvas.present();
+    }
+
+    /// Like [`Cabinet::frame_2d_fade_in`], but for the shelf specifically
+    /// (plan revision): reserves the panel column like `frame_shelf` does,
+    /// and draws it flat, in the same viewport, right after the blended
+    /// grid/static — the panel itself never fades with the signal, same as
+    /// the in-game panel doesn't.
+    pub fn frame_shelf_fade_in<F: FnOnce(&mut Screen)>(
+        &mut self,
+        bg: (u8, u8, u8),
+        draw: F,
+        static_level: f32,
+        shelf_alpha: f32,
+    ) {
+        self.paint_shelf(bg, draw);
+        self.update_noise_tex(static_level);
+        let canvas_rect = self.canvas_rect;
+        let panel = panel_rect(canvas_rect.width(), canvas_rect.height());
+
+        let mesh_static = build_crt_mesh(self.screen, 1.0);
+        let mesh_shelf = build_crt_mesh(self.screen, shelf_alpha.clamp(0.0, 1.0));
+
+        self.canvas
+            .set_draw_color(Color::RGB(RECESS.0, RECESS.1, RECESS.2));
+        self.canvas.clear();
+        self.canvas.set_viewport(Some(canvas_rect));
+
+        let nt = self.noise_tex.take().unwrap();
+        let _ = self.canvas.render_geometry(
+            &mesh_static.verts,
+            Some(&nt.tex),
+            &mesh_static.indices[..],
+        );
+        self.noise_tex = Some(nt);
+
+        let st = self.screen_tex.take().unwrap();
+        let _ =
+            self.canvas
+                .render_geometry(&mesh_shelf.verts, Some(&st.tex), &mesh_shelf.indices[..]);
+        self.screen_tex = Some(st);
+
+        let bezel = self.bezel.take().unwrap();
+        let _ = self
+            .canvas
+            .render_geometry(&bezel.verts, None, &bezel.indices[..]);
+        self.bezel = Some(bezel);
+        draw_brand(
+            &mut self.canvas,
+            &mut self.font,
+            self.screen,
+            canvas_rect.height(),
+            &self.nameplate,
+        );
+        self.shelf_buttons = draw_shelf_panel(
+            &mut self.canvas,
+            &mut self.font,
+            &self.images,
+            self.shelf_panel.as_ref(),
+            panel,
+        );
+        if self.show_close {
+            self.close_button = draw_close_button(&mut self.canvas, &mut self.font);
+        }
 
         self.canvas.set_viewport(None);
         self.canvas.present();
@@ -1432,11 +1760,30 @@ impl Cabinet {
     fn paint_2d<F: FnOnce(&mut Screen)>(&mut self, bg: (u8, u8, u8), draw: F) {
         let (real_w, real_h) = self.canvas.output_size().unwrap_or((1280, 720));
         self.canvas_rect = cabinet_canvas_rect(real_w, real_h);
-        let (ww, wh) = (self.canvas_rect.width(), self.canvas_rect.height());
-        self.screen = screen_area(ww, wh);
+        let ww = self.canvas_rect.width();
+        self.paint_2d_avail(bg, draw, ww);
+    }
+
+    /// Like [`Cabinet::paint_2d`], but reserving the flat side-panel column
+    /// first (plan revision: "o painel nao pode estar dentro da TV") — the
+    /// shelf's own screen buffer only ever spans the narrower grid area.
+    fn paint_shelf<F: FnOnce(&mut Screen)>(&mut self, bg: (u8, u8, u8), draw: F) {
+        let (real_w, real_h) = self.canvas.output_size().unwrap_or((1280, 720));
+        self.canvas_rect = cabinet_canvas_rect(real_w, real_h);
+        let (out_w, out_h) = (self.canvas_rect.width(), self.canvas_rect.height());
+        let cab_w = out_w.saturating_sub(panel_rect(out_w, out_h).width());
+        self.paint_2d_avail(bg, draw, cab_w);
+    }
+
+    /// Shared by `paint_2d`/`paint_shelf`: `self.canvas_rect` must already be
+    /// set; `avail_w` is how much of its width the screen buffer gets (all
+    /// of it for the plain 2D path, minus the panel for the shelf's).
+    fn paint_2d_avail<F: FnOnce(&mut Screen)>(&mut self, bg: (u8, u8, u8), draw: F, avail_w: u32) {
+        let wh = self.canvas_rect.height();
+        self.screen = screen_area(avail_w, wh);
         let (sw, sh) = (self.screen.width(), self.screen.height());
         self.ensure_screen_tex(sw, sh);
-        self.ensure_bezel(ww, wh, self.screen);
+        self.ensure_bezel(avail_w, wh, self.screen);
 
         let Self {
             canvas,
@@ -1485,6 +1832,27 @@ impl Cabinet {
             &mut self.font,
             self.screen,
             self.canvas_rect.height(),
+            &self.nameplate,
+        );
+        if self.show_close {
+            self.close_button = draw_close_button(&mut self.canvas, &mut self.font);
+        }
+        self.canvas.set_viewport(None);
+    }
+
+    /// Like [`Cabinet::composite_screen`], but also draws the shelf's flat
+    /// side panel (plan revision) right after the warped grid, in the same
+    /// viewport — undistorted, like the in-game panel already is.
+    fn composite_shelf(&mut self) {
+        self.composite_screen();
+        let panel = panel_rect(self.canvas_rect.width(), self.canvas_rect.height());
+        self.canvas.set_viewport(Some(self.canvas_rect));
+        self.shelf_buttons = draw_shelf_panel(
+            &mut self.canvas,
+            &mut self.font,
+            &self.images,
+            self.shelf_panel.as_ref(),
+            panel,
         );
         self.canvas.set_viewport(None);
     }
@@ -1575,22 +1943,31 @@ impl Screen<'_> {
         let cols = (max_w / (GLYPH_W * scale)).max(1) as usize;
         let row = (GLYPH_H * scale) as i32;
         let mut line = String::new();
+        let mut line_len = 0usize;
         let mut cy = y;
         for word in s.split_whitespace() {
-            if !line.is_empty() && line.len() + 1 + word.len() > cols {
+            let word_len = word.chars().count();
+            if !line.is_empty() && line_len + 1 + word_len > cols {
                 self.text(x, cy, scale, c, &line);
                 cy += row + 2;
                 line.clear();
+                line_len = 0;
             }
             if !line.is_empty() {
                 line.push(' ');
+                line_len += 1;
             }
             line.push_str(word);
-            while line.len() > cols {
-                let (head, tail) = line.split_at(cols);
-                self.text(x, cy, scale, c, head);
+            line_len += word_len;
+            // `.chars()` (not `split_at`, byte-indexed): a wrap point that
+            // fell mid-character would panic on any accented/multi-byte word.
+            while line_len > cols {
+                let head: String = line.chars().take(cols).collect();
+                let tail: String = line.chars().skip(cols).collect();
+                self.text(x, cy, scale, c, &head);
                 cy += row + 2;
-                line = tail.to_string();
+                line = tail;
+                line_len = line.chars().count();
             }
         }
         if !line.is_empty() {
@@ -1728,11 +2105,40 @@ fn build_bezel_mesh(out_w: u32, out_h: u32, screen: Rect, key: (u32, u32, u32, u
     }
 }
 
+/// The top-left "fechar app" button (plan revision: "criar botao de fechar
+/// app no canto superior esquerdo") — a small square with an "X", same
+/// visual language as `draw_button`. Always the same fixed distance from
+/// the cabinet's own top-left corner (canvas-local coordinates, the same
+/// space `window_to_output` maps clicks into), so it sits in the same spot
+/// regardless of window size or ultrawide letterboxing. Callers draw this
+/// last, on top of whatever else the screen drew, and only while
+/// `Cabinet::show_close` is set — see that field's own doc comment for why
+/// gameplay never turns it on. Returns the rect drawn, for
+/// `Cabinet::close_button`/`hit_close_button`.
+fn draw_close_button(canvas: &mut WindowCanvas, font: &mut Texture) -> Rect {
+    const MARGIN: i32 = 14;
+    const SIZE: u32 = 32;
+    draw_button(
+        canvas,
+        font,
+        Rect::new(MARGIN, MARGIN, SIZE, SIZE),
+        "X",
+        true,
+    )
+}
+
 /// The set's nameplate, printed into the chin left of the tube — part of the
 /// cabinet itself, so unlike the panel it's drawn in every context (shelf,
-/// game, idle-off) and never disappears. `None` if the chin is too short to
-/// hold it.
-fn draw_brand(canvas: &mut WindowCanvas, font: &mut Texture, screen: Rect, out_h: u32) {
+/// game, idle-off) and never disappears. A no-op if the chin is too short to
+/// hold it. `label` is `Cabinet::nameplate` (plan revision — `BRAND` plus the
+/// app/core version once the app calls `set_nameplate`).
+fn draw_brand(
+    canvas: &mut WindowCanvas,
+    font: &mut Texture,
+    screen: Rect,
+    out_h: u32,
+    label: &str,
+) {
     let chin_top = screen.bottom();
     let chin_h = out_h as i32 - chin_top;
     if chin_h < 24 {
@@ -1745,7 +2151,7 @@ fn draw_brand(canvas: &mut WindowCanvas, font: &mut Texture, screen: Rect, out_h
         screen.left(),
         y,
         TextStyle::new(1, BRAND_TEXT),
-        BRAND,
+        label,
         usize::MAX,
     );
 }
@@ -1761,20 +2167,64 @@ fn draw_image_absolute(
     bw: u32,
     bh: u32,
 ) {
+    draw_image_absolute_revealed(canvas, images, id, Rect::new(x, y, bw, bh), 1.0);
+}
+
+/// Like `draw_image_absolute`, but only the top `reveal` fraction (0.0..=1.0)
+/// of the image is drawn — the cartridge insert/eject animations' only hook
+/// (plan revision: "criar animacao da insercao do cartucho e ejetar
+/// cartucho"), driven by `PanelInfo::cartridge_reveal`. Crops the *source*
+/// texture rather than clipping the destination, so it composes fine inside
+/// an already-active viewport without touching shared clip-rect state.
+/// `reveal >= 1.0` (the overwhelming majority of calls, via
+/// `draw_image_absolute` above) draws the whole thing, same as before this
+/// existed. `bx` bundles what used to be separate `x, y, bw, bh` arguments
+/// (clippy's too-many-arguments limit — same reasoning `TextStyle` below
+/// exists for).
+fn draw_image_absolute_revealed(
+    canvas: &mut WindowCanvas,
+    images: &HashMap<u64, ImgTex>,
+    id: u64,
+    bx: Rect,
+    reveal: f32,
+) {
     let Some(img) = images.get(&id) else {
         return;
     };
-    let (iw, ih) = (img.w as f32, img.h as f32);
-    let scale = (bw as f32 / iw).min(bh as f32 / ih);
-    let dw = (iw * scale).round() as i32;
-    let dh = (ih * scale).round() as i32;
-    let dx = x + (bw as i32 - dw) / 2;
-    let dy = y + (bh as i32 - dh) / 2;
-    let _ = canvas.copy(
-        &img.tex,
-        None::<sdl3::render::FRect>,
-        Rect::new(dx, dy, dw.max(1) as u32, dh.max(1) as u32),
-    );
+    if reveal <= 0.0 {
+        return;
+    }
+    let (src, dst) = reveal_rects(img.w, img.h, bx, reveal);
+    let _ = canvas.copy(&img.tex, src, dst);
+}
+
+/// The source/destination rects `draw_image_absolute_revealed` copies with —
+/// factored out so the crop arithmetic is unit-testable without a real
+/// canvas/texture. `iw, ih` is the source texture's own size, `bx` the box
+/// it's fit into (centered, aspect preserved, same as `draw_image_absolute`
+/// always did). At `reveal >= 1.0` the source is the whole texture, same as
+/// before this existed; below that, both rects keep only their top
+/// `reveal` fraction, anchored at `bx`'s own top edge.
+fn reveal_rects(iw: u32, ih: u32, bx: Rect, reveal: f32) -> (Rect, Rect) {
+    let reveal = reveal.clamp(0.0, 1.0);
+    let (iwf, ihf) = (iw as f32, ih as f32);
+    let scale = (bx.width() as f32 / iwf).min(bx.height() as f32 / ihf);
+    let dw = (iwf * scale).round() as i32;
+    let dh = (ihf * scale).round() as i32;
+    let dx = bx.x() + (bx.width() as i32 - dw) / 2;
+    let dy = bx.y() + (bx.height() as i32 - dh) / 2;
+    if reveal >= 1.0 {
+        return (
+            Rect::new(0, 0, iw, ih),
+            Rect::new(dx, dy, dw.max(1) as u32, dh.max(1) as u32),
+        );
+    }
+    let visible_sh = ((ihf * reveal).round() as u32).clamp(1, ih);
+    let visible_dh = (((dh as f32) * reveal).round() as u32).max(1);
+    (
+        Rect::new(0, 0, iw, visible_sh),
+        Rect::new(dx, dy, dw.max(1) as u32, visible_dh),
+    )
 }
 
 /// Scale + colour for one of the absolute-coordinate text helpers below —
@@ -1832,22 +2282,31 @@ fn draw_text_wrapped_absolute(
     let cols = (max_w / (GLYPH_W * style.scale)).max(1) as usize;
     let row = (GLYPH_H * style.scale) as i32;
     let mut line = String::new();
+    let mut line_len = 0usize;
     let mut cy = y;
     for word in s.split_whitespace() {
-        if !line.is_empty() && line.len() + 1 + word.len() > cols {
+        let word_len = word.chars().count();
+        if !line.is_empty() && line_len + 1 + word_len > cols {
             draw_text_absolute(canvas, font, x, cy, style, &line, usize::MAX);
             cy += row + 2;
             line.clear();
+            line_len = 0;
         }
         if !line.is_empty() {
             line.push(' ');
+            line_len += 1;
         }
         line.push_str(word);
-        while line.len() > cols {
-            let (head, tail) = line.split_at(cols);
-            draw_text_absolute(canvas, font, x, cy, style, head, usize::MAX);
+        line_len += word_len;
+        // `.chars()` (not `split_at`, byte-indexed): a wrap point that fell
+        // mid-character would panic on any accented/multi-byte word.
+        while line_len > cols {
+            let head: String = line.chars().take(cols).collect();
+            let tail: String = line.chars().skip(cols).collect();
+            draw_text_absolute(canvas, font, x, cy, style, &head, usize::MAX);
             cy += row + 2;
-            line = tail.to_string();
+            line = tail;
+            line_len = line.chars().count();
         }
     }
     if !line.is_empty() {
@@ -1926,7 +2385,7 @@ fn draw_panel(
             (PanelButton::Insert, insert_drawn),
             (
                 PanelButton::Settings,
-                draw_button(canvas, font, settings, "Configuracoes", true),
+                draw_button(canvas, font, settings, "Configurações", true),
             ),
         ];
     };
@@ -1948,18 +2407,17 @@ fn draw_panel(
     };
 
     // 1b. Cartridge art (plan revision) — independent of the logo, drawn
-    // right below whichever of the two just ran.
+    // right below whichever of the two just ran. `cartridge_reveal` is 1.0
+    // outside of `runner`'s brief insert/eject wipe animation.
     if panel.has_cartridge {
         cy += 8;
-        const CARTRIDGE_H: u32 = 150;
-        draw_image_absolute(
+        const CARTRIDGE_H: u32 = 210;
+        draw_image_absolute_revealed(
             canvas,
             images,
             PANEL_CARTRIDGE_IMG,
-            x,
-            cy,
-            inner_w,
-            CARTRIDGE_H,
+            Rect::new(x, cy, inner_w, CARTRIDGE_H),
+            panel.cartridge_reveal,
         );
         cy += CARTRIDGE_H as i32;
     }
@@ -2023,6 +2481,18 @@ fn draw_panel(
                 panel.powered,
             ),
         ));
+        // Power LED, in the gap above Eject (plan revision) — the rockers
+        // fill the switch group's full height, but Eject's own box only
+        // spans the bottom of it, same as it does on the real hardware.
+        let led_size = 16;
+        let led_top = cy + (eject_rect.y() - cy - led_size) / 2;
+        draw_led(
+            canvas,
+            eject_rect.x() + eject_rect.width() as i32 / 2,
+            led_top,
+            led_size,
+            panel.powered,
+        );
         cy += SWITCH_TRACK_H + 4 + GLYPH_H as i32;
     }
 
@@ -2180,10 +2650,10 @@ fn draw_panel(
         x,
         ty,
         TextStyle::new(1, PANEL_DIM),
-        "session",
+        "sessão",
         usize::MAX,
     );
-    let label_w = (GLYPH_W as i32) * "session ".len() as i32;
+    let label_w = (GLYPH_W as i32) * "sessão ".chars().count() as i32;
     draw_text_absolute(
         canvas,
         font,
@@ -2195,6 +2665,230 @@ fn draw_panel(
     );
 
     buttons
+}
+
+/// Draw the shelf's own flat side panel (plan revision — moved out of the
+/// warped screen buffer so its text and art render undistorted, the same
+/// treatment the in-game panel already gets): logo/title, cartridge art,
+/// play count, then whatever extra info the No-Intro DAT carried beyond the
+/// bare title, and finally the shelf's own Voltar/Configuracoes buttons.
+/// `None` (nothing selected yet — an empty catalogue) still draws the two
+/// buttons. Returns the clickable buttons drawn this frame, in `rect`'s
+/// (output/canvas) coordinate space — the caller stores them for
+/// `Cabinet::hit_shelf_button`.
+fn draw_shelf_panel(
+    canvas: &mut WindowCanvas,
+    font: &mut Texture,
+    images: &HashMap<u64, ImgTex>,
+    panel: Option<&ShelfPanelInfo>,
+    rect: Rect,
+) -> Vec<(ShelfButton, Rect)> {
+    if rect.width() == 0 {
+        return Vec::new();
+    }
+    canvas.set_draw_color(Color::RGB(PANEL_BG.0, PANEL_BG.1, PANEL_BG.2));
+    let _ = canvas.fill_rect(rect);
+
+    let pad = 20i32;
+    let inner_w = rect.width().saturating_sub(pad as u32 * 2);
+    let x = rect.x() + pad;
+    let y = rect.y() + pad;
+
+    // Two stacked buttons at the bottom, "Voltar" above "Configurações" —
+    // the shelf's only mouse path into either (plan revision: no keyboard
+    // shortcuts left to reach them by).
+    let btn_h = (GLYPH_H + 12) as i32;
+    let settings_rect = Rect::new(x, rect.bottom() - pad - btn_h, inner_w, btn_h as u32);
+    let back_rect = Rect::new(x, settings_rect.y() - 8 - btn_h, inner_w, btn_h as u32);
+    let mut buttons = vec![
+        (
+            ShelfButton::Back,
+            draw_button(canvas, font, back_rect, "Voltar", true),
+        ),
+        (
+            ShelfButton::Settings,
+            draw_button(canvas, font, settings_rect, "Configurações", true),
+        ),
+    ];
+
+    let Some(panel) = panel else {
+        return buttons;
+    };
+
+    // Everything above the button pair — same cutoff rule `draw_panel` uses
+    // for its command rows: a clean stop beats spilling into the buttons.
+    let limit = back_rect.y() - 12;
+
+    let cy = if let Some(id) = panel.logo_img {
+        draw_image_absolute(canvas, images, id, x, y, inner_w, 110);
+        y + 110
+    } else {
+        draw_text_wrapped_absolute(
+            canvas,
+            font,
+            x,
+            y,
+            inner_w,
+            TextStyle::new(2, PANEL_TEXT),
+            &panel.title,
+        )
+    };
+
+    // Everything below the logo/title header is scrollable (plan revision:
+    // "criar rolagem no painel quando necessario") — back cover, cartridge,
+    // release and the DAT's extra fields, in that order, each a block of
+    // its own since they're wildly different heights (a 280px image next
+    // to a label/value pair that might wrap to 3 lines). `panel_block_
+    // height`/`draw_panel_block` share the exact same measurements so
+    // "does it fit" and "how tall did it draw" never disagree.
+    let mut blocks: Vec<PanelBlock> = Vec::new();
+    if let Some(id) = panel.backcover_img {
+        blocks.push(PanelBlock::Image(id, 280));
+    }
+    if let Some(id) = panel.cartridge_img {
+        blocks.push(PanelBlock::Image(id, 210));
+    }
+    if let Some(release) = &panel.release {
+        blocks.push(PanelBlock::Release(release));
+    }
+    for (label, value) in &panel.info {
+        blocks.push(PanelBlock::Field(label, value));
+    }
+
+    // Does everything fit without scrolling at all? Most games with little
+    // or no local art do — no point reserving room for scroll buttons
+    // nobody needs.
+    let total_h: i32 = blocks.iter().map(|b| panel_block_height(inner_w, b)).sum();
+    let scrollable = cy + total_h > limit;
+
+    let scroll_btn_h = btn_h;
+    let body_limit = if scrollable {
+        limit - (scroll_btn_h + 8) * 2
+    } else {
+        limit
+    };
+    let start = if scrollable {
+        panel.scroll.min(blocks.len().saturating_sub(1))
+    } else {
+        0
+    };
+
+    let mut body_top = cy;
+    if scrollable {
+        let up = Rect::new(x, body_top, inner_w, scroll_btn_h as u32);
+        buttons.push((
+            ShelfButton::PanelScrollUp,
+            draw_button(canvas, font, up, "^ Cima", start > 0),
+        ));
+        body_top += scroll_btn_h + 8;
+    }
+
+    let mut cy = body_top;
+    let mut shown = 0usize;
+    for block in &blocks[start..] {
+        let h = panel_block_height(inner_w, block);
+        if cy + h > body_limit {
+            break;
+        }
+        cy = draw_panel_block(canvas, font, images, x, cy, inner_w, block);
+        shown += 1;
+    }
+
+    if scrollable {
+        let down = Rect::new(x, cy + 8, inner_w, scroll_btn_h as u32);
+        buttons.push((
+            ShelfButton::PanelScrollDown,
+            draw_button(canvas, font, down, "v Baixo", start + shown < blocks.len()),
+        ));
+    }
+
+    buttons
+}
+
+/// One scrollable piece of the shelf panel's body (plan revision: "criar
+/// rolagem no painel quando necessario") — see `draw_shelf_panel`.
+/// `Release` stays its own variant rather than folding into `Field`
+/// because it draws label and value on the *same* line (a small
+/// headline stat), unlike `Field`'s stacked label-then-value.
+enum PanelBlock<'a> {
+    Image(u64, u32),
+    Release(&'a str),
+    Field(&'a str, &'a str),
+}
+
+/// `block`'s height in pixels, gap included — must match `draw_panel_block`
+/// exactly, or "does it fit" and "how tall did it draw" disagree (the bug
+/// `draw_shelf_panel`'s own history note above the `info` loop describes).
+fn panel_block_height(inner_w: u32, block: &PanelBlock) -> i32 {
+    match block {
+        PanelBlock::Image(_, h) => 8 + *h as i32,
+        PanelBlock::Release(_) => 8 + GLYPH_H as i32,
+        PanelBlock::Field(label, value) => {
+            10 + wrapped_height(inner_w, 1, label) + wrapped_height(inner_w, 1, value)
+        }
+    }
+}
+
+/// Draw `block` at `cy`, returning the y just past it.
+fn draw_panel_block(
+    canvas: &mut WindowCanvas,
+    font: &mut Texture,
+    images: &HashMap<u64, ImgTex>,
+    x: i32,
+    cy: i32,
+    inner_w: u32,
+    block: &PanelBlock,
+) -> i32 {
+    match block {
+        PanelBlock::Image(id, h) => {
+            let cy = cy + 8;
+            draw_image_absolute(canvas, images, *id, x, cy, inner_w, *h);
+            cy + *h as i32
+        }
+        PanelBlock::Release(value) => {
+            let cy = cy + 8;
+            draw_text_absolute(
+                canvas,
+                font,
+                x,
+                cy,
+                TextStyle::new(1, PANEL_DIM),
+                "lançamento",
+                usize::MAX,
+            );
+            draw_text_absolute(
+                canvas,
+                font,
+                x + (GLYPH_W * 11) as i32,
+                cy,
+                TextStyle::new(1, PANEL_TEXT),
+                value,
+                usize::MAX,
+            );
+            cy + GLYPH_H as i32
+        }
+        PanelBlock::Field(label, value) => {
+            let cy = cy + 10;
+            let cy = draw_text_wrapped_absolute(
+                canvas,
+                font,
+                x,
+                cy,
+                inner_w,
+                TextStyle::new(1, PANEL_DIM),
+                label,
+            );
+            draw_text_wrapped_absolute(
+                canvas,
+                font,
+                x,
+                cy,
+                inner_w,
+                TextStyle::new(1, PANEL_TEXT),
+                value,
+            )
+        }
+    }
 }
 
 /// Draw one clickable panel button: a filled box (brighter/bordered when
@@ -2262,6 +2956,44 @@ fn clip_label(text: &str, max_chars: usize) -> Cow<'_, str> {
     }
     let keep: String = text.chars().take(max_chars - 3).collect();
     Cow::Owned(format!("{keep}..."))
+}
+
+/// A small round-ish power LED (plan revision: "luz vermelha led indicando
+/// o power, em cima do botao ejetar, igual o console original") —
+/// approximated with three stacked rects (narrow/wide/narrow) rather than a
+/// true circle, since every other shape in this UI is a flat rect and a real
+/// circle would need its own mesh just for a decoration this small. Lit red
+/// while the console is powered, a dark unlit red otherwise (the same
+/// resting look almost every console's power LED has when off), with a tiny
+/// glossy highlight dot when lit.
+fn draw_led(canvas: &mut WindowCanvas, center_x: i32, top: i32, size: i32, lit: bool) {
+    let (r, g, b) = if lit { LED_ON } else { LED_OFF };
+    canvas.set_draw_color(Color::RGB(r, g, b));
+    // Four rows, widening then narrowing (roughly 60/90/90/60% of `size`) —
+    // a softer step than a plain narrow/wide/narrow, so it reads as a round
+    // dot instead of a plus sign at this small a scale.
+    let step = (size / 4).max(1);
+    let widths = [size * 3 / 5, size * 9 / 10, size * 9 / 10, size * 3 / 5];
+    for (i, w) in widths.into_iter().enumerate() {
+        let w = w.max(2);
+        let h = if i == widths.len() - 1 {
+            (size - step * i as i32).max(1)
+        } else {
+            step
+        };
+        let _ = canvas.fill_rect(Rect::new(
+            center_x - w / 2,
+            top + step * i as i32,
+            w as u32,
+            h as u32,
+        ));
+    }
+    if lit {
+        canvas.set_draw_color(Color::RGB(LED_ON_HI.0, LED_ON_HI.1, LED_ON_HI.2));
+        let hi = (size / 4).max(1) as u32;
+        let hi_x = center_x - (size * 3 / 10);
+        let _ = canvas.fill_rect(Rect::new(hi_x, top + step, hi, hi));
+    }
 }
 
 /// One Power/Reset rocker switch (plan revision — styled after the real
@@ -2459,7 +3191,7 @@ fn draw_pause_book(
             lx,
             cy,
             TextStyle::new(1, PANEL_DIM),
-            "anotacoes",
+            "anotações",
             usize::MAX,
         );
         cy += GLYPH_H as i32 + 8;
@@ -2523,7 +3255,7 @@ fn draw_pause_book(
                 canvas,
                 font,
                 next_btn,
-                "proxima >",
+                "próxima >",
                 pause.text_page + 1 < pause.captures,
             ),
         ));
@@ -2637,7 +3369,7 @@ fn draw_pause_book(
             canvas,
             font,
             next_btn,
-            "proxima >",
+            "próxima >",
             pause.page + 1 < pause.captures,
         ),
     ));
@@ -3120,7 +3852,8 @@ fn wrapped_height(max_w: u32, scale: u32, s: &str) -> i32 {
     let mut len = 0usize;
     let mut open = false;
     for word in s.split_whitespace() {
-        if open && len + 1 + word.len() > cols {
+        let word_len = word.chars().count();
+        if open && len + 1 + word_len > cols {
             lines += 1;
             len = 0;
             open = false;
@@ -3128,7 +3861,7 @@ fn wrapped_height(max_w: u32, scale: u32, s: &str) -> i32 {
         if open {
             len += 1;
         }
-        len += word.len();
+        len += word_len;
         open = true;
         while len > cols {
             lines += 1;
@@ -3181,8 +3914,36 @@ fn build_font_atlas(canvas: &mut WindowCanvas) -> Result<Texture, PlatformError>
 
 #[cfg(test)]
 mod tests {
-    use super::{fit_aspect_in, screen_area, wrapped_height, GLYPH_H};
+    use super::{fit_aspect_in, reveal_rects, screen_area, wrapped_height, GLYPH_H};
     use sdl3::rect::Rect;
+
+    #[test]
+    fn reveal_rects_at_1_shows_the_whole_source_image() {
+        let (src, dst) = reveal_rects(200, 100, Rect::new(10, 20, 200, 100), 1.0);
+        assert_eq!(src, Rect::new(0, 0, 200, 100));
+        assert_eq!(dst, Rect::new(10, 20, 200, 100));
+    }
+
+    #[test]
+    fn reveal_rects_at_half_keeps_only_the_top_half() {
+        let (src, dst) = reveal_rects(200, 100, Rect::new(10, 20, 200, 100), 0.5);
+        // Source: top half of the texture's own rows.
+        assert_eq!(src, Rect::new(0, 0, 200, 50));
+        // Destination: same top-left corner as the full box, half the height.
+        assert_eq!(dst.x(), 10);
+        assert_eq!(dst.y(), 20);
+        assert_eq!(dst.height(), 50);
+    }
+
+    #[test]
+    fn reveal_rects_never_collapses_to_a_zero_sized_rect() {
+        // A tiny non-zero reveal still has to produce something `canvas.copy`
+        // can draw — an SDL rect of height 0 is at best a no-op, at worst a
+        // rejected call.
+        let (src, dst) = reveal_rects(200, 100, Rect::new(0, 0, 200, 100), 0.001);
+        assert!(src.height() >= 1);
+        assert!(dst.height() >= 1);
+    }
 
     #[test]
     fn screen_area_insets_with_a_wider_chin() {

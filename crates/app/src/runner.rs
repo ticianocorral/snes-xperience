@@ -108,8 +108,9 @@ fn map_format(f: EmuFormat) -> PlatFormat {
 
 /// A path-hostile character in a game title, replaced with `_` so it can't
 /// escape its parent directory or fail to create — shared by every per-game
-/// folder (`saves/<title>/`, `notes/<title>/`).
-fn sanitize_dir_name(title: &str) -> String {
+/// folder (`saves/<title>/`, `notes/<title>/`), and by `rom_rename` (plan
+/// revision) when it turns a No-Intro name into a ROM file name.
+pub(crate) fn sanitize_dir_name(title: &str) -> String {
     let safe: String = title
         .trim()
         .chars()
@@ -153,6 +154,47 @@ fn sram_file(save_dir: &Path, title: &str) -> PathBuf {
 /// might as well say so (plan revision — used to be `<hash>.cheats`).
 fn cheat_state_path(save_dir: &Path, title: &str) -> PathBuf {
     game_dir(save_dir, title).join("cheats.txt")
+}
+
+/// `save_dir/<title>/playtime.txt` — total seconds ever spent powered on,
+/// plain text like `cheats.txt` (plan revision: "mostrar tempo total de
+/// jogo do game").
+fn playtime_path(save_dir: &Path, title: &str) -> PathBuf {
+    game_dir(save_dir, title).join("playtime.txt")
+}
+
+/// The per-game folder name `run_game` itself uses — the ROM's file stem,
+/// not the shelf's `CatalogEntry::title()` (which prefers a No-Intro/
+/// internal name when one exists). Exposed so the shelf can read
+/// `total_playtime_secs` for the exact folder a session actually wrote to,
+/// instead of guessing at a name that might not match.
+pub fn rom_title(rom_path: &Path) -> String {
+    rom_path
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "???".to_string())
+}
+
+/// Total time this game has spent powered on, across every session ever
+/// played — `0` for a game never played (no file yet) or a corrupt one
+/// (never worth failing the panel over one bad number).
+pub fn total_playtime_secs(save_dir: &Path, title: &str) -> u64 {
+    fs::read_to_string(playtime_path(save_dir, title))
+        .ok()
+        .and_then(|s| s.trim().parse().ok())
+        .unwrap_or(0)
+}
+
+/// Add this session's powered-on seconds to the running total and save it
+/// back — best-effort, same as the other per-game sidecars; a `0` (the
+/// console was never turned on this session) skips the write entirely.
+fn add_playtime(save_dir: &Path, title: &str, secs: u64) {
+    if secs == 0 {
+        return;
+    }
+    let total = total_playtime_secs(save_dir, title) + secs;
+    let _ = fs::create_dir_all(game_dir(save_dir, title));
+    let _ = fs::write(playtime_path(save_dir, title), total.to_string());
 }
 
 /// Rows for the "Salvar" modal (plan revision — replaces the old slot
@@ -241,7 +283,7 @@ fn command_rows(
             base.to_string()
         }
     };
-    let mut rows = vec![(PanelButton::Notebook, "Anotacoes".to_string())];
+    let mut rows = vec![(PanelButton::Notebook, "Anotações".to_string())];
     if has_cheats {
         rows.push((PanelButton::Cheats, "Cheats".to_string()));
     }
@@ -251,7 +293,7 @@ fn command_rows(
             // Every slot resists overwrite — a click here would have
             // nowhere to land, so say so instead of the normal label
             // (plan revision: "avisar quando 15 fixados").
-            "Printscreen: sem espaco (15 fixados)".to_string()
+            "Printscreen: sem espaço (15 fixados)".to_string()
         } else {
             label(PanelButton::PrintScreen, "Printscreen")
         },
@@ -362,9 +404,28 @@ fn power_on_burst(plat: &Platform, cab: &mut Cabinet) {
     }
 }
 
+/// The session clock's live value (plan revision: "considerar o tempo que o
+/// jogo esta rodando, com o power ligado") — `elapsed` is what's already
+/// banked from earlier power-on stretches this session, `since` is when the
+/// current one began (`None` while powered off, in which case the clock is
+/// just frozen at `elapsed`).
+fn live_session_time(elapsed: Duration, since: Option<Instant>) -> Duration {
+    elapsed + since.map(|t| t.elapsed()).unwrap_or_default()
+}
+
 /// Ejetar with the console still on: the lock resists — a short mechanical
 /// thump, nothing else (plan §3.3, "a alavanca resiste, com um clunk seco").
 fn eject_clunk(plat: &Platform) {
+    tone_click(plat, 90.0);
+}
+
+/// A short damped tone burst at `freq` Hz — the shared shape behind every
+/// mechanical "click" in this file (`eject_clunk`'s resist-thump, and the
+/// insert/eject animations' seat/unseat clicks below): a plain sine ramping
+/// from full volume down to silence over ~90ms, via a continuous phase
+/// accumulator so it doesn't pop at the start. A no-op if no audio device is
+/// available.
+fn tone_click(plat: &Platform, freq: f32) {
     const RATE: u32 = 22_050;
     let Some(audio) = plat.open_audio(RATE).ok() else {
         return;
@@ -374,7 +435,7 @@ fn eject_clunk(plat: &Platform) {
     let mut phase = 0f32;
     for i in 0..n {
         let env = 1.0 - i as f32 / n as f32;
-        phase += 90.0 / RATE as f32;
+        phase += freq / RATE as f32;
         let s = (phase * std::f32::consts::TAU).sin() * env * env;
         let v = (s * 12000.0) as i16;
         buf.push(v);
@@ -382,6 +443,92 @@ fn eject_clunk(plat: &Platform) {
     }
     audio.queue(&buf);
     std::thread::sleep(Duration::from_millis(100));
+}
+
+/// The cartridge sliding into its slot in the panel (plan revision: "criar
+/// animacao da insercao do cartucho") — a top-down wipe-reveal of the
+/// cartridge art `set_panel` already loaded (`Cabinet::set_cartridge_reveal`,
+/// see `draw_image_absolute_revealed`), eased so it starts fast and settles
+/// gently into place, with a quiet sliding hiss swelling and fading under it
+/// and a firm little seat-in click right at the end. A no-op with no
+/// cartridge art to reveal — nothing would visibly change, so it's not worth
+/// the delay. Skipped for a headless `--shot` capture by the caller
+/// (`spec.shot.is_none()`, same reasoning `power_on_burst`/`power_off_burst`
+/// don't need — there's no button to click there, so this has no live
+/// trigger to skip in the first place; the guard is really about the "plain
+/// `--shot`" mode that still runs the live loop for a few frames).
+fn cartridge_insert_animation(plat: &Platform, cab: &mut Cabinet) {
+    const RATE: u32 = 22_050;
+    const SPAN: Duration = Duration::from_millis(320);
+    let audio = plat.open_audio(RATE).ok();
+    let frame = Duration::from_millis(16);
+    let mut rng: u32 = 0x2468_ace0;
+    let start = Instant::now();
+
+    while start.elapsed() < SPAN {
+        let t = (start.elapsed().as_secs_f32() / SPAN.as_secs_f32()).min(1.0);
+        // Ease-out: quick at first, slowing into its resting spot.
+        cab.set_cartridge_reveal(1.0 - (1.0 - t).powi(2));
+        cab.present_static(OFF_STATIC_LEVEL);
+
+        if let Some(a) = &audio {
+            let n = (RATE / 60) as usize;
+            let amp = (2200.0 * (std::f32::consts::PI * t).sin()) as i32;
+            let mut buf = Vec::with_capacity(n * 2);
+            for _ in 0..n {
+                rng ^= rng << 13;
+                rng ^= rng >> 17;
+                rng ^= rng << 5;
+                let s = (((rng >> 8) & 0xFFFF) as i32 - 0x8000) * amp / 0x8000;
+                buf.push(s.clamp(-32000, 32000) as i16);
+                buf.push(s.clamp(-32000, 32000) as i16);
+            }
+            a.queue(&buf);
+        }
+        std::thread::sleep(frame);
+    }
+    cab.set_cartridge_reveal(1.0);
+    tone_click(plat, 180.0);
+}
+
+/// The mirror of `cartridge_insert_animation`, played right as an
+/// already-off cartridge actually leaves (`UiEvent::Eject`'s second branch,
+/// plan revision: "criar animacao de... ejetar cartucho") — an unseat click
+/// first, then the art wipes back out top-down over the same span. Also a
+/// no-op with no cartridge art. `cab.clear_panel()` on the way to the idle
+/// screen right after drops the panel entirely, so there's no "stuck at 0"
+/// state left over to reset here.
+fn cartridge_eject_animation(plat: &Platform, cab: &mut Cabinet) {
+    tone_click(plat, 130.0);
+    const RATE: u32 = 22_050;
+    const SPAN: Duration = Duration::from_millis(320);
+    let audio = plat.open_audio(RATE).ok();
+    let frame = Duration::from_millis(16);
+    let mut rng: u32 = 0x0ff1_ce00;
+    let start = Instant::now();
+
+    while start.elapsed() < SPAN {
+        let t = (start.elapsed().as_secs_f32() / SPAN.as_secs_f32()).min(1.0);
+        // Mirrors the insert's ease-out: slow to start, sliding out quickly.
+        cab.set_cartridge_reveal((1.0 - t).powi(2));
+        cab.present_static(OFF_STATIC_LEVEL);
+
+        if let Some(a) = &audio {
+            let n = (RATE / 60) as usize;
+            let amp = (2000.0 * (std::f32::consts::PI * t).sin()) as i32;
+            let mut buf = Vec::with_capacity(n * 2);
+            for _ in 0..n {
+                rng ^= rng << 13;
+                rng ^= rng >> 17;
+                rng ^= rng << 5;
+                let s = (((rng >> 8) & 0xFFFF) as i32 - 0x8000) * amp / 0x8000;
+                buf.push(s.clamp(-32000, 32000) as i16);
+                buf.push(s.clamp(-32000, 32000) as i16);
+            }
+            a.queue(&buf);
+        }
+        std::thread::sleep(frame);
+    }
 }
 
 /// One `0`/`1` per line, in the curated list's order. Missing/short/garbled
@@ -525,7 +672,7 @@ impl NoteEdit {
     fn heading(self) -> &'static str {
         match self {
             NoteEdit::None => "",
-            NoteEdit::Text => "editando anotacao (vazio apaga, clique fora cancela)",
+            NoteEdit::Text => "editando anotação (vazio apaga, clique fora cancela)",
             NoteEdit::SlotName => "renomeando o print (clique fora cancela)",
             NoteEdit::PrintName(_) => "nome do print (opcional)",
             NoteEdit::CheatSearch => "buscar cheat (vazio mostra todos)",
@@ -874,11 +1021,7 @@ pub fn run_game(
     core.load_game(&spec.rom, &rom_bytes)
         .context("core rejected the ROM")?;
 
-    let title = spec
-        .rom
-        .file_stem()
-        .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "???".to_string());
+    let title = rom_title(&spec.rom);
 
     // Per-game persistence — one folder per game, named for the title like
     // notes already are (plan revision — used to be a flat file per kind,
@@ -964,6 +1107,7 @@ pub fn run_game(
     };
     let logo_img = decode_panel_art(&spec.logo, "logo");
     let cartridge_img = decode_panel_art(&spec.cartridge, "cartridge");
+    let has_cartridge_art = cartridge_img.is_some();
     cab.set_panel(
         logo_img.as_ref().map(|(w, h, d)| (*w, *h, d.as_slice())),
         cartridge_img
@@ -972,6 +1116,10 @@ pub fn run_game(
         &title,
         &commands,
     );
+    // Never inherited from whatever screen ran before (idle/shelf/settings
+    // all turn it on) — see `Cabinet::show_close`'s own doc comment for why
+    // gameplay doesn't get one.
+    cab.set_close_button(false);
     // `set_cheats` has to come *after* `set_panel` — `set_panel` replaces
     // the whole `PanelInfo` (fresh `cheats: Vec::new()` included), so
     // calling this first, as an earlier revision did when the cheats-
@@ -991,8 +1139,6 @@ pub fn run_game(
         text_slot,
         &notes_meta,
     );
-
-    let session_start = Instant::now();
 
     // Headless self-check: skip straight to the idle "console off" screen.
     if spec.shot_off {
@@ -1088,6 +1234,14 @@ pub fn run_game(
         return Ok(GameExit::Quit);
     }
 
+    // The cartridge visibly seating in the panel (plan revision), right as
+    // the console goes from "nothing loaded" to "off, waiting for Ligar" —
+    // skipped for a `--shot` capture (dev/testing; no button was clicked to
+    // trigger it in the first place) and with no cartridge art to animate.
+    if spec.shot.is_none() && has_cartridge_art {
+        cartridge_insert_animation(plat, cab);
+    }
+
     // --- audio -----------------------------------------------------------
     let audio = plat
         .open_audio(av.sample_rate.round().max(8000.0) as u32)
@@ -1127,6 +1281,15 @@ pub fn run_game(
     // to send it in headless mode.
     let mut powered = spec.shot.is_some();
     cab.set_powered(powered);
+    // The session clock (plan revision: "no tempo da sessao considerar o
+    // tempo que o jogo esta rodando, com o power ligado") counts only while
+    // powered on, not wall-clock since the cartridge went in — `powered_
+    // elapsed` banks whatever was accrued across earlier power-on stretches
+    // this session, `powered_since` is when the current stretch began (`None`
+    // while off). Also the running total this session contributes to the
+    // game's all-time playtime (`total_playtime_secs`) once it ends.
+    let mut powered_elapsed = Duration::ZERO;
+    let mut powered_since = powered.then(Instant::now);
     let mut static_level = OFF_STATIC_LEVEL;
     // Drives the one deliberate keyboard-typing exception (plan revision) —
     // the free-text note, a slot's caption, or a just-captured print's name
@@ -1368,7 +1531,10 @@ pub fn run_game(
                         // signal-off ritual. A second click while already off
                         // does nothing on purpose — it's Ligar (below) now.
                         flush_sram(&sram_path, &mut last_sram, core.sram());
-                        cab.set_session_time(session_start.elapsed());
+                        if let Some(t) = powered_since.take() {
+                            powered_elapsed += t.elapsed();
+                        }
+                        cab.set_session_time(powered_elapsed);
                         static_level = power_off_burst(plat, cab);
                         powered = false;
                         cab.set_powered(false);
@@ -1379,6 +1545,7 @@ pub fn run_game(
                         // it was, no reload.
                         power_on_burst(plat, cab);
                         powered = true;
+                        powered_since = Some(Instant::now());
                         cab.set_powered(true);
                         log::info!("power on — resuming");
                     }
@@ -1387,6 +1554,9 @@ pub fn run_game(
                     if powered {
                         eject_clunk(plat); // lock resists while it's still on
                     } else {
+                        if has_cartridge_art {
+                            cartridge_eject_animation(plat, cab);
+                        }
                         break 'run GameExit::Ejected { static_level };
                     }
                 }
@@ -1660,7 +1830,7 @@ pub fn run_game(
         cab.set_reset_pressed(reset_pressed(&flash));
 
         if !powered {
-            cab.set_session_time(session_start.elapsed());
+            cab.set_session_time(live_session_time(powered_elapsed, powered_since));
             cab.present_static(OFF_STATIC_LEVEL);
             next += frame_time;
             let now = Instant::now();
@@ -1730,7 +1900,7 @@ pub fn run_game(
                     }
                 };
                 let aspect = core.av_info().aspect_ratio;
-                cab.set_session_time(session_start.elapsed());
+                cab.set_session_time(live_session_time(powered_elapsed, powered_since));
                 cab.present_frame(&fref, aspect);
 
                 if let Some(slot) = note_request.take() {
@@ -1805,6 +1975,13 @@ pub fn run_game(
     // Final SRAM flush on the way out (either exit path).
     flush_sram(&sram_path, &mut last_sram, core.sram());
 
+    // Bank whatever powered-on stretch was still running (exiting while on,
+    // e.g. window closed mid-session) and add it to the all-time total.
+    if let Some(t) = powered_since.take() {
+        powered_elapsed += t.elapsed();
+    }
+    add_playtime(&spec.save_dir, &title, powered_elapsed.as_secs());
+
     log::info!("game loop done: {exit:?}");
     Ok(exit)
 }
@@ -1812,10 +1989,10 @@ pub fn run_game(
 #[cfg(test)]
 mod tests {
     use super::{
-        cheat_state_path, delete_text_slot, frame_to_rgb8, game_dir, legacy_note_text_path,
-        load_cheat_state, migrate_legacy_text_notes, note_dir, note_slot_path, note_text_slot_path,
-        read_text_slot, save_cheat_state, save_note_image, save_text_slot, sram_file, state_file,
-        EmuFrame,
+        add_playtime, cheat_state_path, delete_text_slot, frame_to_rgb8, game_dir,
+        legacy_note_text_path, load_cheat_state, migrate_legacy_text_notes, note_dir,
+        note_slot_path, note_text_slot_path, read_text_slot, rom_title, save_cheat_state,
+        save_note_image, save_text_slot, sram_file, state_file, total_playtime_secs, EmuFrame,
     };
     use xperience_emulation::PixelFormat as EmuFormat;
 
@@ -1841,6 +2018,36 @@ mod tests {
     fn missing_file_defaults_everything_off() {
         let path = std::env::temp_dir().join("xperience-cheat-test-missing.cheats");
         assert_eq!(load_cheat_state(&path, 2), vec![false, false]);
+    }
+
+    #[test]
+    fn playtime_accumulates_across_sessions() {
+        let dir = scratch_dir("playtime");
+        assert_eq!(total_playtime_secs(&dir, "Game"), 0);
+
+        add_playtime(&dir, "Game", 90);
+        assert_eq!(total_playtime_secs(&dir, "Game"), 90);
+
+        add_playtime(&dir, "Game", 30);
+        assert_eq!(total_playtime_secs(&dir, "Game"), 120);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn playtime_zero_seconds_skips_the_write() {
+        let dir = scratch_dir("playtime-zero");
+        add_playtime(&dir, "Game", 0);
+        assert!(!game_dir(&dir, "Game").join("playtime.txt").exists());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn rom_title_is_the_file_stem() {
+        assert_eq!(
+            rom_title(std::path::Path::new("/roms/Super Mario World (USA).sfc")),
+            "Super Mario World (USA)"
+        );
     }
 
     #[test]

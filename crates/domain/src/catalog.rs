@@ -13,6 +13,44 @@ use serde::{Deserialize, Serialize};
 
 use crate::library;
 use crate::nointro::NoIntroDat;
+use crate::tosec;
+
+/// Turn whatever optional extras are known for a game into label/value
+/// pairs, ready for the shelf's panel ("se o DAT tiver informacoes do jogo,
+/// preencher no painel"). Two independent sources, merged: a user-supplied
+/// No-Intro DAT's own year/publisher always win when present; the bundled
+/// TOSEC table (plan revision: "baixar o que esta la e embutir no app" —
+/// TOSEC has no such fields itself, see `tosec.rs`'s own doc comment for how
+/// these were pulled out of its naming convention) fills in year/publisher
+/// when the DAT doesn't have them, or wasn't loaded at all — so a fresh
+/// install with no DAT set up still shows *something* for most SNES ROMs,
+/// not an empty panel. `NoIntroGameInfo`'s own category/description are
+/// parsed but deliberately not surfaced here (plan revision: "nao mostrar
+/// descricao, categoria e nome interno" — too close to raw dat/ROM-header
+/// trivia for the shelf, not useful to a player).
+fn info_lines(
+    nointro: Option<&crate::nointro::NoIntroGameInfo>,
+    crc32: &str,
+) -> Vec<(String, String)> {
+    let bundled = tosec::lookup(crc32);
+    let mut lines = Vec::new();
+
+    let year = nointro
+        .and_then(|i| i.year.as_deref())
+        .or_else(|| bundled.and_then(|t| t.year));
+    if let Some(year) = year {
+        lines.push(("ano".to_string(), year.to_string()));
+    }
+
+    let publisher = nointro
+        .and_then(|i| i.publisher.as_deref())
+        .or_else(|| bundled.and_then(|t| t.publisher));
+    if let Some(publisher) = publisher {
+        lines.push(("editora".to_string(), publisher.to_string()));
+    }
+
+    lines
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum CatalogError {
@@ -57,6 +95,12 @@ pub struct RomRow {
     /// Canonical title from the No-Intro DAT, if one was loaded and matched
     /// by CRC32 (plan §4.1).
     pub nointro_name: Option<String>,
+    /// Extra facts for the shelf panel — label/value pairs (e.g. "ano"/
+    /// "1994"). A loaded No-Intro DAT's own fields win when present; the
+    /// year/publisher bundled from TOSEC (plan revision) fill in the gaps,
+    /// so this can be non-empty even with no DAT loaded at all. Empty only
+    /// when neither source has anything for this ROM's CRC32.
+    pub nointro_extra: Vec<(String, String)>,
     pub added_at: i64,
     pub last_played_at: Option<i64>,
     pub play_count: u32,
@@ -131,7 +175,9 @@ impl Catalog {
                     last_played_at: None,
                     play_count: 0,
                 });
-                let nointro_name = dat.and_then(|d| d.lookup(&r.id.crc32)).map(str::to_string);
+                let nointro_hit = dat.and_then(|d| d.lookup(&r.id.crc32));
+                let nointro_name = nointro_hit.map(|i| i.name.clone());
+                let nointro_extra = info_lines(nointro_hit, &r.id.crc32);
                 RomRow {
                     sha1: r.id.sha1,
                     crc32: r.id.crc32,
@@ -139,6 +185,7 @@ impl Catalog {
                     size: r.file_size,
                     internal_name: r.id.internal_name,
                     nointro_name,
+                    nointro_extra,
                     added_at: p.added_at,
                     last_played_at: p.last_played_at,
                     play_count: p.play_count,
@@ -237,6 +284,7 @@ mod tests {
             size: 0x8000,
             internal_name: Some(name.to_uppercase()),
             nointro_name: None,
+            nointro_extra: Vec::new(),
             added_at,
             last_played_at: None,
             play_count: 0,
@@ -254,6 +302,46 @@ mod tests {
             store_path,
             entries: RefCell::new(rows),
         }
+    }
+
+    #[test]
+    fn info_lines_falls_back_to_bundled_tosec_when_no_dat_hit() {
+        // Chrono Trigger (US), a real entry in the bundled TOSEC table —
+        // update this CRC32 if `tosec_data.txt` is ever regenerated from a
+        // TOSEC release that drops or renames it (see `tosec::tests` for a
+        // release-independent sanity check on the data file itself).
+        let lines = info_lines(None, "2D206BF7");
+        assert_eq!(
+            lines,
+            vec![
+                ("ano".to_string(), "1995".to_string()),
+                ("editora".to_string(), "Square".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn info_lines_prefers_the_dat_over_bundled_tosec() {
+        let dat_info = crate::nointro::NoIntroGameInfo {
+            name: "Chrono Trigger (World)".to_string(),
+            year: Some("1994".to_string()), // deliberately different from TOSEC's "1995"
+            publisher: None,                // left for TOSEC to fill in
+            category: None,
+            description: None,
+        };
+        let lines = info_lines(Some(&dat_info), "2D206BF7");
+        assert_eq!(
+            lines,
+            vec![
+                ("ano".to_string(), "1994".to_string()), // the DAT's, not TOSEC's
+                ("editora".to_string(), "Square".to_string()), // TOSEC filled the gap
+            ]
+        );
+    }
+
+    #[test]
+    fn info_lines_empty_when_neither_source_knows_the_crc32() {
+        assert!(info_lines(None, "00000000").is_empty());
     }
 
     #[test]

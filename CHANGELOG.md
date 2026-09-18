@@ -7,6 +7,166 @@ versionamento segue [SemVer](https://semver.org/lang/pt-BR/). Enquanto a versão
 for `0.x`, a API das crates e a interface de linha de comando podem mudar sem
 aviso — só o incremento de _minor_ marca um conjunto de mudanças.
 
+## [Não lançado]
+
+### Adicionado
+
+- **Rolagem no painel da estante quando o conteúdo não cabe** — back
+  cover, cartucho, lançamento e o resto das informações do jogo agora
+  rolam (botões "^ Cima"/"v Baixo", que só aparecem quando fazem falta)
+  em vez de simplesmente cortar o que não coube.
+- **Tela cheia por padrão numa instalação nova** — sem `xperience.cfg`
+  ainda (primeira execução), o app já abre em tela cheia; "Tela cheia" em
+  Configurações continua desligando/religando quando quiser.
+- **Botão de fechar o app**, canto superior esquerdo, presente na tela
+  inicial, na estante (grade, filtro, histórico) e nas configurações —
+  clicável a qualquer momento, sem precisar de barra de título do sistema
+  (relevante agora que o padrão é tela cheia). Ausente durante uma
+  partida de propósito: Desligar/Ejetar já cobrem sair de um jogo, e um
+  botão a mais ali só aumentaria o risco de fechar o app inteiro por
+  engano.
+- **`assets/backcover/` também é criada sozinha na primeira execução**,
+  junto das outras três pastas de arte local — antes só existia se o
+  usuário criasse à mão.
+- **Back cover no painel da estante**, maior que o cartucho e logo
+  acima dele (mesmo esquema de arte local já usado por capa/logo/
+  cartucho, `assets/backcover/<rom>.*`, independente dos outros três;
+  nada aparece se não houver arquivo).
+- **Animação de inserir/ejetar cartucho** — a arte do cartucho no painel
+  (quando existe uma local) desliza de cima para baixo revelando aos
+  poucos ao escolher um jogo na estante, com um som de deslize suave e um
+  clique firme no final; ejetar (com o console já desligado) faz o
+  inverso, um clique seco e a arte recolhendo de baixo para cima. Sem
+  cartucho local nenhum, nada muda — a animação não teria o que mostrar.
+- **Estante: filtro de busca por título** — uma caixa no canto superior
+  direito da estante; clicar nela e digitar filtra a grade/lista por
+  título (substring, sem diferenciar maiúsculas), com Enter aplicando e
+  Esc cancelando o rascunho. Mostra "N de M games" enquanto filtrado.
+- **Estante: "jogados recentemente"** — uma faixa própria acima da
+  grade/lista com os últimos 5 jogos jogados (por `last_played_at`),
+  navegável e clicável como qualquer tile; some enquanto um filtro está
+  ativo (o objetivo ali é achar um jogo específico, não recapitular o
+  que já foi jogado).
+- **Estante: indicador de rolagem** — uma barra fina na borda direita da
+  grade, com posição/tamanho proporcionais ao quanto ainda falta rolar;
+  a rolagem em si (roda do mouse, d-pad, page up/down) já funcionava,
+  só não tinha nenhuma pista visual de que a lista continuava.
+- **Painel da estante mostra informações extras do DAT No-Intro**, quando
+  o arquivo carregado tiver campos além do nome canônico (`<description>`/
+  `<year>`/`<publisher>`/`<manufacturer>`/`<category>`) — nada aparece se
+  o DAT não tiver essa informação ou não estiver carregado.
+- **Painel da estante ganhou a arte de cartucho**, mesma exibida durante
+  o jogo, quando existir `assets/cartridge/<rom>.*` (antes só usada na
+  hora de jogar, nunca mostrada na própria estante).
+- **Ícone do app e logo do console novos** — um ícone de verdade
+  (macOS/Windows/Linux, gerado a partir de uma arte fornecida pelo
+  usuário) substitui o anterior; a tela idle ganhou um logo padrão
+  embutido no binário (`assets/console.png`, se existir, continua tendo
+  prioridade — mesma regra de "arquivo local vence" das outras artes).
+- **Versão do app e do núcleo snes9x na plaqueta do gabinete** — o mesmo
+  texto que já mostrava "SNES Xperience" no rodapé da tela (em toda tela,
+  não só a estante) agora inclui a versão do app e, com um núcleo
+  carregado, a versão que o próprio snes9x reporta.
+- **Verificação de atualização ao abrir o app** — checa o GitHub por uma
+  release mais nova e o buildbot do libretro por uma build mais recente
+  do núcleo instalado (só quando esse núcleo foi baixado pelo próprio
+  app — um núcleo colocado à mão não tem base de comparação e nunca é
+  sinalizado); acha algo, mostra um aviso de tela cheia na tela idle,
+  dispensável com um clique/botão. Roda em segundo plano, sem bloquear a
+  abertura do app, e falha em silêncio em qualquer problema de rede.
+- **Nova opção em Configurações**: "Verificar atualizações ao abrir"
+  (sim/não, ligada por padrão) — desliga a checagem acima.
+- **Cartucho maior no painel** (durante o jogo e na estante) — de 150px
+  pra 210px de altura, mesma proporção do resto da arte, só maior.
+- **LED vermelho de power em cima do botão Ejetar**, igual o console
+  original: aceso enquanto o console está ligado, apagado (vermelho
+  escuro) enquanto desligado.
+- **Estante: título "todos os jogos"** acima da grade/lista geral,
+  mesmo tratamento que "jogados recentemente" já tinha.
+- **Painel da estante ganhou mais informações do jogo** mesmo sem DAT
+  ou arte local: tamanho do arquivo, há quanto tempo foi jogado pela
+  última vez (ou "nunca") e o nome interno do cabeçalho da ROM quando
+  difere do título mostrado.
+- **Data de lançamento no painel** — quando o No-Intro DAT carregado
+  tiver o ano do jogo, aparece logo no topo do painel (onde antes ficava
+  a contagem de partidas).
+- **Ano e editora embutidos no app, sem precisar de DAT nenhum** — uma
+  tabela CRC32 → ano/editora gerada a partir do datfile SNES do
+  [TOSEC](https://www.tosecdev.org/) (que não tem esses campos como
+  atributos próprios — foram extraídos do nome que o TOSEC dá a cada
+  jogo, ex. `"Chrono Trigger (1995)(Square)(US)"`) vem junto do binário.
+  Um No-Intro DAT carregado pelo usuário continua tendo prioridade
+  quando concorda em ter a mesma informação; sem DAT nenhum, o painel
+  já mostra "lançamento"/"editora" pra praticamente qualquer ROM de
+  SNES, de fábrica. Ver `THIRD-PARTY-NOTICES.md` pra o porquê de só o
+  ano/editora (fatos nus) serem embutidos, não o nome/descrição do
+  TOSEC em si.
+- **Cobertura de ano/editora ampliada com o dat oficial do No-Intro** —
+  algumas revisões/regiões de ROM (ex. "(Rev 1)") não batem com nenhuma
+  entrada que o TOSEC catalogou por CRC32, mesmo conhecendo o jogo sob
+  outro dump. Usando a relação `id`/`cloneofid` do dat do No-Intro (só
+  essa relação, nenhum texto dele) pra agrupar CRC32s do mesmo jogo, o
+  ano/editora que o TOSEC já tinha pra uma revisão passa a valer também
+  pras outras que ele não catalogou sozinho — mais 578 CRC32 cobertos
+  (de 3893 pra 4471 no total).
+- **Tempo total de jogo**: o painel da estante mostra quanto tempo cada
+  jogo já foi jogado no total (acumulado entre sessões), gravado num
+  sidecar `playtime.txt` na pasta de cada jogo, mesmo esquema dos outros
+  arquivos por jogo (`cheats.txt`, `sram.srm`).
+- **Botão "Histórico"** na estante, ao lado do filtro de busca: lista
+  todos os jogos com tempo de jogo registrado, do mais jogado pro menos
+  jogado (tempo total, todo o período), clicável pra lançar direto
+  qualquer um deles.
+- **Botão "Renomear ROMs para o padrão No-Intro" em Configurações** —
+  renomeia (por CRC32, contra o `nointro.dat` carregado) todo arquivo em
+  `roms/` cujo nome não bate com o nome canônico do DAT; move junto
+  qualquer save/anotação/cheat/tempo de jogo e capa/logo/cartucho local
+  já associados ao nome antigo, pra nada ficar órfão. Ação manual, sob
+  clique — não roda sozinho ao escanear.
+
+### Removido
+
+- **"categoria"/"descrição" (do DAT No-Intro) e "nome interno" (do
+  cabeçalho da ROM) sumiram do painel** — informação bruta demais pra
+  quem só quer jogar; o painel volta a ter espaço garantido pras linhas
+  que sobram (tamanho, jogado, tempo total).
+
+### Alterado
+
+- **O relógio da sessão passou a contar só com o console ligado** — antes
+  contava desde o momento em que o jogo era inserido, incluindo tempo
+  desligado (tela de estática); agora pausa no "Desligar" e retoma de
+  onde parou no "Ligar", igual ao tempo total de jogo que ele alimenta.
+
+- **Estante: listagem geral sempre em ordem alfabética**, independente
+  da opção `--order` — a faixa "jogados recentemente" já cobre achar o
+  que foi jogado há pouco, então a grade principal virou uma navegação
+  A-Z simples e previsível.
+
+### Corrigido
+
+- **Linhas de "editora"/"ano" do painel da estante podiam desenhar por
+  cima dos botões Voltar/Configurações** — o corte de espaço só
+  verificava se cabia a linha do rótulo, não a do valor logo abaixo;
+  descoberto ao aumentar o back cover (mais alto = menos sobra antes do
+  limite). Agora as duas linhas são verificadas juntas antes de
+  desenhar qualquer uma.
+- **O painel da estante ficava dentro do "tubo" da TV**, sofrendo o mesmo
+  warp/curvatura da grade de jogos — texto e capas distorcidos como se
+  fossem sinal de vídeo. Agora é desenhado fora do tubo, plano, igual ao
+  painel lateral já usado durante o jogo (mesma área/mesmos botões
+  Voltar/Configurações, só que agora sem distorção).
+- **Acentuação e ortografia em todos os textos do app** — "Configuracoes"
+  virou "Configurações", "Nucleo" virou "Núcleo", "sessao" virou "sessão",
+  e por aí vai, em toda tela (idle, estante, configurações, painel do
+  jogo, caderno de anotações, aviso de atualização). De brinde, um bug
+  real encontrado no processo: o texto que quebra linha (`text_wrapped`)
+  media a largura em *bytes*, não em caracteres — um acento (2 bytes,
+  1 caractere visível) fazia a conta de quebra de linha errar, e uma
+  palavra acentuada bem no ponto de corte podia derrubar o app (`split_at`
+  cortando no meio de um caractere multi-byte). Corrigido antes de gerar
+  qualquer novo texto acentuado.
+
 ## [0.9.0] - 2026-09-17
 
 ### Adicionado

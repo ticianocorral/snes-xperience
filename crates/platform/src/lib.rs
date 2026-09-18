@@ -6,7 +6,9 @@ mod cabinet;
 mod input;
 
 pub use audio::AudioOut;
-pub use cabinet::{Cabinet, FrameRef, PanelButton, PixelFormat, Screen};
+pub use cabinet::{
+    Cabinet, FrameRef, PanelButton, PixelFormat, Screen, ShelfButton, ShelfPanelInfo, BRAND,
+};
 pub use input::{Input, KeyMap, PadButton, UiEvent, MAX_PORTS};
 
 use sdl3::event::Event;

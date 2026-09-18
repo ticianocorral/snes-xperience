@@ -10,14 +10,36 @@ janela com o jogo. Projeto pessoal, sem fins comerciais.
 
 - **Gabinete e tubo CRT de verdade**: filtro NTSC RF + moldura em volta da
   tela, travada em 16:9 (faixas pretas nas laterais num monitor ultrawide,
-  em vez de esticar a imagem).
-- **Painel lateral estilo console**: logo e arte de cartucho do jogo,
-  Power e Reset desenhados como chaves gangorra roxas — Power alterna de
-  verdade (liga/desliga e retoma de onde parou), Reset é momentâneo (sobe
-  e desce sozinho) — com Ejetar entre as duas, que só solta o cartucho com
-  o console desligado.
-- **Escolher um jogo só insere o cartucho** — o console não liga sozinho,
-  igual ao hardware de verdade; você clica Power quando quiser começar.
+  em vez de esticar a imagem). Abre em tela cheia por padrão (desligável em
+  Configurações), com um botão de fechar no canto superior esquerdo — não
+  precisa da barra de título do sistema pra sair do app.
+- **Painel lateral estilo console**: logo, back cover e arte de cartucho do
+  jogo (rolam com botões "Cima"/"Baixo" quando não cabem juntos), Power e
+  Reset desenhados como chaves gangorra roxas — Power alterna de verdade
+  (liga/desliga e retoma de onde parou), Reset é momentâneo (sobe e desce
+  sozinho) — com Ejetar entre as duas, que só solta o cartucho com o
+  console desligado.
+- **Escolher um jogo insere o cartucho com animação** (desliza revelando
+  a arte, com um clique de encaixe) — o console não liga sozinho, igual ao
+  hardware de verdade; você clica Power quando quiser começar. Ejetar (com
+  o console desligado) faz o inverso.
+- **Estante com filtro de busca, "jogados recentemente" e histórico**:
+  digite pra filtrar por título; uma faixa acima da grade mostra os
+  últimos 5 jogos jogados; um botão "Histórico" lista todos os jogos com
+  tempo registrado, do mais jogado pro menos jogado.
+- **Tempo de jogo por jogo e por sessão**: o painel mostra quanto tempo
+  cada jogo já foi jogado no total (só contando com o console ligado, não
+  o tempo parado na tela de estática).
+- **Ano e editora de fábrica, sem precisar de DAT nenhum**: uma tabela
+  embutida no binário (derivada do [TOSEC](https://www.tosecdev.org/), só
+  os dois fatos — nunca o nome/descrição catalogados; ver
+  `THIRD-PARTY-NOTICES.md`) cobre a maioria das ROMs de SNES de saída; um
+  DAT No-Intro carregado tem prioridade quando concorda com a mesma
+  informação.
+- **Renomear ROMs para o padrão No-Intro**, um botão em Configurações —
+  usa o CRC32 contra o `nointro.dat` carregado; move save/anotação/cheat/
+  tempo de jogo e capa/logo/cartucho local associados junto, pra nada
+  ficar órfão.
 - **Só mouse e gamepad**: nenhum comando do console (power, reset, save
   state, notas, menus...) usa teclado. A única exceção é escrever uma
   anotação, que por natureza precisa de teclado; o D-pad/botões do próprio
@@ -34,9 +56,10 @@ janela com o jogo. Projeto pessoal, sem fins comerciais.
   `notes/`), ou em `~/Documents/SNES Xperience` no macOS; `saves/` e
   `notes/` organizam por jogo (`<pasta>/<título>/...`, nomes de arquivo
   simples), não por hash da ROM.
-- **Sem raspagem online**: capa, logo e arte de cartucho vêm de imagens
-  que você mesmo solta em `assets/`; o nome canônico do jogo vem de um DAT
-  [No-Intro](https://datomatic.no-intro.org/) local opcional.
+- **Sem raspagem online**: capa, logo, back cover e arte de cartucho vêm
+  de imagens que você mesmo solta em `assets/`; o nome canônico do jogo
+  vem de um DAT [No-Intro](https://datomatic.no-intro.org/) local
+  opcional.
 - **Núcleo baixa sozinho**: o `snes9x_libretro` vem do buildbot oficial do
   libretro, direto do menu de configurações — não precisa procurar/copiar
   o arquivo à mão.
@@ -50,7 +73,7 @@ aba [Releases](https://github.com/ticianocorral/snes-xperience/releases).
 ## Jogar
 
 Na primeira execução o app cria sozinho as pastas `roms/`, `core/`,
-`assets/{cover,logo,cartridge}/`, `saves/`, `notes/` e o arquivo
+`assets/{cover,logo,cartridge,backcover}/`, `saves/`, `notes/` e o arquivo
 `xperience.cfg`. Coloque suas ROMs em `roms/` e o core do snes9x
 (`snes9x_libretro.dylib`/`.so`/`.dll`) em `core/` — ou baixe-o direto pelo
 menu de configurações, se preferir.
@@ -63,8 +86,9 @@ Abre na tela inicial (que também é a tela de "cartucho ejetado" — a mesma
 depois de voltar da estante ou ejetar um jogo); clique em "Inserir
 cartucho" pra abrir a estante. Sem capa nenhuma em `assets/cover/`, a
 estante vira uma lista numerada; solte um `<nome-da-rom>.png` (mesmo nome
-do arquivo, sem extensão) em `assets/cover/` ou `assets/logo/` pra dar
-capa/logo a um jogo — capas são desenhadas em paisagem, arte de frente
+do arquivo, sem extensão) em `assets/cover/`, `assets/logo/`,
+`assets/cartridge/` ou `assets/backcover/` pra dar capa/logo/cartucho/
+contracapa a um jogo — capas são desenhadas em paisagem, arte de frente
 horizontal.
 
 Um `nointro.dat` (DAT XML do No-Intro, "Nintendo - Super Nintendo
@@ -105,8 +129,8 @@ Quatro camadas, dependências só para baixo:
 
 | Camada       | Crate                  | Responsabilidade                                                                          |
 | ------------ | ---------------------- | ------------------------------------------------------------------------------------------ |
-| Apresentação | `xperience-app`        | binários (`xperience`, `emu-run`, `selector`) + `runner`/`shelf`/`settings`/`core_update`   |
-| Domínio      | `xperience-domain`     | identificação de ROM, catálogo (JSON, sem banco), nomeação por DAT No-Intro                 |
+| Apresentação | `xperience-app`        | binários (`xperience`, `emu-run`, `selector`) + `runner`/`shelf`/`settings`/`core_update`/`rom_rename`/`update_check`   |
+| Domínio      | `xperience-domain`     | identificação de ROM, catálogo (JSON, sem banco), nomeação por DAT No-Intro, ano/editora embutidos (TOSEC)                 |
 | Emulação     | `xperience-emulation`  | core libretro carregado em runtime, laço de execução                                       |
 | Plataforma   | `xperience-platform`   | SDL3: o `Cabinet` (janela única — gabinete, tubo CRT, seletor), áudio, gamepad              |
 

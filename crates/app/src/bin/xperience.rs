@@ -5,13 +5,13 @@
 //! Windows/Linux, `~/Documents/SNES Xperience` on macOS — drop ROMs in
 //! `roms/` and go.
 //!
-//! The idle screen (TV off, "Inserir cartucho"/"Configuracoes" in place of
+//! The idle screen (TV off, "Inserir cartucho"/"Configurações" in place of
 //! the logo) is the app's home: it's what you see at startup, after backing
 //! out of the shelf, and after ejecting a game — only closing the window
 //! ends the app. Nothing here uses the keyboard (plan revision:
 //! mouse/gamepad only) — in a game, the panel's Power button powers off
 //! (state, saves, TV to snow) and back on again, and Eject only takes once
-//! off, landing back on the idle screen (plan §3.3). "Configuracoes" (idle
+//! off, landing back on the idle screen (plan §3.3). "Configurações" (idle
 //! screen or shelf) opens settings (controls, run-ahead, fullscreen, snes9x
 //! core download/update) — see `xperience_app::settings`.
 //!
@@ -25,6 +25,7 @@
 //! itself, non-commercial snes9x license (see THIRD-PARTY-NOTICES.md).
 
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::{self, Receiver};
 
 use anyhow::{anyhow, Context, Result};
 use xperience_app::config::Config;
@@ -33,7 +34,9 @@ use xperience_app::idle::{self, IdleExit};
 use xperience_app::runner::{run_game, GameExit, GameSpec};
 use xperience_app::settings;
 use xperience_app::shelf::{self, Pick, ShelfOpts};
+use xperience_app::update_check::{self, UpdateNotice};
 use xperience_domain::{Catalog, NoIntroDat, Order};
+use xperience_emulation::Core;
 use xperience_platform::{Cabinet, MenuMode, MenuNav, Platform, Screen};
 
 struct Args {
@@ -50,12 +53,36 @@ struct Args {
     /// Headless: render one settings screen ("main"|"controls") to `--shot`
     /// and exit, instead of starting the shelf (dev/testing).
     debug_settings: Option<String>,
+    /// Headless: render the idle screen to `--shot` and exit (dev/testing).
+    debug_idle: bool,
+    /// Headless: render the update notice ("app"|"core"|"both") to `--shot`
+    /// and exit (dev/testing) — the live path only shows it once a real
+    /// background check finds something.
+    debug_notice: Option<String>,
     shot: Option<PathBuf>,
 }
 
 fn default_core_path() -> Option<PathBuf> {
     let p = xperience_app::dirs::core_dir().join(core_update::core_file_name());
     p.is_file().then_some(p)
+}
+
+/// The cabinet's nameplate text (plan revision: "mostrar versao do app e
+/// versao do snes9x, onde esta o nome do app na tv") — the app's own version
+/// plus, if a core is installed, whatever `retro_get_system_info` reports for
+/// it. `Core::load` only resolves symbols and reads that info (no `retro_
+/// init`), so peeking at it here and dropping the `Core` right after is
+/// cheap and side-effect-free.
+fn nameplate_text(core_path: Option<&Path>) -> String {
+    let app_version = env!("CARGO_PKG_VERSION");
+    let core_version = core_path
+        .and_then(|p| Core::load(p).ok())
+        .map(|c| c.system_version().to_string())
+        .filter(|v| !v.is_empty());
+    match core_version {
+        Some(v) => format!("{} v{app_version} - snes9x {v}", xperience_platform::BRAND),
+        None => format!("{} v{app_version}", xperience_platform::BRAND),
+    }
 }
 
 fn parse_args() -> Result<Args> {
@@ -67,6 +94,8 @@ fn parse_args() -> Result<Args> {
     let mut order = Order::Shelf;
     let mut runahead = None;
     let mut debug_settings = None;
+    let mut debug_idle = false;
+    let mut debug_notice = None;
     let mut shot = None;
 
     let mut it = std::env::args().skip(1);
@@ -79,6 +108,8 @@ fn parse_args() -> Result<Args> {
             "--system-dir" => system_dir = Some(val()?.into()),
             "--notes-dir" => notes_dir = Some(val()?.into()),
             "--debug-settings" => debug_settings = Some(val()?),
+            "--debug-idle-shot" => debug_idle = true,
+            "--debug-notice-shot" => debug_notice = Some(val()?),
             "--shot" => shot = Some(val()?.into()),
             "--order" => {
                 order = match val()?.as_str() {
@@ -114,6 +145,8 @@ fn parse_args() -> Result<Args> {
         order,
         runahead,
         debug_settings,
+        debug_idle,
+        debug_notice,
         shot,
     })
 }
@@ -129,10 +162,16 @@ idle screen's \"Inserir cartucho\" opens the shelf; it's what you land on at\n\
 startup, after backing out of the shelf, and after ejecting a game. In a\n\
 game, the panel's Power button powers off (saves, TV to snow) and back on\n\
 again; Eject only takes once off, back to idle.\n\
-\"Configuracoes\" (idle screen or shelf) opens settings (controls, núcleo\n\
-snes9x, run-ahead, fullscreen) — saved straight to xperience.cfg.\n\
-Window-close on the idle screen, or closing a game window, ends the\n\
-app — no ceremony there.\n\
+\"Configurações\" (idle screen or shelf) opens settings (controls, núcleo\n\
+snes9x, run-ahead, fullscreen, checar atualizações ao abrir) — saved\n\
+straight to xperience.cfg. Window-close on the idle screen, or closing a\n\
+game window, ends the app — no ceremony there.\n\
+\n\
+The cabinet's nameplate shows the app's own version and, once a core is\n\
+loaded, snes9x's. Unless turned off in settings, startup also checks\n\
+GitHub for a newer release and the buildbot for a fresher snes9x core,\n\
+showing a one-time notice on the idle screen if either found something —\n\
+silently skipped on any network hiccup, never a hard failure.\n\
 \n\
 Portable: roms/, core/, assets/ (cover/logo art, matched by ROM file name),\n\
 saves/, notes/, xperience.cfg, library.json all live in one root — next to\n\
@@ -153,6 +192,7 @@ fn main() -> Result<()> {
         xperience_app::dirs::assets_dir().join("logo"),
         xperience_app::dirs::assets_dir().join("cover"),
         xperience_app::dirs::assets_dir().join("cartridge"),
+        xperience_app::dirs::assets_dir().join("backcover"),
         args.save_dir.clone(),
         args.notes_dir.clone(),
     ] {
@@ -195,18 +235,49 @@ fn main() -> Result<()> {
         log::info!("wrote {} (settings preview: {screen})", path.display());
         return Ok(());
     }
+    if let (true, Some(path)) = (args.debug_idle, &args.shot) {
+        let core_path = args.core.clone().or_else(default_core_path);
+        cab.set_nameplate(&nameplate_text(core_path.as_deref()));
+        idle::capture_preview(&mut cab, idle::RESTING_STATIC, path)?;
+        log::info!("wrote {} (idle preview)", path.display());
+        return Ok(());
+    }
+    if let (Some(kind), Some(path)) = (&args.debug_notice, &args.shot) {
+        let notice = UpdateNotice {
+            app_update: (kind != "core").then(|| "v9.9.9".to_string()),
+            core_stale: kind != "app",
+        };
+        idle::capture_notice_preview(&mut cab, &notice, path)?;
+        log::info!("wrote {} (update notice preview: {kind})", path.display());
+        return Ok(());
+    }
 
     let mut shelf_opts = ShelfOpts {
         order: args.order,
         max_frames: None,
         shot: None,
         fade_in: None,
+        preset_filter: None,
     };
     let mut idle_static = idle::RESTING_STATIC;
     let mut core_path = args.core.clone().or_else(default_core_path);
+    cab.set_nameplate(&nameplate_text(core_path.as_deref()));
+
+    // Startup update checks (plan revision: "verificar se tem update... e se
+    // o snes9x esta atualizado"), opt-out in settings — network calls, so
+    // they run on their own thread; `idle::run` drains the result whenever
+    // it's ready, showing a one-time notice if there's anything to report.
+    let mut update_rx: Option<Receiver<UpdateNotice>> = None;
+    if cfg.check_updates_on_start {
+        let (tx, rx) = mpsc::channel();
+        let core_dir = xperience_app::dirs::core_dir();
+        let app_version = env!("CARGO_PKG_VERSION").to_string();
+        std::thread::spawn(move || update_check::check(core_dir, app_version, tx));
+        update_rx = Some(rx);
+    }
 
     'app: loop {
-        match idle::run(&mut plat, &mut cab, idle_static)? {
+        match idle::run(&mut plat, &mut cab, idle_static, &mut update_rx)? {
             IdleExit::Quit => break 'app,
             IdleExit::OpenShelf => shelf_opts.fade_in = Some(idle_static),
             IdleExit::OpenSettings => {
@@ -215,6 +286,7 @@ fn main() -> Result<()> {
                 }
                 // A core download may have just finished.
                 core_path = args.core.clone().or_else(default_core_path);
+                cab.set_nameplate(&nameplate_text(core_path.as_deref()));
                 continue 'app;
             }
         }
@@ -234,8 +306,31 @@ fn main() -> Result<()> {
                         }
                         // A core download may have just finished.
                         core_path = args.core.clone().or_else(default_core_path);
+                        cab.set_nameplate(&nameplate_text(core_path.as_deref()));
                         continue;
                     }
+                    // "Histórico" (plan revision) — a `Pick::Back` from in
+                    // there means "back to the shelf", not all the way to
+                    // idle, so it's handled here rather than falling through
+                    // to the `Pick::Back` arm above.
+                    Pick::History => match shelf::run_history(&mut plat, &mut cab, &catalog)? {
+                        Pick::Play {
+                            rom,
+                            wheel,
+                            cartridge,
+                        } => (rom, wheel, cartridge),
+                        Pick::Settings => {
+                            let quit = settings::run(&mut plat, &mut cab, &mut cfg)?;
+                            if quit {
+                                break 'app;
+                            }
+                            core_path = args.core.clone().or_else(default_core_path);
+                            cab.set_nameplate(&nameplate_text(core_path.as_deref()));
+                            continue;
+                        }
+                        Pick::Quit => break 'app,
+                        _ => continue,
+                    },
                     Pick::Play {
                         rom,
                         wheel,
@@ -300,15 +395,15 @@ fn no_core_screen(plat: &mut Platform, cab: &mut Cabinet) -> Result<bool> {
             return Ok(false);
         }
         let render = |d: &mut Screen| {
-            d.text(40, 40, 2, (232, 232, 232), "nucleo nao encontrado");
+            d.text(40, 40, 2, (232, 232, 232), "núcleo não encontrado");
             d.text_wrapped(
                 40,
                 90,
                 700,
                 1,
                 (150, 150, 158),
-                "baixe o nucleo snes9x pelo menu de configuracoes (O na estante) \
-                 antes de jogar, ou coloque o arquivo em core/ a mao.",
+                "baixe o núcleo snes9x pelo menu de configurações (O na estante) \
+                 antes de jogar, ou coloque o arquivo em core/ à mão.",
             );
             d.text(
                 40,

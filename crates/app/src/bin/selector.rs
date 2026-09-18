@@ -27,6 +27,8 @@ fn main() -> Result<()> {
     // with --shot, save the last frame (shelf through the tube) as a BMP.
     let max_frames: Option<u64> = arg(&args, "--frames").and_then(|s| s.parse().ok());
     let shot = arg(&args, "--shot").map(PathBuf::from);
+    let preset_filter = arg(&args, "--filter").map(str::to_string);
+    let debug_history = args.iter().any(|a| a == "--debug-history-shot");
 
     let dat = NoIntroDat::load(&dirs::nointro_dat_path()).ok();
     let catalog = Catalog::open(&dirs::roms_dir(), &dirs::library_path(), dat.as_ref())
@@ -36,11 +38,20 @@ fn main() -> Result<()> {
     let mut cab = plat
         .create_cabinet("SNES Xperience", 1280, 800)
         .map_err(|e| anyhow!(e.to_string()))?;
+
+    // Headless self-check: the "Histórico" screen, dev/testing only.
+    if let (true, Some(path)) = (debug_history, &shot) {
+        shelf::capture_history_preview(&mut cab, &catalog, path)?;
+        log::info!("wrote {} (history preview)", path.display());
+        return Ok(());
+    }
+
     let opts = ShelfOpts {
         order,
         max_frames,
         shot,
         fade_in: None,
+        preset_filter,
     };
     match shelf::run(&mut plat, &mut cab, &catalog, &opts)? {
         Pick::Play { rom, .. } => {
@@ -55,6 +66,13 @@ fn main() -> Result<()> {
         Pick::Back => std::process::exit(1),
         Pick::Settings => {
             eprintln!("settings screen isn't wired up in `selector` — use `xperience`");
+            std::process::exit(1);
+        }
+        Pick::History => {
+            eprintln!(
+                "historico's live loop isn't wired up in `selector` — use `xperience`, or \
+                 --debug-history-shot --shot for a headless preview"
+            );
             std::process::exit(1);
         }
     }
