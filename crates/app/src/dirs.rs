@@ -8,9 +8,16 @@
 //! user expects an app to scribble folders into). So on macOS the root
 //! isn't next to the executable at all — it's `~/Documents/SNES Xperience`,
 //! created on first launch, same spirit as how a normal Mac app keeps its
-//! user data. Windows/Linux keep the simpler "next to the executable"
-//! portable layout, since a `.exe`/AppImage anywhere the user put it is
-//! already writable and exactly where they'd look for `roms/` next to it.
+//! user data.
+//!
+//! Linux special case: AppImage is a read-only container that extracts to a
+//! temp directory. So on Linux the root is `~/.local/share/SNES Xperience`
+//! (following XDG directory conventions), created on first launch. This
+//! also supports regular Linux builds next to the executable.
+//!
+//! Windows keeps the simpler "next to the executable" portable layout, since
+//! a `.exe` anywhere the user put it is already writable and exactly where
+//! they'd look for `roms/` next to it.
 
 use std::path::{Path, PathBuf};
 
@@ -24,7 +31,11 @@ pub fn app_root() -> PathBuf {
             .unwrap_or_else(|| PathBuf::from("."));
         macos_root_for(&home)
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
+    {
+        linux_app_root()
+    }
+    #[cfg(target_os = "windows")]
     {
         let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("."));
         exe.parent().unwrap_or_else(|| Path::new(".")).to_path_buf()
@@ -36,6 +47,18 @@ pub fn app_root() -> PathBuf {
 #[cfg(target_os = "macos")]
 fn macos_root_for(home: &Path) -> PathBuf {
     home.join("Documents").join("SNES Xperience")
+}
+
+/// XDG_DATA_HOME/.../SNES Xperience, falling back to ~/.local/share if unset.
+#[cfg(target_os = "linux")]
+fn linux_app_root() -> PathBuf {
+    let data_home = std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .or_else(|_| {
+            std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share"))
+        })
+        .unwrap_or_else(|| PathBuf::from("."));
+    data_home.join("SNES Xperience")
 }
 
 pub fn roms_dir() -> PathBuf {
@@ -86,6 +109,23 @@ mod tests {
         assert_eq!(
             super::macos_root_for(Path::new("/Users/rex")),
             Path::new("/Users/rex/Documents/SNES Xperience")
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_root_uses_xdg_data_home() {
+        assert_eq!(
+            super::linux_app_root(),
+            Path::new(
+                std::env::var("XDG_DATA_HOME")
+                    .as_deref()
+                    .unwrap_or(&format!(
+                        "{}/.local/share",
+                        std::env::var("HOME").unwrap_or_default()
+                    ))
+            )
+            .join("SNES Xperience")
         );
     }
 }
