@@ -19,8 +19,8 @@
 //! a `.exe` anywhere the user put it is already writable and exactly where
 //! they'd look for `roms/` next to it.
 
-use std::path::PathBuf;
 use std::path::Path;
+use std::path::PathBuf;
 
 /// The folder the app treats as its root — see the module doc for the macOS
 /// special case.
@@ -55,9 +55,7 @@ fn macos_root_for(home: &Path) -> PathBuf {
 fn linux_app_root() -> PathBuf {
     let data_home = std::env::var_os("XDG_DATA_HOME")
         .map(PathBuf::from)
-        .or_else(|| {
-            std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share"))
-        })
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))
         .unwrap_or_else(|| PathBuf::from("."));
     data_home.join("SNES Xperience")
 }
