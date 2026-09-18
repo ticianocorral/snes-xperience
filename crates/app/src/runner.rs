@@ -238,6 +238,26 @@ fn load_slot_rows(save_dir: &Path, title: &str) -> Vec<(String, bool)> {
 /// enough to not look stuck.
 const FLASH_DURATION: Duration = Duration::from_millis(900);
 
+/// Advance `next` by one frame and wait for it: sleep the bulk of the wait,
+/// then spin the last ~2ms (a plain `thread::sleep` can overshoot by more
+/// than a frame's worth of jitter). Falls back to resyncing when the loop
+/// fell behind, so it never spirals. Shared by runner/shelf/idle/settings.
+pub(crate) fn pace_frame(next: &mut Instant, frame_time: Duration) {
+    *next += frame_time;
+    let now = Instant::now();
+    if *next <= now {
+        *next = now; // fell behind; resync so we don't spiral
+        return;
+    }
+    let wait = *next - now;
+    if wait > Duration::from_millis(2) {
+        std::thread::sleep(wait - Duration::from_millis(2));
+    }
+    while Instant::now() < *next {
+        std::thread::yield_now();
+    }
+}
+
 /// Whether `b`'s flash is still showing — `flash` maps a button to when it
 /// last fired, only ever holding entries for buttons that flash at all.
 fn flashed(flash: &HashMap<PanelButton, Instant>, b: PanelButton) -> bool {
@@ -1436,13 +1456,7 @@ pub fn run_game(
             } else {
                 cab.present_pause();
             }
-            next += frame_time;
-            let now = Instant::now();
-            if next > now {
-                std::thread::sleep(next - now);
-            } else {
-                next = now;
-            }
+            pace_frame(&mut next, frame_time);
             continue;
         }
 
@@ -1847,13 +1861,7 @@ pub fn run_game(
         if !powered {
             cab.set_session_time(live_session_time(powered_elapsed, powered_since));
             cab.present_static(OFF_STATIC_LEVEL);
-            next += frame_time;
-            let now = Instant::now();
-            if next > now {
-                std::thread::sleep(next - now);
-            } else {
-                next = now;
-            }
+            pace_frame(&mut next, frame_time);
             continue;
         }
 
@@ -1977,14 +1985,7 @@ pub fn run_game(
             cab.present_modal();
         }
 
-        next += frame_time;
-        let now = Instant::now();
-        if next > now {
-            std::thread::sleep(next - now);
-        } else {
-            // Fell behind; resync so we don't spiral.
-            next = now;
-        }
+        pace_frame(&mut next, frame_time);
     };
 
     // Final SRAM flush on the way out (either exit path).

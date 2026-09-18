@@ -78,11 +78,10 @@ pub fn run(plat: &mut Platform, cab: &mut Cabinet, cfg: &mut Config) -> Result<b
     // track, just a one-shot summary.
     let mut rename_status: Option<String> = None;
     let frame_time = Duration::from_millis(16);
+    let mut next = Instant::now();
     cab.set_close_button(true);
 
     loop {
-        let next = Instant::now() + frame_time;
-
         if let Some(rx) = &core_worker {
             while let Ok(msg) = rx.try_recv() {
                 match msg {
@@ -245,10 +244,7 @@ pub fn run(plat: &mut Platform, cab: &mut Cabinet, cfg: &mut Config) -> Result<b
         };
         cab.frame_2d(BG, render);
 
-        let now = Instant::now();
-        if next > now {
-            std::thread::sleep(next - now);
-        }
+        crate::runner::pace_frame(&mut next, frame_time);
     }
 }
 

@@ -8,7 +8,7 @@
 
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use noto_sans_mono_bitmap::{get_raster, FontWeight, RasterHeight};
 use sdl3::pixels::{Color, FColor, PixelFormat as SdlFormat};
@@ -204,6 +204,9 @@ pub struct Cabinet {
     /// Small streaming texture for the signal-off snow.
     noise_tex: Option<SizedTex>,
     noise: Vec<u8>,
+    /// When the static noise was last regenerated (and at what level) —
+    /// `update_noise_tex` caps regeneration at ~30Hz.
+    noise_stamp: Option<(std::time::Instant, f32)>,
     rng: u32,
     /// 128 glyphs laid out horizontally, white on transparent (2D path).
     font: Texture,
@@ -637,6 +640,7 @@ impl Cabinet {
             screen_tex: None,
             noise_tex: None,
             noise: Vec::new(),
+            noise_stamp: None,
             rng: 0x9E37_79B9,
             font,
             images: HashMap::new(),
@@ -1816,6 +1820,15 @@ impl Cabinet {
     fn update_noise_tex(&mut self, level: f32) {
         const NW: u32 = 320;
         const NH: u32 = 240;
+        // The hiss regenerates at ~30Hz (and whenever the level moves) —
+        // 60Hz of fresh 307KB noise + texture upload is invisible busywork.
+        let now = Instant::now();
+        if let Some((t, l)) = self.noise_stamp {
+            if now.duration_since(t) < Duration::from_millis(30) && (l - level).abs() < 0.005 {
+                return;
+            }
+        }
+        self.noise_stamp = Some((now, level));
         self.ensure_noise_tex(NW, NH);
         let k = level.clamp(0.0, 1.0);
         let hi = (26.0 + 150.0 * k) as u32; // cap well under white

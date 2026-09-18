@@ -422,6 +422,7 @@ impl RecentLayout {
 /// autoexecutável app, not a misconfiguration.
 fn empty_roms_screen(plat: &mut Platform, cab: &mut Cabinet) -> Result<Pick> {
     let frame = Duration::from_millis(16);
+    let mut next = Instant::now() + frame;
     cab.set_shelf_panel(empty_shelf_panel());
     cab.set_close_button(true);
     loop {
@@ -458,7 +459,7 @@ fn empty_roms_screen(plat: &mut Platform, cab: &mut Cabinet) -> Result<Pick> {
             );
         };
         cab.frame_shelf(BG, render);
-        std::thread::sleep(frame);
+        crate::runner::pace_frame(&mut next, frame);
     }
 }
 
@@ -522,8 +523,8 @@ pub fn run(
     const FADE_IN_FRAMES: u32 = 18;
     let mut fade_frame: u32 = 0;
 
+    let mut next = Instant::now() + frame;
     loop {
-        let started = Instant::now();
         frame_no += 1;
         if opts.max_frames.is_some_and(|n| frame_no > n) {
             return Ok(Pick::Quit);
@@ -989,10 +990,7 @@ pub fn run(
             _ => cab.frame_shelf_fade_in(BG, render, idle::RESTING_STATIC, SHELF_ALPHA),
         }
 
-        let elapsed = started.elapsed();
-        if elapsed < frame {
-            std::thread::sleep(frame - elapsed);
-        }
+        crate::runner::pace_frame(&mut next, frame);
     }
 }
 
@@ -1015,6 +1013,7 @@ pub fn run_history(plat: &mut Platform, cab: &mut Cabinet, catalog: &Catalog) ->
     cab.set_shelf_panel(empty_shelf_panel());
     cab.set_close_button(true);
 
+    let mut next = Instant::now() + frame;
     loop {
         let (scr_w, scr_h) = cab.shelf_screen_size();
         let vis_rows = ((scr_h as i32 - MARGIN * 2 - HEADER_H) / HISTORY_ROW_H).max(1) as usize;
@@ -1077,7 +1076,7 @@ pub fn run_history(plat: &mut Platform, cab: &mut Cabinet, catalog: &Catalog) ->
             |d: &mut Screen| draw_history_list(d, &ranked, top, vis_rows, Some(sel), scr_w);
         cab.frame_shelf(BG, render);
 
-        std::thread::sleep(frame);
+        crate::runner::pace_frame(&mut next, frame);
     }
 }
 

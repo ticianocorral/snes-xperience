@@ -9,6 +9,7 @@
 
 use std::path::Path;
 use std::sync::mpsc::{Receiver, TryRecvError};
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use xperience_platform::{Cabinet, MenuMode, MenuNav, PanelButton, Platform, Screen};
@@ -58,6 +59,10 @@ pub fn run(
     cab.clear_panel();
     cab.set_close_button(true);
     crate::console_art::load_brand_images(cab);
+    // The idle screen is where this app spends most of its life — pace it
+    // (it used to spin unthrottled, redrawing 60fps+ of static forever).
+    let frame = Duration::from_millis(16);
+    let mut next = Instant::now() + frame;
     let mut notice: Option<UpdateNotice> = None;
     loop {
         if let Some(rx) = notice_rx.as_ref() {
@@ -110,6 +115,7 @@ pub fn run(
             }
         }
         cab.present_static(static_level);
+        crate::runner::pace_frame(&mut next, frame);
     }
 }
 
