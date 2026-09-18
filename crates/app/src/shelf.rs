@@ -174,12 +174,31 @@ fn backcover_id(sha1: &str) -> u64 {
 
 /// `dir/<rom's file stem>.{png,jpg,jpeg}`, in that order — the convention for
 /// locally-supplied art: `roms/Aladdin.sfc` matches `assets/cover/Aladdin.png`.
+/// If the exact stem misses, the trailing "(...)" tags are peeled one group at
+/// a time ("X (USA) (Rev 1)" -> "X (USA)" -> "X"), so a single base-named art
+/// file serves every variant ROM of the same game.
 fn find_local_art(dir: &Path, rom_path: &str) -> Option<PathBuf> {
     let stem = Path::new(rom_path).file_stem()?.to_str()?;
-    ["png", "jpg", "jpeg"]
-        .into_iter()
-        .map(|ext| dir.join(format!("{stem}.{ext}")))
-        .find(|p| p.is_file())
+    let mut candidates = vec![stem.to_string()];
+    let mut cur = stem.to_string();
+    while cur.ends_with(')') {
+        match cur.rfind(" (") {
+            Some(idx) => {
+                cur.truncate(idx);
+                candidates.push(cur.clone());
+            }
+            None => break,
+        }
+    }
+    for cand in candidates {
+        for ext in ["png", "jpg", "jpeg"] {
+            let p = dir.join(format!("{cand}.{ext}"));
+            if p.is_file() {
+                return Some(p);
+            }
+        }
+    }
+    None
 }
 
 /// Mark `entry` played and build its launch — shared by Enter/A confirm and
@@ -1207,4 +1226,42 @@ fn decode_art(path: &Path) -> Result<(u32, u32, Vec<u8>)> {
     let img = image::open(path)?.thumbnail(512, 512).to_rgba8();
     let (w, h) = img.dimensions();
     Ok((w, h, img.into_raw()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::find_local_art;
+
+    #[test]
+    fn finds_art_for_variant_roms_via_the_base_name() {
+        let dir = std::env::temp_dir().join(format!("shelf-art-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let base = dir.join("Killer Instinct (USA).jpg");
+        std::fs::write(&base, b"jpg").unwrap();
+
+        // Exact stem hits.
+        let hit = find_local_art(&dir, "/x/Killer Instinct (USA).sfc").unwrap();
+        assert_eq!(hit, base);
+        // A variant ROM ("Rev 1") peels tags down to the base-named file.
+        let hit = find_local_art(&dir, "/x/Killer Instinct (USA) (Rev 1).sfc").unwrap();
+        assert_eq!(hit, base);
+
+        // PNG wins over JPG for the same stem.
+        std::fs::write(dir.join("Killer Instinct (USA).png"), b"png").unwrap();
+        let hit = find_local_art(&dir, "/x/Killer Instinct (USA).sfc").unwrap();
+        assert_eq!(hit.extension().unwrap(), "png");
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn nothing_found_leaves_none() {
+        let dir = std::env::temp_dir().join(format!("shelf-art-none-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(find_local_art(&dir, "/x/Missing Game (USA).sfc"), None);
+        // A stem that only shares a prefix must not match anything.
+        std::fs::write(dir.join("Game (USA).jpg"), b"x").unwrap();
+        assert_eq!(find_local_art(&dir, "/x/Gam.sfc"), None);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }
