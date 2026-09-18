@@ -9,6 +9,26 @@ aviso — só o incremento de _minor_ marca um conjunto de mudanças.
 
 ## [Não lançado]
 
+## [0.11.0] - 2026-09-18
+
+### Adicionado
+
+- **Animação do cartucho no slot do console, no painel** — o bloco do
+  cartucho virou o console visto de frente: base de carga cinza com a boca
+  escura do slot, e a arte real do jogo entrando de verdade nele ao inserir
+  (e voltando para fora ao ejetar), com o som de sempre.
+- **Encaixe fiel à arte** — o cartucho é dimensionado pelo conteúdo opaco
+  da imagem (ignorando margens transparentes), ocupa 96% da largura da base
+  e fica com metade do corpo dentro do console quando encaixado.
+- **Tela inicial com a cara da tela de jogo** — o mesmo encaixe do console
+  com um botão compacto "Inserir cartucho" no lugar do cartucho, e os
+  controles POWER/EJETAR/RESET apagados (decorativos) abaixo.
+- **Console-tag** — wordmark opcional `assets/console-tag.png` impresso na
+  base do console, alinhado à esquerda, em toda tela que mostra o slot.
+- **Exemplo headless da cena** — `cargo run -p xperience-platform
+  --example cart_scene` renderiza o encaixe com arte real em BMPs, sem
+  abrir janela, para inspeção e ajustes.
+
 ## [0.10.0] - 2026-09-18
 
 ### Adicionado
