@@ -19,6 +19,12 @@ use xperience_platform::{KeyMap, PadButton};
 pub struct Config {
     pub runahead: u32,
     pub fullscreen: bool,
+    /// Check GitHub for a newer app release, and the buildbot for a fresher
+    /// snes9x core, once at startup (plan revision) — a settings-screen
+    /// toggle, on by default. Either check that finds something newer shows
+    /// a one-time notice on the idle screen; a network failure just means no
+    /// notice, never an error.
+    pub check_updates_on_start: bool,
     pub keymap: KeyMap,
     /// Where it was read from (or freshly written), for logging and for
     /// `save()`.
@@ -31,6 +37,8 @@ struct Raw {
     runahead: Option<u32>,
     #[serde(default)]
     fullscreen: Option<bool>,
+    #[serde(default)]
+    check_updates_on_start: Option<bool>,
     #[serde(default)]
     keyboard: BTreeMap<String, String>,
 }
@@ -47,7 +55,11 @@ impl Config {
 
         let mut cfg = Config {
             runahead: 1,
-            fullscreen: false,
+            // Plan revision: "sempre abrir em fullscreen como padrao" — a
+            // fresh install (no `xperience.cfg` yet) starts fullscreen; the
+            // settings screen's own toggle still turns it off from there.
+            fullscreen: true,
+            check_updates_on_start: true,
             keymap: KeyMap::defaults(),
             source: path.clone(),
         };
@@ -85,6 +97,9 @@ impl Config {
         if let Some(f) = raw.fullscreen {
             self.fullscreen = f;
         }
+        if let Some(c) = raw.check_updates_on_start {
+            self.check_updates_on_start = c;
+        }
         for (action, key) in &raw.keyboard {
             let Ok(b) = action.parse::<PadButton>() else {
                 // Not a gameplay button — either a typo, or (most likely for
@@ -112,10 +127,15 @@ impl Config {
              # survive a save, but comments outside a value don't.\n\
              # runahead: speculative frames to hide input lag (0 disables).\n\
              # fullscreen: start in fullscreen.\n\
+             # check_updates_on_start: look for a newer release/snes9x core at launch.\n\
              # [keyboard]: action = \"SDL key name\" (e.g. \"Left Shift\", \"F2\", \"]\").\n\n",
         );
         s.push_str(&format!("runahead = {}\n", self.runahead));
-        s.push_str(&format!("fullscreen = {}\n\n", self.fullscreen));
+        s.push_str(&format!("fullscreen = {}\n", self.fullscreen));
+        s.push_str(&format!(
+            "check_updates_on_start = {}\n\n",
+            self.check_updates_on_start
+        ));
         s.push_str("[keyboard]\n");
         for (action, key) in self.keymap.describe() {
             s.push_str(&format!("{action} = {key:?}\n"));
@@ -145,6 +165,7 @@ mod tests {
         Config {
             runahead: 1,
             fullscreen: false,
+            check_updates_on_start: true,
             keymap: KeyMap::defaults(),
             source: None,
         }
@@ -156,6 +177,15 @@ mod tests {
         cfg.apply(toml::from_str("").unwrap()).unwrap();
         assert_eq!(cfg.runahead, 1);
         assert!(!cfg.fullscreen);
+        assert!(cfg.check_updates_on_start);
+    }
+
+    #[test]
+    fn check_updates_on_start_can_be_turned_off() {
+        let mut cfg = defaults();
+        cfg.apply(toml::from_str("check_updates_on_start = false").unwrap())
+            .unwrap();
+        assert!(!cfg.check_updates_on_start);
     }
 
     #[test]
@@ -195,12 +225,14 @@ mod tests {
         let mut cfg = defaults();
         cfg.runahead = 2;
         cfg.fullscreen = true;
+        cfg.check_updates_on_start = false;
         let text = cfg.to_toml();
         let raw: Raw = toml::from_str(&text).unwrap();
         let mut round = defaults();
         round.apply(raw).unwrap();
         assert_eq!(round.runahead, 2);
         assert!(round.fullscreen);
+        assert!(!round.check_updates_on_start);
         assert_eq!(round.keymap.describe(), cfg.keymap.describe());
     }
 }

@@ -1,4 +1,4 @@
-//! The settings screen — the idle screen's "Configuracoes" button. Two flat
+//! The settings screen — the idle screen's "Configurações" button. Two flat
 //! lists (main, controls), no nesting deeper than that: click a row to act
 //! on it (or gamepad nav + Confirm/Back — plan revision: no keyboard
 //! shortcuts). Edits save to `xperience.cfg` immediately, not on some later
@@ -12,6 +12,7 @@ use xperience_platform::{Cabinet, MenuMode, MenuNav, PadButton, Platform, Screen
 
 use crate::config::Config;
 use crate::core_update::{self, CoreUpdateMsg};
+use crate::rom_rename::{self, RenameOutcome};
 
 const BG: (u8, u8, u8) = (18, 18, 20);
 const TEXT: (u8, u8, u8) = (232, 232, 232);
@@ -71,7 +72,13 @@ pub fn run(plat: &mut Platform, cab: &mut Cabinet, cfg: &mut Config) -> Result<b
     let mut awaiting_key: Option<usize> = None; // index into keymap.describe()
     let mut core_status = CoreStatus::Idle;
     let mut core_worker: Option<Receiver<CoreUpdateMsg>> = None;
+    // The last "Renomear ROMs" result, shown as that row's own label until
+    // the next click (plan revision) — synchronous (plain disk renames, no
+    // network), so unlike the core download there's no worker/progress to
+    // track, just a one-shot summary.
+    let mut rename_status: Option<String> = None;
     let frame_time = Duration::from_millis(16);
+    cab.set_close_button(true);
 
     loop {
         let next = Instant::now() + frame_time;
@@ -121,6 +128,9 @@ pub fn run(plat: &mut Platform, cab: &mut Cabinet, cfg: &mut Config) -> Result<b
             // keyboard shortcuts left for either screen).
             if let Some((cx, cy)) = m.click {
                 let (ox, oy) = cab.window_to_output(cx, cy);
+                if cab.hit_close_button(ox, oy) {
+                    return Ok(true);
+                }
                 if let Some((_, ly)) = cab.hit_screen_point(ox, oy) {
                     match mode {
                         Mode::Main => {
@@ -138,7 +148,12 @@ pub fn run(plat: &mut Platform, cab: &mut Cabinet, cfg: &mut Config) -> Result<b
                                         cab.toggle_fullscreen();
                                         let _ = cfg.save();
                                     }
-                                    4 => return Ok(false),
+                                    4 => {
+                                        cfg.check_updates_on_start = !cfg.check_updates_on_start;
+                                        let _ = cfg.save();
+                                    }
+                                    5 => rename_status = Some(run_rom_rename()),
+                                    6 => return Ok(false),
                                     _ => {}
                                 }
                             }
@@ -173,7 +188,12 @@ pub fn run(plat: &mut Platform, cab: &mut Cabinet, cfg: &mut Config) -> Result<b
                                     cab.toggle_fullscreen();
                                     let _ = cfg.save();
                                 }
-                                4 => return Ok(false),
+                                4 => {
+                                    cfg.check_updates_on_start = !cfg.check_updates_on_start;
+                                    let _ = cfg.save();
+                                }
+                                5 => rename_status = Some(run_rom_rename()),
+                                6 => return Ok(false),
                                 _ => {}
                             },
                             MenuNav::Left if main_sel == 2 => {
@@ -187,6 +207,10 @@ pub fn run(plat: &mut Platform, cab: &mut Cabinet, cfg: &mut Config) -> Result<b
                             MenuNav::Left | MenuNav::Right if main_sel == 3 => {
                                 cfg.fullscreen = !cfg.fullscreen;
                                 cab.toggle_fullscreen();
+                                let _ = cfg.save();
+                            }
+                            MenuNav::Left | MenuNav::Right if main_sel == 4 => {
+                                cfg.check_updates_on_start = !cfg.check_updates_on_start;
                                 let _ = cfg.save();
                             }
                             _ => {}
@@ -216,7 +240,7 @@ pub fn run(plat: &mut Platform, cab: &mut Cabinet, cfg: &mut Config) -> Result<b
         }
 
         let render = |d: &mut Screen| match mode {
-            Mode::Main => draw_main(d, cfg, main_sel, &core_status),
+            Mode::Main => draw_main(d, cfg, main_sel, &core_status, rename_status.as_deref()),
             Mode::Controls => draw_controls(d, cfg, controls_sel, controls_top, awaiting_key),
         };
         cab.frame_2d(BG, render);
@@ -239,7 +263,7 @@ fn start_core_download(status: &mut CoreStatus, worker: &mut Option<Receiver<Cor
         return;
     }
     let Some(url) = core_update::core_download_url() else {
-        *status = CoreStatus::Failed("sem build automatica pra esta plataforma".to_string());
+        *status = CoreStatus::Failed("sem build automática pra esta plataforma".to_string());
         return;
     };
     let (tx, rx) = mpsc::channel();
@@ -260,9 +284,36 @@ fn core_installed_label() -> Option<String> {
     let days = modified.elapsed().unwrap_or_default().as_secs() / 86_400;
     Some(match days {
         0 => "instalado hoje".to_string(),
-        1 => "instalado ha 1 dia".to_string(),
-        n => format!("instalado ha {n} dias"),
+        1 => "instalado há 1 dia".to_string(),
+        n => format!("instalado há {n} dias"),
     })
+}
+
+/// Run the rename synchronously (plain disk renames — fast enough even for
+/// a few hundred ROMs that there's no need for `start_core_download`'s
+/// background-thread treatment) and turn the result into the row's next
+/// label (plan: "renomear automaticamente no padrao no-intro").
+fn run_rom_rename() -> String {
+    let outcome = rom_rename::rename_to_nointro(
+        &crate::dirs::roms_dir(),
+        &crate::dirs::nointro_dat_path(),
+        &crate::dirs::saves_dir(),
+        &crate::dirs::notes_dir(),
+        &crate::dirs::assets_dir(),
+    );
+    match outcome {
+        RenameOutcome::Renamed(list) => {
+            for r in &list {
+                log::info!("rom rename: {} -> {}", r.old, r.new);
+            }
+            match list.len() {
+                1 => "Renomear ROMs: 1 rom renomeada".to_string(),
+                n => format!("Renomear ROMs: {n} roms renomeadas"),
+            }
+        }
+        RenameOutcome::NothingToDo => "Renomear ROMs: nenhuma precisava de nome novo".to_string(),
+        RenameOutcome::NoDat => "Renomear ROMs: nointro.dat não encontrado".to_string(),
+    }
 }
 
 fn core_row_label(status: &CoreStatus) -> String {
@@ -271,22 +322,22 @@ fn core_row_label(status: &CoreStatus) -> String {
             let mb = *downloaded as f64 / 1_048_576.0;
             match total {
                 Some(t) => format!(
-                    "Nucleo: baixando... {mb:.1}/{:.1} MB",
+                    "Núcleo: baixando... {mb:.1}/{:.1} MB",
                     *t as f64 / 1_048_576.0
                 ),
-                None => format!("Nucleo: baixando... {mb:.1} MB"),
+                None => format!("Núcleo: baixando... {mb:.1} MB"),
             }
         }
-        CoreStatus::Done => "Nucleo: atualizado com sucesso".to_string(),
-        CoreStatus::Failed(e) => format!("Nucleo: falha - {e}"),
+        CoreStatus::Done => "Núcleo: atualizado com sucesso".to_string(),
+        CoreStatus::Failed(e) => format!("Núcleo: falha - {e}"),
         CoreStatus::Idle => match core_installed_label() {
-            Some(installed) => format!("Nucleo: atualizar ({installed})"),
-            None => "Nucleo: baixar".to_string(),
+            Some(installed) => format!("Núcleo: atualizar ({installed})"),
+            None => "Núcleo: baixar".to_string(),
         },
     }
 }
 
-const MAIN_ROWS: usize = 5;
+const MAIN_ROWS: usize = 7;
 
 fn bind_row(cfg: &mut Config, row: usize, key_name: &str) {
     let Some((action, _)) = cfg.keymap.describe().into_iter().nth(row) else {
@@ -302,9 +353,15 @@ fn bind_row(cfg: &mut Config, row: usize, key_name: &str) {
     }
 }
 
-fn draw_main(d: &mut Screen, cfg: &Config, sel: usize, core_status: &CoreStatus) {
+fn draw_main(
+    d: &mut Screen,
+    cfg: &Config,
+    sel: usize,
+    core_status: &CoreStatus,
+    rename_status: Option<&str>,
+) {
     let x = MARGIN;
-    d.text(x, MARGIN, 2, TEXT, "configuracoes");
+    d.text(x, MARGIN, 2, TEXT, "configurações");
     let mut y = LIST_TOP;
 
     let rows = [
@@ -319,6 +376,17 @@ fn draw_main(d: &mut Screen, cfg: &Config, sel: usize, core_status: &CoreStatus)
                 "desligada"
             }
         ),
+        format!(
+            "Verificar atualizações ao abrir: {}",
+            if cfg.check_updates_on_start {
+                "sim"
+            } else {
+                "não"
+            }
+        ),
+        rename_status
+            .unwrap_or("Renomear ROMs para o padrão No-Intro")
+            .to_string(),
         "Voltar".to_string(),
     ];
     for (i, row) in rows.iter().enumerate() {
@@ -331,7 +399,7 @@ fn draw_main(d: &mut Screen, cfg: &Config, sel: usize, core_status: &CoreStatus)
         d.size().1 as i32 - MARGIN,
         1,
         HINT,
-        "clique numa opcao (role a lista com o mouse ou d-pad, botao/gamepad confirma)",
+        "clique numa opção (role a lista com o mouse ou d-pad, botão/gamepad confirma)",
     );
 }
 
@@ -357,7 +425,7 @@ fn draw_controls(d: &mut Screen, cfg: &Config, sel: usize, top: usize, awaiting:
         d.size().1 as i32 - MARGIN,
         1,
         HINT,
-        "clique numa acao pra trocar a tecla -- clique aqui embaixo pra voltar",
+        "clique numa ação pra trocar a tecla -- clique aqui embaixo pra voltar",
     );
 }
 
@@ -371,8 +439,9 @@ pub fn capture_preview(
 ) -> Result<()> {
     let render = |d: &mut Screen| match screen {
         "controls" => draw_controls(d, cfg, 0, 0, None),
-        _ => draw_main(d, cfg, 0, &CoreStatus::Idle),
+        _ => draw_main(d, cfg, 0, &CoreStatus::Idle, None),
     };
+    cab.set_close_button(true);
     cab.capture_2d(BG, render, path)
         .map_err(|e| anyhow::anyhow!(e.to_string()))
 }

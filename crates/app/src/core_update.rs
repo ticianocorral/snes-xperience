@@ -71,6 +71,7 @@ fn try_download(url: &str, dest_dir: &Path, tx: &Sender<CoreUpdateMsg>) -> Resul
         .timeout(Duration::from_secs(120))
         .build();
     let resp = agent.get(url).call().map_err(|e| e.to_string())?;
+    let etag = resp.header("ETag").map(str::to_string);
     let total = resp
         .header("Content-Length")
         .and_then(|s| s.parse::<u64>().ok());
@@ -115,5 +116,17 @@ fn try_download(url: &str, dest_dir: &Path, tx: &Sender<CoreUpdateMsg>) -> Resul
     entry.read_to_end(&mut out).map_err(|e| e.to_string())?;
 
     std::fs::create_dir_all(dest_dir).map_err(|e| e.to_string())?;
-    std::fs::write(dest_dir.join(core_file_name()), out).map_err(|e| e.to_string())
+    std::fs::write(dest_dir.join(core_file_name()), out).map_err(|e| e.to_string())?;
+    // Record what was just installed (plan revision) — the only baseline a
+    // later startup check has for "is this core stale" without
+    // re-downloading the whole zip just to find out.
+    crate::update_check::save_core_meta(
+        dest_dir,
+        &crate::update_check::CoreInstallMeta {
+            url: url.to_string(),
+            etag,
+            content_length: total,
+        },
+    );
+    Ok(())
 }
