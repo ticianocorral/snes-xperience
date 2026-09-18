@@ -445,21 +445,23 @@ fn tone_click(plat: &Platform, freq: f32) {
     std::thread::sleep(Duration::from_millis(100));
 }
 
-/// The cartridge sliding into its slot in the panel (plan revision: "criar
-/// animacao da insercao do cartucho") — a top-down wipe-reveal of the
-/// cartridge art `set_panel` already loaded (`Cabinet::set_cartridge_reveal`,
-/// see `draw_image_absolute_revealed`), eased so it starts fast and settles
-/// gently into place, with a quiet sliding hiss swelling and fading under it
-/// and a firm little seat-in click right at the end. A no-op with no
-/// cartridge art to reveal — nothing would visibly change, so it's not worth
-/// the delay. Skipped for a headless `--shot` capture by the caller
-/// (`spec.shot.is_none()`, same reasoning `power_on_burst`/`power_off_burst`
-/// don't need — there's no button to click there, so this has no live
-/// trigger to skip in the first place; the guard is really about the "plain
-/// `--shot`" mode that still runs the live loop for a few frames).
+/// The cartridge sliding into the console's slot (plan revision: "a animação
+/// deveria estar onde está o cartucho durante a gameplay, não uma
+/// transição") — played in the panel's own cartridge block (`Cabinet::
+/// set_cartridge_motion` driving `draw_panel_slot`), right where the
+/// cartridge lives for the rest of the session: the game's art drops into
+/// the slot's dark mouth with a smoothstep ease until it seats, over the
+/// signal-off CRT — a quiet sliding hiss swelling and fading underneath and
+/// a firm seat-in click right at the end. A no-op with no cartridge art to
+/// animate — the slot would sit empty. Skipped for a headless `--shot`
+/// capture by the caller (`spec.shot.is_none()`, same reasoning
+/// `power_on_burst`/`power_off_burst` don't need — there's no button to
+/// click there, so this has no live trigger to skip in the first place;
+/// the guard is really about the "plain `--shot`" mode that still runs the
+/// live loop for a few frames).
 fn cartridge_insert_animation(plat: &Platform, cab: &mut Cabinet) {
     const RATE: u32 = 22_050;
-    const SPAN: Duration = Duration::from_millis(320);
+    const SPAN: Duration = Duration::from_millis(520);
     let audio = plat.open_audio(RATE).ok();
     let frame = Duration::from_millis(16);
     let mut rng: u32 = 0x2468_ace0;
@@ -467,8 +469,7 @@ fn cartridge_insert_animation(plat: &Platform, cab: &mut Cabinet) {
 
     while start.elapsed() < SPAN {
         let t = (start.elapsed().as_secs_f32() / SPAN.as_secs_f32()).min(1.0);
-        // Ease-out: quick at first, slowing into its resting spot.
-        cab.set_cartridge_reveal(1.0 - (1.0 - t).powi(2));
+        cab.set_cartridge_motion(Some((t, false)));
         cab.present_static(OFF_STATIC_LEVEL);
 
         if let Some(a) = &audio {
@@ -487,21 +488,23 @@ fn cartridge_insert_animation(plat: &Platform, cab: &mut Cabinet) {
         }
         std::thread::sleep(frame);
     }
-    cab.set_cartridge_reveal(1.0);
+    cab.set_cartridge_motion(None);
+    cab.present_static(OFF_STATIC_LEVEL);
     tone_click(plat, 180.0);
 }
 
 /// The mirror of `cartridge_insert_animation`, played right as an
 /// already-off cartridge actually leaves (`UiEvent::Eject`'s second branch,
 /// plan revision: "criar animacao de... ejetar cartucho") — an unseat click
-/// first, then the art wipes back out top-down over the same span. Also a
+/// first, then the same panel slot in reverse: the cartridge pops up out of
+/// the mouth and rises clear of the block, easing out as it goes. Also a
 /// no-op with no cartridge art. `cab.clear_panel()` on the way to the idle
-/// screen right after drops the panel entirely, so there's no "stuck at 0"
-/// state left over to reset here.
+/// screen right after drops the panel entirely, so there's no stuck
+/// mid-motion state left over to reset here.
 fn cartridge_eject_animation(plat: &Platform, cab: &mut Cabinet) {
     tone_click(plat, 130.0);
     const RATE: u32 = 22_050;
-    const SPAN: Duration = Duration::from_millis(320);
+    const SPAN: Duration = Duration::from_millis(430);
     let audio = plat.open_audio(RATE).ok();
     let frame = Duration::from_millis(16);
     let mut rng: u32 = 0x0ff1_ce00;
@@ -509,8 +512,7 @@ fn cartridge_eject_animation(plat: &Platform, cab: &mut Cabinet) {
 
     while start.elapsed() < SPAN {
         let t = (start.elapsed().as_secs_f32() / SPAN.as_secs_f32()).min(1.0);
-        // Mirrors the insert's ease-out: slow to start, sliding out quickly.
-        cab.set_cartridge_reveal((1.0 - t).powi(2));
+        cab.set_cartridge_motion(Some((t, true)));
         cab.present_static(OFF_STATIC_LEVEL);
 
         if let Some(a) = &audio {
@@ -1234,10 +1236,11 @@ pub fn run_game(
         return Ok(GameExit::Quit);
     }
 
-    // The cartridge visibly seating in the panel (plan revision), right as
-    // the console goes from "nothing loaded" to "off, waiting for Ligar" —
-    // skipped for a `--shot` capture (dev/testing; no button was clicked to
-    // trigger it in the first place) and with no cartridge art to animate.
+    // The cartridge visibly sliding into the console's slot (plan revision),
+    // right as the console goes from "nothing loaded" to "off, waiting for
+    // Ligar" — skipped for a `--shot` capture (dev/testing; no button was
+    // clicked to trigger it in the first place) and with no cartridge art to
+    // animate.
     if spec.shot.is_none() && has_cartridge_art {
         cartridge_insert_animation(plat, cab);
     }

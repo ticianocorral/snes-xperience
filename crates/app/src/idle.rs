@@ -64,6 +64,7 @@ pub fn run(
     cab.clear_panel();
     cab.set_close_button(true);
     load_console_logo(cab);
+    load_slot_tag(cab);
     let mut notice: Option<UpdateNotice> = None;
     loop {
         if let Some(rx) = notice_rx.as_ref() {
@@ -213,6 +214,28 @@ fn decode_art(path: &Path, max: u32) -> anyhow::Result<(u32, u32, Vec<u8>)> {
     let img = image::open(path)?.thumbnail(max, max).to_rgba8();
     let (w, h) = img.dimensions();
     Ok((w, h, img.into_raw()))
+}
+
+/// The console tag wordmark printed on the slot's loading base (plan
+/// revision: "imagem console-tag deve ficar na base do cartucho, alinhado
+/// a esquerda") — an optional `assets/console-tag.png`, drawn by the slot
+/// furniture on every screen that shows the console (game panel included).
+/// A missing file or a decode failure just leaves the bare groove line.
+/// Loaded once per idle visit; the texture sticks with the cabinet through
+/// the shelf and gameplay after it.
+fn load_slot_tag(cab: &mut Cabinet) {
+    let tag_png = crate::dirs::assets_dir().join("console-tag.png");
+    if !tag_png.exists() {
+        cab.set_slot_tag(None);
+        return;
+    }
+    match decode_art(&tag_png, 1024) {
+        Ok((w, h, rgba)) => cab.set_slot_tag(Some((w, h, rgba.as_slice()))),
+        Err(e) => {
+            log::warn!("console tag {}: {e}", tag_png.display());
+            cab.set_slot_tag(None);
+        }
+    }
 }
 
 /// Same as `decode_art`, for the built-in default logo (`DEFAULT_CONSOLE_LOGO`).

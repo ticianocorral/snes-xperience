@@ -49,6 +49,10 @@ const PANEL_CARTRIDGE_IMG: u64 = u64::MAX - 4;
 /// revision — `assets/console.png`, set once via `Cabinet::set_console_logo`,
 /// not per-game).
 const PANEL_CONSOLE_LOGO_IMG: u64 = u64::MAX - 5;
+/// Reserved image-cache key for the console tag wordmark printed on the
+/// slot's loading base (plan revision — `assets/console-tag.png`, set once
+/// via `Cabinet::set_slot_tag`, not per-game).
+const SLOT_TAG_IMG: u64 = u64::MAX - 6;
 
 /// The pause book: two pages, not warped by the tube — a dedicated screen
 /// (plan §3.2/§3.4), not cabinet furniture, so it replaces the whole window
@@ -89,6 +93,30 @@ const SWITCH_TRACK_BORDER: (u8, u8, u8) = (60, 58, 64);
 const LED_ON: (u8, u8, u8) = (214, 44, 40);
 const LED_ON_HI: (u8, u8, u8) = (255, 150, 140);
 const LED_OFF: (u8, u8, u8) = (56, 26, 26);
+
+/// The panel's cartridge slot (plan revision: the reference photo — a
+/// cartridge standing upright, plugged into the console's loading base) —
+/// the in-game panel's cartridge block drawn as the console seen from the
+/// front: a solid light-grey base slab across the block's bottom with the
+/// dark slot mouth across its top edge, the cartridge standing in it.
+/// Colours are the light-grey console plastic this panel already used, plus
+/// a darker grounding edge and one groove line for the dust-shield strip
+/// (see `draw_panel_slot`).
+const SLOT_SHELL: (u8, u8, u8) = (188, 182, 170);
+const SLOT_SHELL_EDGE: (u8, u8, u8) = (146, 140, 128);
+const SLOT_BEZEL: (u8, u8, u8) = (134, 128, 117);
+const SLOT_MOUTH: (u8, u8, u8) = (16, 16, 18);
+const SLOT_RIDGE: (u8, u8, u8) = (120, 114, 104);
+
+/// The cartridge body's width as a fraction of the panel block's width —
+/// the loading base spans it all and the cart sits a shade inside it, per
+/// the user's annotated reference (the vertical red lines).
+const CART_WIDTH_FRAC: f32 = 0.98;
+/// How much of the cartridge's body stays below the slot mouth's lip when
+/// seated — a third of it, hidden inside the console, so the cart visibly
+/// *enters* the slot instead of standing on it (the horizontal red line in
+/// the same reference marks the lip where the body crosses into the slot).
+const SEAT_HIDDEN_FRAC: f32 = 0.50;
 
 /// The set's own nameplate: a small wordmark printed into the chin, left of
 /// the cartridge — a touch lighter than the cabinet plastic, like an embossed
@@ -475,14 +503,11 @@ struct PanelInfo {
     /// snippet-length by the time it gets here (see `runner::
     /// panel_text_snippet`) — the panel itself doesn't truncate anything.
     text_note: Option<String>,
-    /// How much of the cartridge art is revealed right now (plan revision:
-    /// "criar animacao da insercao do cartucho e ejetar cartucho") — 1.0
-    /// (fully shown) except during the brief top-down wipe `runner`'s
-    /// insert/eject animations drive via `Cabinet::set_cartridge_reveal`.
-    /// Always 1.0 outside of those, so every screen that doesn't know about
-    /// the animation (dev-shot previews included) still shows the art
-    /// exactly as it always has.
-    cartridge_reveal: f32,
+    /// Insert/eject progress for the panel's cartridge slot (plan revision)
+    /// — `None` is the resting seated state every normal frame draws;
+    /// `Some((t, ejecting))` while `runner`'s animation drives it, drawn by
+    /// `draw_panel_slot`. Reset to `None` by `set_panel`.
+    cartridge_motion: Option<(f32, bool)>,
 }
 
 /// What the shelf's flat side panel shows for the currently-selected game
@@ -550,6 +575,36 @@ struct ImgTex {
     tex: Texture,
     w: u32,
     h: u32,
+    /// The opaque content's bounding box inside the texture, in texture
+    /// pixels — the art's transparent margins excluded (`content_bbox`).
+    /// The cartridge slot scene fits and seats the cartridge by this box, so
+    /// the cart's actual body — not its empty canvas — spans the base and
+    /// meets the slot mouth.
+    content: (u32, u32, u32, u32),
+}
+
+/// The bounding box of pixels with any alpha, in texture pixels — an
+/// image-sized box when the art has no transparency at all. Scans at most
+/// one pass over the RGBA buffer (art textures are loaded once).
+fn content_bbox(w: u32, h: u32, rgba: &[u8]) -> (u32, u32, u32, u32) {
+    let (mut min_x, mut min_y) = (w, h);
+    let (mut max_x, mut max_y) = (0u32, 0u32);
+    let mut seen = false;
+    for y in 0..h {
+        for x in 0..w {
+            if rgba[((y * w + x) * 4 + 3) as usize] > 16 {
+                seen = true;
+                min_x = min_x.min(x);
+                max_x = max_x.max(x);
+                min_y = min_y.min(y);
+                max_y = max_y.max(y);
+            }
+        }
+    }
+    if !seen {
+        return (0, 0, w, h);
+    }
+    (min_x, min_y, max_x - min_x + 1, max_y - min_y + 1)
 }
 
 impl Cabinet {
@@ -751,19 +806,10 @@ impl Cabinet {
             note_count: 0,
             has_note_thumb: false,
             text_note: None,
-            cartridge_reveal: 1.0,
+            // Seated in the slot until `runner`'s insert animation says
+            // otherwise (it runs right after this).
+            cartridge_motion: None,
         });
-    }
-
-    /// Drive the cartridge insert/eject animation (plan revision) — 0.0 is
-    /// fully hidden, 1.0 fully shown, mid-values wipe from the top down (see
-    /// `draw_image_absolute_revealed`). `runner`'s two animation functions
-    /// are the only callers; every other frame drawn leaves this at the
-    /// `set_panel` default of 1.0. A no-op before `set_panel`.
-    pub fn set_cartridge_reveal(&mut self, reveal: f32) {
-        if let Some(panel) = &mut self.panel {
-            panel.cartridge_reveal = reveal;
-        }
     }
 
     /// Refresh the command legend's labels (plan revision: a "(feito!)"
@@ -812,6 +858,21 @@ impl Cabinet {
     pub fn set_console_logo(&mut self, logo: Option<(u32, u32, &[u8])>) {
         if let Some((w, h, rgba)) = logo {
             self.set_image(PANEL_CONSOLE_LOGO_IMG, w, h, rgba);
+        }
+    }
+
+    /// The console tag wordmark printed on the slot's loading base (plan
+    /// revision: "imagem console-tag... na base do cartucho, alinhado a
+    /// esquerda") — `assets/console-tag.png`, loaded once by the app and
+    /// drawn by `draw_slot_furniture` on every screen that shows the slot.
+    /// `None` removes a previously loaded tag (file gone), leaving the bare
+    /// groove line.
+    pub fn set_slot_tag(&mut self, tag: Option<(u32, u32, &[u8])>) {
+        match tag {
+            Some((w, h, rgba)) => self.set_image(SLOT_TAG_IMG, w, h, rgba),
+            None => {
+                self.images.remove(&SLOT_TAG_IMG);
+            }
         }
     }
 
@@ -1376,7 +1437,8 @@ impl Cabinet {
         }
         tex.set_blend_mode(BlendMode::Blend);
         tex.set_scale_mode(SdlScaleMode::Linear);
-        self.images.insert(id, ImgTex { tex, w, h });
+        let content = content_bbox(w, h, rgba);
+        self.images.insert(id, ImgTex { tex, w, h, content });
     }
 
     /// Draw a 2D frame: `draw` renders into a screen-sized buffer (coords
@@ -1606,6 +1668,21 @@ impl Cabinet {
         self.bezel = Some(bezel);
         outcome.map_err(|e| PlatformError::Sdl(e.to_string()))?;
         saved
+    }
+
+    /// Drive the panel's cartridge slot animation (plan revision: "a
+    /// animação deveria estar onde está o cartucho durante a gameplay, não
+    /// uma transição"). `Some((t, ejecting))` animates the cartridge art in
+    /// the panel's own cartridge block — `t` 0.0..=1.0 progress, `ejecting`
+    /// mirrors the motion (see `draw_panel_slot`); every `present_static`/
+    /// gameplay frame while this is set draws that progress. `None` is the
+    /// resting state — the cartridge seated in the slot, which is also what
+    /// `set_panel` starts with. A no-op before `set_panel`; `runner`'s two
+    /// animation functions are the only callers.
+    pub fn set_cartridge_motion(&mut self, motion: Option<(f32, bool)>) {
+        if let Some(panel) = &mut self.panel {
+            panel.cartridge_motion = motion;
+        }
     }
 
     /// Like [`Cabinet::frame_2d`], but blended up from residual signal-off snow
@@ -2167,64 +2244,261 @@ fn draw_image_absolute(
     bw: u32,
     bh: u32,
 ) {
-    draw_image_absolute_revealed(canvas, images, id, Rect::new(x, y, bw, bh), 1.0);
-}
-
-/// Like `draw_image_absolute`, but only the top `reveal` fraction (0.0..=1.0)
-/// of the image is drawn — the cartridge insert/eject animations' only hook
-/// (plan revision: "criar animacao da insercao do cartucho e ejetar
-/// cartucho"), driven by `PanelInfo::cartridge_reveal`. Crops the *source*
-/// texture rather than clipping the destination, so it composes fine inside
-/// an already-active viewport without touching shared clip-rect state.
-/// `reveal >= 1.0` (the overwhelming majority of calls, via
-/// `draw_image_absolute` above) draws the whole thing, same as before this
-/// existed. `bx` bundles what used to be separate `x, y, bw, bh` arguments
-/// (clippy's too-many-arguments limit — same reasoning `TextStyle` below
-/// exists for).
-fn draw_image_absolute_revealed(
-    canvas: &mut WindowCanvas,
-    images: &HashMap<u64, ImgTex>,
-    id: u64,
-    bx: Rect,
-    reveal: f32,
-) {
     let Some(img) = images.get(&id) else {
         return;
     };
-    if reveal <= 0.0 {
-        return;
-    }
-    let (src, dst) = reveal_rects(img.w, img.h, bx, reveal);
-    let _ = canvas.copy(&img.tex, src, dst);
-}
-
-/// The source/destination rects `draw_image_absolute_revealed` copies with —
-/// factored out so the crop arithmetic is unit-testable without a real
-/// canvas/texture. `iw, ih` is the source texture's own size, `bx` the box
-/// it's fit into (centered, aspect preserved, same as `draw_image_absolute`
-/// always did). At `reveal >= 1.0` the source is the whole texture, same as
-/// before this existed; below that, both rects keep only their top
-/// `reveal` fraction, anchored at `bx`'s own top edge.
-fn reveal_rects(iw: u32, ih: u32, bx: Rect, reveal: f32) -> (Rect, Rect) {
-    let reveal = reveal.clamp(0.0, 1.0);
-    let (iwf, ihf) = (iw as f32, ih as f32);
-    let scale = (bx.width() as f32 / iwf).min(bx.height() as f32 / ihf);
+    let (iwf, ihf) = (img.w as f32, img.h as f32);
+    let scale = (bw as f32 / iwf).min(bh as f32 / ihf);
     let dw = (iwf * scale).round() as i32;
     let dh = (ihf * scale).round() as i32;
-    let dx = bx.x() + (bx.width() as i32 - dw) / 2;
-    let dy = bx.y() + (bx.height() as i32 - dh) / 2;
-    if reveal >= 1.0 {
-        return (
-            Rect::new(0, 0, iw, ih),
-            Rect::new(dx, dy, dw.max(1) as u32, dh.max(1) as u32),
+    let dx = x + (bw as i32 - dw) / 2;
+    let dy = y + (bh as i32 - dh) / 2;
+    let _ = canvas.copy(
+        &img.tex,
+        None,
+        Rect::new(dx, dy, dw.max(1) as u32, dh.max(1) as u32),
+    );
+}
+
+/// The panel's cartridge slot, in panel-local pixels: the in-game panel's
+/// cartridge block drawn as the console seen from the front — the loading
+/// base as a solid slab across the block's bottom (`panel_slot_base`) with
+/// the dark slot mouth across its top edge (`panel_slot_mouth`) — so the
+/// game's cartridge art stands visibly *plugged into* the console at rest,
+/// and `runner`'s insert/eject animation plays right there (plan revision:
+/// the reference photo — a cartridge standing upright, seated in the
+/// console's base). Pure geometry, so the motion math in
+/// `panel_cartridge_rects` stays unit-testable without a canvas.
+///
+/// The cartridge enters the frame from above and sinks into the mouth,
+/// which occludes everything past its top edge — the clip trick that keeps
+/// the seated cartridge's base hidden inside the console.
+fn panel_slot_base(block: Rect) -> Rect {
+    let bh = (block.height() as f32 * 0.40).round() as u32;
+    Rect::new(
+        block.x(),
+        block.bottom() - bh.max(1) as i32,
+        block.width(),
+        bh.max(1),
+    )
+}
+
+/// The slot opening: a dark band across the base's top edge, near the base's
+/// full width — where the cartridge enters and below which it is never
+/// drawn. Its top edge is the clip line the cartridge art is drawn against.
+fn panel_slot_mouth(block: Rect, base: Rect) -> Rect {
+    Rect::new(
+        block.x() + 4,
+        base.y() + 2,
+        block.width().saturating_sub(8).max(1),
+        8.min(base.height().saturating_sub(2)).max(1),
+    )
+}
+
+/// Where the cartridge sprite is at progress `t` (0.0..=1.0) of the insert
+/// — or, with `ejecting`, the mirrored eject — inside the panel's cartridge
+/// block. `iw, ih` is the art texture's own size and `content` its opaque
+/// bounding box (`ImgTex::content`): the fit and the seating key off the
+/// *content*, not the canvas, so the cart's actual body spans the base's
+/// full width and its visible base sits right at the slot mouth — no float
+/// gap from transparent margins (plan revision: the user's annotated
+/// screenshot). Returns the full-texture destination rect plus the clip
+/// rect the caller must draw it under (the block's area above the mouth's
+/// top edge, so whatever has passed the lip is hidden). At `t = 1.0`
+/// (insert done, or eject at 0.0) the cart is seated: content base just
+/// past the mouth's lip, label standing proud of the console.
+fn panel_cartridge_rects(
+    t: f32,
+    ejecting: bool,
+    block: Rect,
+    mouth: Rect,
+    iw: u32,
+    ih: u32,
+    content: (u32, u32, u32, u32),
+) -> (Rect, Rect) {
+    let t = t.clamp(0.0, 1.0);
+    // Insert eases in with a smoothstep (gentle start, slides home, settles);
+    // eject mirrors it as an out-quad pop — quick off the seat, slowing as it
+    // rises clear.
+    let e = if ejecting {
+        1.0 - (1.0 - t) * (1.0 - t)
+    } else {
+        t * t * (3.0 - 2.0 * t)
+    };
+    // 0.0 = entirely above the block, 1.0 = seated in the slot.
+    let p = if ejecting { 1.0 - e } else { e };
+    let (cx, cy, cw, ch) = content;
+    let (cw, ch) = (cw.max(1), ch.max(1));
+    // Fit the cart's body to the annotated width — a shade inside the base's
+    // full span — bounded by the standing space: seated, a whole
+    // `SEAT_HIDDEN_FRAC` of the body stays below the lip (hidden inside the
+    // console), so the content's top must keep a 2px margin inside the
+    // block: ch*scale*(1-frac) ≤ top_room-2.
+    let top_room = (mouth.y() - block.y()).max(1) as f32;
+    let scale = (block.width() as f32 * CART_WIDTH_FRAC / cw as f32)
+        .min((top_room - 2.0) / (ch as f32 * (1.0 - SEAT_HIDDEN_FRAC)));
+    let scale = scale.max(0.01);
+    let w = ((iw as f32) * scale).round().max(1.0) as u32;
+    let h = ((ih as f32) * scale).round().max(1.0) as u32;
+    // Centre the *content* on the block — the transparent margins may be
+    // asymmetric, so the canvas rect itself can sit off-centre.
+    let x = block.x() + block.width() as i32 / 2
+        - ((cx as f32 + cw as f32 / 2.0) * scale).round() as i32;
+    let content_bottom_in_dst = (cy as f32 + ch as f32) * scale;
+    // Seated: the cart's base reaches `hidden` pixels past the lip — the
+    // clip trims everything below the mouth's edge, so that much of the
+    // body is visibly inside the console. Enter: the content fully above
+    // the block, the slot empty.
+    let hidden = SEAT_HIDDEN_FRAC * ch as f32 * scale;
+    let seated_top = mouth.y() as f32 + hidden - content_bottom_in_dst;
+    let enter_top = block.y() as f32 - content_bottom_in_dst;
+    let top = enter_top + (seated_top - enter_top) * p;
+    let dst = Rect::new(x, top.round() as i32, w, h);
+    let clip = Rect::new(
+        block.x(),
+        block.y(),
+        block.width(),
+        (mouth.y() - block.y()).max(1) as u32,
+    );
+    (dst, clip)
+}
+
+/// Draw the slot's console furniture into `block`: the loading base as a
+/// light-grey slab across the block's bottom (a darker grounding line along
+/// its bottom edge), the bezel ring and near-black mouth across the base's
+/// top edge, and — on the base face, left-aligned — the console tag
+/// wordmark when one is loaded (`SLOT_TAG_IMG`, plan revision: "imagem
+/// console-tag... na base do cartucho, alinhado a esquerda"), a bare
+/// dust-shield groove otherwise. Shared by the game panel's seated
+/// cartridge (`draw_panel_slot`) and the idle screen's insert button
+/// (`draw_idle_slot`). Returns the mouth rect — the lip line where a
+/// cartridge crosses into the console.
+fn draw_slot_furniture(
+    canvas: &mut WindowCanvas,
+    images: &HashMap<u64, ImgTex>,
+    block: Rect,
+) -> Rect {
+    let fill = |canvas: &mut WindowCanvas, color: (u8, u8, u8), r: Rect| {
+        canvas.set_draw_color(Color::RGB(color.0, color.1, color.2));
+        let _ = canvas.fill_rect(r);
+    };
+    let base = panel_slot_base(block);
+    let mouth = panel_slot_mouth(block, base);
+
+    fill(canvas, SLOT_SHELL, base);
+    fill(
+        canvas,
+        SLOT_SHELL_EDGE,
+        Rect::new(
+            base.x(),
+            base.bottom() - 3,
+            base.width(),
+            3.min(base.height()).max(1),
+        ),
+    );
+
+    let bezel = Rect::new(
+        mouth.x() - 3,
+        mouth.y() - 3,
+        mouth.width() + 6,
+        mouth.height() + 6,
+    );
+    fill(canvas, SLOT_BEZEL, bezel);
+    fill(canvas, SLOT_MOUTH, mouth);
+
+    // The free strip of base face between the opening and the grounding
+    // edge — the tag's home when one is loaded, the bare groove otherwise.
+    let zone_top = mouth.bottom() + 8;
+    let zone_bottom = base.bottom() - 6;
+    let zone_h = (zone_bottom - zone_top).max(1) as f32;
+    if let Some(tag) = images.get(&SLOT_TAG_IMG) {
+        // Fit the wordmark's opaque body into the strip, left-aligned on the
+        // base with a 10px margin, capped so it stays a badge — not a
+        // billboard — even on wide panels.
+        let (tcx, tcy, tcw, tch) = tag.content;
+        let (tcw, tch) = (tcw.max(1), tch.max(1));
+        let max_h = zone_h.min((base.width() as f32 * 0.16).min(44.0));
+        let scale = (max_h / tch as f32).min(((base.width() - 20).max(1)) as f32 / tcw as f32);
+        let tw = (tcw as f32 * scale).round().max(1.0) as u32;
+        let th = (tch as f32 * scale).round().max(1.0) as u32;
+        let src = Rect::new(tcx as i32, tcy as i32, tcw.min(tag.w), tch.min(tag.h));
+        let dst = Rect::new(
+            base.x() + 10,
+            zone_top + ((zone_h - th as f32) / 2.0).round() as i32,
+            tw,
+            th,
+        );
+        let _ = canvas.copy(&tag.tex, src, dst);
+    } else {
+        fill(
+            canvas,
+            SLOT_RIDGE,
+            Rect::new(
+                base.x() + 10,
+                zone_top + 6,
+                base.width().saturating_sub(20),
+                3,
+            ),
         );
     }
-    let visible_sh = ((ihf * reveal).round() as u32).clamp(1, ih);
-    let visible_dh = (((dh as f32) * reveal).round() as u32).max(1);
-    (
-        Rect::new(0, 0, iw, visible_sh),
-        Rect::new(dx, dy, dw.max(1) as u32, visible_dh),
-    )
+    mouth
+}
+
+/// Draw the panel's cartridge block as the console seen from the front,
+/// with the game's cartridge art standing in its slot (plan revision —
+/// the reference photo: cartridge upright, plugged into the loading base,
+/// the base keeping the light-grey plastic colours this panel already
+/// used). `t`/`ejecting` come from `PanelInfo::cartridge_motion` (`None`
+/// outside the animation means seated, i.e. `t = 1.0`): the cartridge
+/// drops into the mouth on insert and back up out of it on eject, right
+/// where the cartridge always lives during gameplay. Requires
+/// `PANEL_CARTRIDGE_IMG` to be loaded — `draw_panel` only calls this under
+/// `has_cartridge`.
+fn draw_panel_slot(
+    canvas: &mut WindowCanvas,
+    images: &HashMap<u64, ImgTex>,
+    block: Rect,
+    t: f32,
+    ejecting: bool,
+) {
+    let mouth = draw_slot_furniture(canvas, images, block);
+
+    let Some(art) = images.get(&PANEL_CARTRIDGE_IMG) else {
+        return;
+    };
+    let (dst, clip) = panel_cartridge_rects(t, ejecting, block, mouth, art.w, art.h, art.content);
+    // Everything below the mouth's top edge is "inside the console" — the
+    // clip seats the cartridge into the slot instead of drawing over it.
+    // Reset right after, like every other shared-state user here.
+    canvas.set_clip_rect(Some(clip));
+    let _ = canvas.copy(&art.tex, None, dst);
+    canvas.set_clip_rect(None);
+}
+
+/// The idle screen's cartridge block: the same console furniture the game
+/// panel draws (plan revision: "na tela inicial... mostrar como se fosse a
+/// tela do jogo, porem no lugar do cartucho inserido, mostrar botão
+/// inserir cartucho") — but with the slot empty and a compact "Inserir
+/// cartucho" button centred in the standing area where a seated cartridge
+/// would be. Returns the button's rect as the clickable area
+/// (`PanelButton::Insert`).
+fn draw_idle_slot(
+    canvas: &mut WindowCanvas,
+    images: &HashMap<u64, ImgTex>,
+    font: &mut Texture,
+    block: Rect,
+    label: &str,
+) -> Rect {
+    let mouth = draw_slot_furniture(canvas, images, block);
+    let btn_w = (block.width() as f32 * 0.7).round() as u32;
+    let btn_h = (GLYPH_H as i32 * 2 + 16) as u32;
+    let btn = Rect::new(
+        block.x() + (block.width() as i32 - btn_w as i32) / 2,
+        block.y() + 6 + ((mouth.y() - block.y() - 12 - btn_h as i32) / 2).max(0),
+        btn_w,
+        btn_h,
+    );
+    draw_button(canvas, font, btn, label, true)
 }
 
 /// Scale + colour for one of the absolute-coordinate text helpers below —
@@ -2354,12 +2628,16 @@ fn draw_panel(
     let Some(panel) = panel else {
         // Idle/root screen == the "cartridge ejected" screen (plan revision:
         // one screen, not two — startup, backing out of the shelf, and
-        // ejecting a game all land here). Same two slots a loaded game uses
-        // (logo, then cartridge art) with idle-appropriate stand-ins: the
-        // console's own brand logo where a game's logo would sit, "Inserir
-        // cartucho" where its cartridge art would sit. No command legend —
-        // there's nothing loaded to command — and Configuracoes moves to the
-        // footer, the same spot the session clock uses during play.
+        // ejecting a game all land here). Same slots a loaded game uses
+        // (logo, then the cartridge block) with idle-appropriate stand-ins:
+        // the console's own brand logo where a game's logo would sit, and
+        // the cartridge block drawn as the same console slot — with an
+        // "Inserir cartucho" button standing where a seated cartridge would
+        // (plan revision: "na tela inicial... mostrar como se fosse a tela
+        // do jogo, porem no lugar do cartucho inserido, mostrar botão
+        // inserir cartucho"). No command legend — there's nothing loaded to
+        // command — and Configuracoes moves to the footer, the same spot
+        // the session clock uses during play.
         let mut cy = if images.contains_key(&PANEL_CONSOLE_LOGO_IMG) {
             draw_image_absolute(canvas, images, PANEL_CONSOLE_LOGO_IMG, x, y, inner_w, 110);
             y + 110
@@ -2375,9 +2653,54 @@ fn draw_panel(
             )
         };
         cy += 8;
-        const INSERT_H: u32 = 150;
-        let insert = Rect::new(x, cy, inner_w, INSERT_H);
-        let insert_drawn = draw_button(canvas, font, insert, "Inserir cartucho", true);
+        // Same footprint as the game panel's cartridge block, so backing out
+        // of the shelf or ejecting lands on a panel shaped exactly like the
+        // gameplay one.
+        const INSERT_H: u32 = 230;
+        let insert_block = Rect::new(x, cy, inner_w, INSERT_H);
+        let insert_drawn = draw_idle_slot(canvas, images, font, insert_block, "Inserir cartucho");
+        cy += INSERT_H as i32;
+
+        // The console's own controls, the same geometry the game panel
+        // draws (plan revision: "é como se fosse a tela do jogo mesmo") —
+        // everything dim, there's no cartridge loaded to command. Purely
+        // decorative here, so none of them get hit targets.
+        const SWITCH_TRACK_H: i32 = 64;
+        const SWITCH_GROUP_H: i32 = SWITCH_TRACK_H + 4 + GLYPH_H as i32;
+        let footer_h = (GLYPH_H + 12) as i32;
+        let limit = rect.bottom() - pad - footer_h;
+        if cy + SWITCH_GROUP_H <= limit {
+            cy += 14;
+            let gap = 10i32;
+            let eject_w = (GLYPH_W as i32) * "EJETAR".len() as i32 + 16;
+            let switch_w = ((inner_w as i32 - gap * 2 - eject_w) / 2).max(1);
+            let eject_w = (inner_w as i32 - gap * 2 - switch_w * 2).max(eject_w);
+            let power_track = Rect::new(x, cy, switch_w as u32, SWITCH_TRACK_H as u32);
+            let eject_rect = Rect::new(
+                x + switch_w + gap,
+                cy + SWITCH_TRACK_H - (GLYPH_H as i32 + 6),
+                eject_w as u32,
+                GLYPH_H + 6,
+            );
+            let reset_track = Rect::new(
+                x + switch_w + gap + eject_w + gap,
+                cy,
+                switch_w as u32,
+                SWITCH_TRACK_H as u32,
+            );
+            draw_rocker(canvas, font, power_track, "POWER", false, false);
+            draw_button(canvas, font, eject_rect, "EJETAR", false);
+            draw_rocker(canvas, font, reset_track, "RESET", false, false);
+            let led_size = 16;
+            let led_top = cy + (eject_rect.y() - cy - led_size) / 2;
+            draw_led(
+                canvas,
+                eject_rect.x() + eject_rect.width() as i32 / 2,
+                led_top,
+                led_size,
+                false,
+            );
+        }
 
         let btn_h = (GLYPH_H + 12) as i32;
         let settings = Rect::new(x, rect.bottom() - pad - btn_h, inner_w, btn_h as u32);
@@ -2407,17 +2730,20 @@ fn draw_panel(
     };
 
     // 1b. Cartridge art (plan revision) — independent of the logo, drawn
-    // right below whichever of the two just ran. `cartridge_reveal` is 1.0
-    // outside of `runner`'s brief insert/eject wipe animation.
+    // right below whichever of the two just ran. The block is the console's
+    // loading slot itself (`draw_panel_slot`): the cartridge sits seated in
+    // it at rest, and the insert/eject animation plays right here — where
+    // the cartridge lives during gameplay, not as a screen transition.
     if panel.has_cartridge {
         cy += 8;
-        const CARTRIDGE_H: u32 = 210;
-        draw_image_absolute_revealed(
+        const CARTRIDGE_H: u32 = 220;
+        let (t, ejecting) = panel.cartridge_motion.unwrap_or((1.0, false));
+        draw_panel_slot(
             canvas,
             images,
-            PANEL_CARTRIDGE_IMG,
             Rect::new(x, cy, inner_w, CARTRIDGE_H),
-            panel.cartridge_reveal,
+            t,
+            ejecting,
         );
         cy += CARTRIDGE_H as i32;
     }
@@ -3914,35 +4240,105 @@ fn build_font_atlas(canvas: &mut WindowCanvas) -> Result<Texture, PlatformError>
 
 #[cfg(test)]
 mod tests {
-    use super::{fit_aspect_in, reveal_rects, screen_area, wrapped_height, GLYPH_H};
+    use super::{
+        fit_aspect_in, panel_cartridge_rects, panel_slot_base, panel_slot_mouth, screen_area,
+        wrapped_height, CART_WIDTH_FRAC, GLYPH_H, SEAT_HIDDEN_FRAC,
+    };
     use sdl3::rect::Rect;
 
     #[test]
-    fn reveal_rects_at_1_shows_the_whole_source_image() {
-        let (src, dst) = reveal_rects(200, 100, Rect::new(10, 20, 200, 100), 1.0);
-        assert_eq!(src, Rect::new(0, 0, 200, 100));
-        assert_eq!(dst, Rect::new(10, 20, 200, 100));
+    fn panel_slot_base_and_mouth_nest_in_the_block() {
+        let block = Rect::new(40, 100, 320, 210);
+        let base = panel_slot_base(block);
+        let mouth = panel_slot_mouth(block, base);
+        // The base is a full-width slab at the block's bottom edge; the
+        // mouth sits inside it, near the base's top.
+        assert_eq!(base.width(), block.width());
+        assert_eq!(base.bottom(), block.bottom());
+        assert!(base.y() > block.y());
+        assert!(mouth.x() >= base.x() && mouth.right() <= base.right());
+        assert!(mouth.y() >= base.y() && mouth.bottom() <= base.bottom());
+        // Never collapses on a sliver of a block.
+        let b = panel_slot_base(Rect::new(0, 0, 4, 4));
+        let m = panel_slot_mouth(Rect::new(0, 0, 4, 4), b);
+        assert!(b.width() >= 1 && m.width() >= 1 && m.height() >= 1);
     }
 
     #[test]
-    fn reveal_rects_at_half_keeps_only_the_top_half() {
-        let (src, dst) = reveal_rects(200, 100, Rect::new(10, 20, 200, 100), 0.5);
-        // Source: top half of the texture's own rows.
-        assert_eq!(src, Rect::new(0, 0, 200, 50));
-        // Destination: same top-left corner as the full box, half the height.
-        assert_eq!(dst.x(), 10);
-        assert_eq!(dst.y(), 20);
-        assert_eq!(dst.height(), 50);
+    fn panel_cartridge_enters_from_above_and_seats_in_the_slot() {
+        let block = Rect::new(40, 100, 320, 270);
+        let base = panel_slot_base(block);
+        let mouth = panel_slot_mouth(block, base);
+        // t=0: entirely above the block — the clip (block top .. mouth top)
+        // shows nothing yet, the slot sits empty.
+        let (r0, c0) = panel_cartridge_rects(0.0, false, block, mouth, 700, 500, (0, 0, 700, 500));
+        assert!(r0.bottom() <= block.y());
+        assert_eq!(c0.y(), block.y());
+        assert_eq!(c0.height() as i32, mouth.y() - block.y());
+        // t=1: seated — the content's base is past the mouth's top edge
+        // (hidden by the clip) while the label stays inside the block,
+        // standing proud of the console.
+        let (r1, _) = panel_cartridge_rects(1.0, false, block, mouth, 700, 500, (0, 0, 700, 500));
+        assert!(r1.bottom() >= mouth.y());
+        assert!(r1.top() >= block.y());
     }
 
     #[test]
-    fn reveal_rects_never_collapses_to_a_zero_sized_rect() {
-        // A tiny non-zero reveal still has to produce something `canvas.copy`
-        // can draw — an SDL rect of height 0 is at best a no-op, at worst a
-        // rejected call.
-        let (src, dst) = reveal_rects(200, 100, Rect::new(0, 0, 200, 100), 0.001);
-        assert!(src.height() >= 1);
-        assert!(dst.height() >= 1);
+    fn panel_cartridge_seats_by_content_not_canvas() {
+        let block = Rect::new(40, 100, 320, 270);
+        let base = panel_slot_base(block);
+        let mouth = panel_slot_mouth(block, base);
+        // Art with fat transparent margins (like the real scans): the fit
+        // and the seating key off the opaque body, not the canvas — the
+        // body spans the annotated width inside the base and its base meets
+        // the mouth, with no float gap.
+        let content = (100u32, 50u32, 500u32, 400u32);
+        let (r1, _) = panel_cartridge_rects(1.0, false, block, mouth, 700, 500, content);
+        let scale = (block.width() as f32 * CART_WIDTH_FRAC / 500.0)
+            .min(((mouth.y() - block.y() - 2) as f32) / (400.0 * (1.0 - SEAT_HIDDEN_FRAC)));
+        // The content's centre sits on the block's centre.
+        let content_cx = r1.x() as f32 + (100.0 + 250.0) * scale;
+        assert!((content_cx - (block.x() + block.width() as i32 / 2) as f32).abs() <= 1.0);
+        // Seated: the content's base is just past the lip, its top inside
+        // the block.
+        let content_bottom = r1.y() as f32 + (50.0 + 400.0) * scale;
+        let hidden = SEAT_HIDDEN_FRAC * 400.0 * scale;
+        assert!((content_bottom - (mouth.y() as f32 + hidden)).abs() <= 1.0);
+        assert!(r1.y() as f32 + 50.0 * scale >= block.y() as f32);
+        // Entering: the content is entirely above the block.
+        let (r0, _) = panel_cartridge_rects(0.0, false, block, mouth, 700, 500, content);
+        assert!(r0.y() as f32 + 450.0 * scale <= block.y() as f32 + 0.5);
+    }
+
+    #[test]
+    fn content_bbox_finds_the_opaque_region() {
+        // 4x3 image: only the middle row's middle two pixels are opaque.
+        let mut rgba = vec![0u8; 4 * 3 * 4];
+        for (x, y) in [(1usize, 1usize), (2, 1)] {
+            rgba[(y * 4 + x) * 4 + 3] = 255;
+        }
+        assert_eq!(super::content_bbox(4, 3, &rgba), (1, 1, 2, 1));
+        // A fully opaque image gets the full canvas; a fully transparent
+        // one falls back to it too (no empty box to fit).
+        let solid = vec![255u8; 2 * 2 * 4];
+        assert_eq!(super::content_bbox(2, 2, &solid), (0, 0, 2, 2));
+        assert_eq!(super::content_bbox(2, 2, &[0u8; 2 * 2 * 4]), (0, 0, 2, 2));
+    }
+
+    #[test]
+    fn panel_cartridge_eject_mirrors_insert_exactly() {
+        let block = Rect::new(40, 100, 320, 270);
+        let base = panel_slot_base(block);
+        let mouth = panel_slot_mouth(block, base);
+        // Eject at t=0 continues from insert's t=1 spot (seated either way),
+        // and ends where insert began (entirely above the block, gone).
+        let (seated_insert, _) =
+            panel_cartridge_rects(1.0, false, block, mouth, 700, 500, (0, 0, 700, 500));
+        let (seated_eject, _) =
+            panel_cartridge_rects(0.0, true, block, mouth, 700, 500, (0, 0, 700, 500));
+        assert_eq!(seated_insert, seated_eject);
+        let (risen, _) = panel_cartridge_rects(1.0, true, block, mouth, 700, 500, (0, 0, 700, 500));
+        assert!(risen.bottom() <= block.y());
     }
 
     #[test]
