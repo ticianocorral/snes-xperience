@@ -25,12 +25,6 @@ const NOTICE_MARGIN: i32 = 40;
 /// console settles on after powering off, `runner::OFF_STATIC_LEVEL`).
 pub const RESTING_STATIC: f32 = crate::runner::OFF_STATIC_LEVEL;
 
-/// The app's own default idle-screen logo, baked into the binary so it shows
-/// out of the box — a real `assets/console.png` still overrides it, same
-/// "local file wins over anything built in" convention per-game art already
-/// follows (cover/logo/cartridge).
-const DEFAULT_CONSOLE_LOGO: &[u8] = include_bytes!("../assets/console_logo.png");
-
 /// What the player did on the idle screen.
 pub enum IdleExit {
     /// Window closed / Cmd-Q, or Esc — this is the root screen, so both end
@@ -63,8 +57,7 @@ pub fn run(
     // cartucho" button, and there'd be nothing to click.
     cab.clear_panel();
     cab.set_close_button(true);
-    load_console_logo(cab);
-    load_slot_tag(cab);
+    crate::console_art::load_brand_images(cab);
     let mut notice: Option<UpdateNotice> = None;
     loop {
         if let Some(rx) = notice_rx.as_ref() {
@@ -162,7 +155,7 @@ fn draw_notice(d: &mut Screen, lines: &[String]) {
 /// one frame captured through the tube instead of a live loop.
 pub fn capture_preview(cab: &mut Cabinet, static_level: f32, path: &Path) -> Result<()> {
     cab.clear_panel();
-    load_console_logo(cab);
+    crate::console_art::load_brand_images(cab);
     cab.capture_static_bmp(static_level, path)
         .map_err(|e| anyhow::anyhow!(e.to_string()))
 }
@@ -174,75 +167,4 @@ pub fn capture_notice_preview(cab: &mut Cabinet, notice: &UpdateNotice, path: &P
     let render = |d: &mut Screen| draw_notice(d, &lines);
     cab.capture_2d(NOTICE_BG, render, path)
         .map_err(|e| anyhow::anyhow!(e.to_string()))
-}
-
-/// The console's own brand logo: a local `assets/console.png` overrides the
-/// app's built-in default (plan revision — same "local file wins" convention
-/// per-game art already follows), used whenever that file isn't there.
-/// Either way a decode failure just falls back to plain text (`draw_panel`'s
-/// idle branch handles that part) rather than a hard error over a logo image.
-fn load_console_logo(cab: &mut Cabinet) {
-    let console_png = crate::dirs::assets_dir().join("console.png");
-    let console_logo = if console_png.exists() {
-        match decode_art(&console_png, 640) {
-            Ok(img) => Some(img),
-            Err(e) => {
-                log::warn!("console logo {}: {e}", console_png.display());
-                None
-            }
-        }
-    } else {
-        match decode_default_logo(640) {
-            Ok(img) => Some(img),
-            Err(e) => {
-                log::warn!("built-in console logo: {e}");
-                None
-            }
-        }
-    };
-    cab.set_console_logo(
-        console_logo
-            .as_ref()
-            .map(|(w, h, d)| (*w, *h, d.as_slice())),
-    );
-}
-
-/// Decode `assets/console.png` to tightly-packed RGBA, downscaled for memory
-/// — same helper shape as `runner::decode_art`/`shelf::decode_art`, just for
-/// this screen's one fixed (not per-game) image.
-fn decode_art(path: &Path, max: u32) -> anyhow::Result<(u32, u32, Vec<u8>)> {
-    let img = image::open(path)?.thumbnail(max, max).to_rgba8();
-    let (w, h) = img.dimensions();
-    Ok((w, h, img.into_raw()))
-}
-
-/// The console tag wordmark printed on the slot's loading base (plan
-/// revision: "imagem console-tag deve ficar na base do cartucho, alinhado
-/// a esquerda") — an optional `assets/console-tag.png`, drawn by the slot
-/// furniture on every screen that shows the console (game panel included).
-/// A missing file or a decode failure just leaves the bare groove line.
-/// Loaded once per idle visit; the texture sticks with the cabinet through
-/// the shelf and gameplay after it.
-fn load_slot_tag(cab: &mut Cabinet) {
-    let tag_png = crate::dirs::assets_dir().join("console-tag.png");
-    if !tag_png.exists() {
-        cab.set_slot_tag(None);
-        return;
-    }
-    match decode_art(&tag_png, 1024) {
-        Ok((w, h, rgba)) => cab.set_slot_tag(Some((w, h, rgba.as_slice()))),
-        Err(e) => {
-            log::warn!("console tag {}: {e}", tag_png.display());
-            cab.set_slot_tag(None);
-        }
-    }
-}
-
-/// Same as `decode_art`, for the built-in default logo (`DEFAULT_CONSOLE_LOGO`).
-fn decode_default_logo(max: u32) -> anyhow::Result<(u32, u32, Vec<u8>)> {
-    let img = image::load_from_memory(DEFAULT_CONSOLE_LOGO)?
-        .thumbnail(max, max)
-        .to_rgba8();
-    let (w, h) = img.dimensions();
-    Ok((w, h, img.into_raw()))
 }
