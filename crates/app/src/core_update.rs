@@ -54,9 +54,9 @@ pub enum CoreUpdateMsg {
 }
 
 /// Download `url` and unzip the core into `dest_dir/core_file_name()`,
-/// reporting progress on `tx`. Meant to run on a background thread (the same
-/// spawn + `mpsc` + per-frame `try_recv()` pattern `shelf.rs` used for the
-/// old ScreenScraper worker) — a `.call()`/full read can take a few seconds.
+/// reporting progress on `tx`. Meant to run on a background thread (the app's
+/// standard spawn + `mpsc` + per-frame `try_recv()` pattern) — a
+/// `.call()`/full read can take a few seconds.
 pub fn download_and_install(url: &str, dest_dir: &Path, tx: &Sender<CoreUpdateMsg>) {
     let msg = match try_download(url, dest_dir, tx) {
         Ok(()) => CoreUpdateMsg::Done,

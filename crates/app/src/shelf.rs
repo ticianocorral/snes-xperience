@@ -4,9 +4,9 @@
 //! navigation only (plan revision: no keyboard shortcuts, so type-to-search
 //! is gone too — except for the shelf's own title filter, the one deliberate
 //! exception, same as the pause book's free-text note). Cover/logo art is
-//! local — dropped by hand into `assets/cover/`/`assets/logo/` (plan §4.3, no
-//! more ScreenScraper) — matched by the ROM's file name and decoded lazily as
-//! tiles scroll into view. The details panel itself is drawn flat by
+//! local — dropped by hand into `assets/cover/`/`assets/logo/` (plan §4.3) —
+//! matched by the ROM's file name (peeling variant tags down to the base
+//! name) and decoded lazily as tiles scroll into view. The details panel itself is drawn flat by
 //! `Cabinet` (plan revision: "o painel nao pode estar dentro da TV") —
 //! outside the tube's warp, like the in-game side panel — so this module only
 //! ever lays out the grid inside `Cabinet::shelf_screen_size`.

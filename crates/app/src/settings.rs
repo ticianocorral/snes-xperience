@@ -255,9 +255,8 @@ pub fn run(plat: &mut Platform, cab: &mut Cabinet, cfg: &mut Config) -> Result<b
 /// Kick off a background download of the snes9x core (plan: "opção pra
 /// baixar o snes9x... e opção de update do núcleo" — one action serves both,
 /// the buildbot only ever serves "latest"). No-op while one is already in
-/// flight. Same thread + `mpsc` shape `shelf.rs` used for the old
-/// ScreenScraper worker — `settings::run`'s loop drains it with `try_recv()`
-/// every frame, same as there.
+/// flight. The standard background-thread + `mpsc` shape of this app —
+/// `settings::run`'s loop drains it with `try_recv()` every frame.
 fn start_core_download(status: &mut CoreStatus, worker: &mut Option<Receiver<CoreUpdateMsg>>) {
     if matches!(status, CoreStatus::Downloading { .. }) {
         return;
