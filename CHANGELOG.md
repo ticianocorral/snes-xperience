@@ -9,6 +9,8 @@ aviso — só o incremento de _minor_ marca um conjunto de mudanças.
 
 ## [Não lançado]
 
+## [0.10.0] - 2026-09-18
+
 ### Adicionado
 
 - **Rolagem no painel da estante quando o conteúdo não cabe** — back
