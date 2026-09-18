@@ -222,10 +222,6 @@ fn pick_play(
 /// Whether `entry`'s title matches a filter query — empty matches everything,
 /// otherwise a case-insensitive substring test (plan revision: "colocar
 /// filtro para facilitar o encontro dos games na lista").
-fn matches_filter(entry: &CatalogEntry, query: &str) -> bool {
-    query.is_empty() || entry.title().to_lowercase().contains(&query.to_lowercase())
-}
-
 /// The panel's own file/play facts (plan revision: "o painel... muito
 /// vazio") — always available straight from the scan (or, for `playtime_
 /// secs`, from the per-game sidecar `runner::total_playtime_secs` already
@@ -512,6 +508,14 @@ pub fn run(
     let mut editing_filter = false;
     let frame = Duration::from_millis(16);
     let mut frame_no = 0u64;
+    // The filtered/sorted listings are rebuilt only when the applied filter
+    // changes (and once up front) — re-sorting ~700 entries with fresh String
+    // allocations at 60fps was the shelf's biggest per-frame cost. While the
+    // player is still TYPING, `filter_draft` moves but `filter_query` doesn't,
+    // so typing doesn't rebuild either.
+    let mut applied_filter: Option<String> = None;
+    let mut view: Vec<&CatalogEntry> = Vec::new();
+    let mut recent: Vec<&CatalogEntry> = Vec::new();
     cab.set_close_button(true);
 
     // Frames left in the "entering over the static" ease-in (§3.3), if any.
@@ -528,28 +532,33 @@ pub fn run(
         // The general listing is always alphabetical (plan revision) — the
         // recent strip above it already covers "what did I just play",
         // freeing this one up to just be a plain, predictable A-Z browse.
-        let mut view: Vec<&CatalogEntry> = all
-            .iter()
-            .filter(|e| matches_filter(e, &filter_query))
-            .collect();
-        view.sort_by_key(|e| e.title().to_lowercase());
+        if applied_filter.as_deref() != Some(filter_query.as_str()) {
+            let query_lc = filter_query.to_lowercase();
+            view = all
+                .iter()
+                .filter(|e| e.title().to_lowercase().contains(&query_lc))
+                .collect();
+            view.sort_by_key(|e| e.title().to_lowercase());
+            // The recent strip only makes sense browsing the unfiltered
+            // shelf — once a search narrows things, the whole point is
+            // finding a specific game, not re-surfacing what was just
+            // played.
+            recent = if filter_query.is_empty() {
+                let mut r: Vec<&CatalogEntry> = all
+                    .iter()
+                    .filter(|e| e.rom.last_played_at.is_some())
+                    .collect();
+                r.sort_by_key(|e| std::cmp::Reverse(e.rom.last_played_at.unwrap_or(0)));
+                r.truncate(RECENT_MAX);
+                r
+            } else {
+                Vec::new()
+            };
+            applied_filter = Some(filter_query.clone());
+        }
         if sel >= view.len() {
             sel = view.len().saturating_sub(1);
         }
-        // The recent strip only makes sense browsing the unfiltered shelf —
-        // once a search narrows things, the whole point is finding a
-        // specific game, not re-surfacing what was just played.
-        let recent: Vec<&CatalogEntry> = if filter_query.is_empty() {
-            let mut r: Vec<&CatalogEntry> = all
-                .iter()
-                .filter(|e| e.rom.last_played_at.is_some())
-                .collect();
-            r.sort_by_key(|e| std::cmp::Reverse(e.rom.last_played_at.unwrap_or(0)));
-            r.truncate(RECENT_MAX);
-            r
-        } else {
-            Vec::new()
-        };
         let show_recent = !recent.is_empty();
         if recent_idx >= recent.len() {
             recent_idx = recent.len().saturating_sub(1);
@@ -737,31 +746,52 @@ pub fn run(
         }
 
         // Local art for whatever just scrolled into view — no network, no
-        // worker thread, so this can just happen inline. Each sha1 is tried
-        // at most once per visit, whether or not a file turns up.
+        // worker thread, so this happens inline, capped at ONE decode per
+        // frame: scrolling a full page fills over a dozen frames instead of
+        // hitching on dozens of JPEG decodes in a single one. Each sha1 is
+        // tried at most once per visit, whether or not a file turns up; a
+        // tile whose budget ran out simply waits for the next frame.
+        let mut decode_budget = 1usize;
         for (i, entry) in view.iter().enumerate() {
             if grid.cell_pos(i, top_row).is_none() {
                 continue;
             }
             let id = cover_id(&entry.rom.sha1);
-            if !cab.has_image(id) && tried_cover.insert(entry.rom.sha1.clone()) {
-                if let Some(path) = find_local_art(&cover_dir, &entry.rom.path) {
-                    if let Ok((w, h, rgba)) = decode_art(&path) {
-                        cab.set_image(id, w, h, &rgba);
-                    }
+            if cab.has_image(id) {
+                continue;
+            }
+            if decode_budget == 0 {
+                break;
+            }
+            if !tried_cover.insert(entry.rom.sha1.clone()) {
+                continue;
+            }
+            if let Some(path) = find_local_art(&cover_dir, &entry.rom.path) {
+                if let Ok((w, h, rgba)) = decode_art(&path) {
+                    cab.set_image(id, w, h, &rgba);
+                    decode_budget -= 1;
                 }
             }
         }
         // The recent strip sits outside the main grid's scroll window, so it
         // needs its own pass — a recently-played game might not be among the
-        // rows currently visible below.
+        // rows currently visible below. Same one-decode-per-frame cap.
+        let mut recent_budget = 1usize;
         for entry in &recent {
+            if recent_budget == 0 {
+                break;
+            }
             let id = cover_id(&entry.rom.sha1);
-            if !cab.has_image(id) && tried_cover.insert(entry.rom.sha1.clone()) {
-                if let Some(path) = find_local_art(&cover_dir, &entry.rom.path) {
-                    if let Ok((w, h, rgba)) = decode_art(&path) {
-                        cab.set_image(id, w, h, &rgba);
-                    }
+            if cab.has_image(id) {
+                continue;
+            }
+            if !tried_cover.insert(entry.rom.sha1.clone()) {
+                continue;
+            }
+            if let Some(path) = find_local_art(&cover_dir, &entry.rom.path) {
+                if let Ok((w, h, rgba)) = decode_art(&path) {
+                    cab.set_image(id, w, h, &rgba);
+                    recent_budget -= 1;
                 }
             }
         }
@@ -832,7 +862,7 @@ pub fn run(
                 let mut info = nointro;
                 info.extend(game_info_lines(e, playtime));
                 ShelfPanelInfo {
-                    title: e.title(),
+                    title: e.title().into_owned(),
                     logo_img: cab.has_image(wid).then_some(wid),
                     cartridge_img: cab.has_image(cid).then_some(cid),
                     backcover_img: cab.has_image(bid).then_some(bid),

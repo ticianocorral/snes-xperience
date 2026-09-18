@@ -3,6 +3,7 @@
 //! times it's been played. No database: the app is portable, everything it
 //! needs lives in plain files next to it (`xperience_app::dirs`).
 
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::cmp::Reverse;
 use std::collections::HashMap;
@@ -111,20 +112,32 @@ pub struct CatalogEntry {
     pub rom: RomRow,
 }
 
+impl RomRow {
+    /// The game's display title — No-Intro name when the DAT resolved one,
+    /// the internal header name otherwise, the file stem as a last resort.
+    /// `Cow` so the common cases borrow instead of allocating a `String` per
+    /// call (this is on the shelf's per-frame sort/filter paths).
+    pub fn title(&self) -> Cow<'_, str> {
+        if let Some(n) = &self.nointro_name {
+            return Cow::Borrowed(n);
+        }
+        if let Some(n) = &self.internal_name {
+            return Cow::Borrowed(n);
+        }
+        Cow::Owned(
+            Path::new(&self.path)
+                .file_stem()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_else(|| self.path.clone()),
+        )
+    }
+}
+
 impl CatalogEntry {
     /// Best display name: No-Intro canonical, else the SNES header's
     /// internal title, else the file stem.
-    pub fn title(&self) -> String {
-        if let Some(n) = &self.rom.nointro_name {
-            return n.clone();
-        }
-        if let Some(n) = &self.rom.internal_name {
-            return n.clone();
-        }
-        Path::new(&self.rom.path)
-            .file_stem()
-            .map(|s| s.to_string_lossy().into_owned())
-            .unwrap_or_else(|| self.rom.path.clone())
+    pub fn title(&self) -> Cow<'_, str> {
+        self.rom.title()
     }
 }
 
@@ -157,10 +170,15 @@ impl Catalog {
     /// scan` step was a manual one, so a corrected title is there from the
     /// shelf's first frame (plan: "já colocar com o nome certo").
     pub fn open(roms_dir: &Path, store_path: &Path, dat: Option<&NoIntroDat>) -> Result<Self> {
-        let scanned = library::scan(roms_dir).map_err(|source| CatalogError::Scan {
-            path: roms_dir.display().to_string(),
-            source,
-        })?;
+        // The hash cache rides next to this sidecar: a warm boot with an
+        // unchanged `roms/` folder skips re-reading/re-hashing every ROM.
+        let hashcache_path = store_path.with_file_name("hashcache.json");
+        let mut hash_cache = library::HashCache::load(&hashcache_path);
+        let scanned =
+            library::scan_with(roms_dir, &mut hash_cache).map_err(|source| CatalogError::Scan {
+                path: roms_dir.display().to_string(),
+                source,
+            })?;
         let persisted = load_store(store_path)?;
         let now = now();
         let mut entries: Vec<RomRow> = scanned
@@ -193,6 +211,7 @@ impl Catalog {
             })
             .collect();
         entries.sort_by(|a, b| a.path.cmp(&b.path));
+        hash_cache.save(&hashcache_path);
         Ok(Self {
             store_path: store_path.to_path_buf(),
             entries: RefCell::new(entries),
@@ -220,9 +239,7 @@ impl Catalog {
                     Reverse(r.added_at),
                 )
             }),
-            Order::Name => {
-                rows.sort_by_key(|r| CatalogEntry { rom: r.clone() }.title().to_lowercase())
-            }
+            Order::Name => rows.sort_by_cached_key(|r| r.title().to_lowercase()),
         }
         Ok(rows.into_iter().map(|rom| CatalogEntry { rom }).collect())
     }

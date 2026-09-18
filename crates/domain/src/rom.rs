@@ -7,8 +7,7 @@
 use std::fs;
 use std::path::Path;
 
-use md5::{Digest, Md5};
-use sha1::Sha1;
+use sha1::{Digest, Sha1};
 
 #[derive(Debug, Clone)]
 pub struct RomId {
@@ -17,7 +16,6 @@ pub struct RomId {
     /// Headerless payload length in bytes.
     pub rom_len: usize,
     pub crc32: String,
-    pub md5: String,
     pub sha1: String,
     /// 21-byte title from the SNES internal header, trimmed. Best-effort.
     pub internal_name: Option<String>,
@@ -25,7 +23,7 @@ pub struct RomId {
     pub mapper: Mapper,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Mapper {
     LoRom,
     HiRom,
@@ -67,7 +65,6 @@ impl RomId {
         crc.update(rom);
         let crc32 = format!("{:08X}", crc.finalize());
 
-        let md5 = format!("{:x}", Md5::digest(rom));
         let sha1 = format!("{:x}", Sha1::digest(rom));
 
         let (mapper, internal_name) = read_internal_header(rom);
@@ -76,7 +73,6 @@ impl RomId {
             header_len,
             rom_len: rom.len(),
             crc32,
-            md5,
             sha1,
             internal_name,
             mapper,
