@@ -4,65 +4,44 @@ Emulador de SNES portátil com um console inteiro desenhado na tela —
 gabinete, tubo CRT e painel de controle de verdade — em vez de só uma
 janela com o jogo. Projeto pessoal, sem fins comerciais.
 
-![Painel lateral com logo, cartucho, chaves Power/Reset e comandos, tela rodando Street Fighter II Turbo](docs/img/screenshot.png)
+![Jogo rodando no tubo CRT com o painel lateral: logo, cartucho no slot e controles](docs/img/screenshot.png)
 
-## Funcionalidades
+## Como funciona
 
-- **Gabinete e tubo CRT de verdade**: filtro NTSC RF + moldura em volta da
-  tela, travada em 16:9 (faixas pretas nas laterais num monitor ultrawide,
-  em vez de esticar a imagem). Abre em tela cheia por padrão (desligável em
-  Configurações), com um botão de fechar no canto superior esquerdo — não
-  precisa da barra de título do sistema pra sair do app.
-- **Painel lateral estilo console**: logo, back cover e arte de cartucho do
-  jogo (rolam com botões "Cima"/"Baixo" quando não cabem juntos), Power e
-  Reset desenhados como chaves gangorra roxas — Power alterna de verdade
-  (liga/desliga e retoma de onde parou), Reset é momentâneo (sobe e desce
-  sozinho) — com Ejetar entre as duas, que só solta o cartucho com o
-  console desligado.
-- **Escolher um jogo insere o cartucho com animação** (desliza revelando
-  a arte, com um clique de encaixe) — o console não liga sozinho, igual ao
-  hardware de verdade; você clica Power quando quiser começar. Ejetar (com
-  o console desligado) faz o inverso.
-- **Estante com filtro de busca, "jogados recentemente" e histórico**:
-  digite pra filtrar por título; uma faixa acima da grade mostra os
-  últimos 5 jogos jogados; um botão "Histórico" lista todos os jogos com
-  tempo registrado, do mais jogado pro menos jogado.
-- **Tempo de jogo por jogo e por sessão**: o painel mostra quanto tempo
-  cada jogo já foi jogado no total (só contando com o console ligado, não
-  o tempo parado na tela de estática).
-- **Ano e editora de fábrica, sem precisar de DAT nenhum**: uma tabela
-  embutida no binário (derivada do [TOSEC](https://www.tosecdev.org/), só
-  os dois fatos — nunca o nome/descrição catalogados; ver
-  `THIRD-PARTY-NOTICES.md`) cobre a maioria das ROMs de SNES de saída; um
-  DAT No-Intro carregado tem prioridade quando concorda com a mesma
-  informação.
-- **Renomear ROMs para o padrão No-Intro**, um botão em Configurações —
-  usa o CRC32 contra o `nointro.dat` carregado; move save/anotação/cheat/
-  tempo de jogo e capa/logo/cartucho local associados junto, pra nada
-  ficar órfão.
-- **Só mouse e gamepad**: nenhum comando do console (power, reset, save
-  state, notas, menus...) usa teclado. A única exceção é escrever uma
-  anotação, que por natureza precisa de teclado; o D-pad/botões do próprio
-  SNES continuam por teclado por padrão pra quem joga sem controle.
-- **Anotacoes**: pausa o jogo e abre um livro de duas páginas — de um lado
-  o interruptor de cada cheat curado e um editor de texto livre (até 240
-  caracteres); do outro, 15 slots fixos de captura de tela por jogo, cada
-  um podendo ser **fixado** (evita sobrescrita) e **nomeado**.
-- **Printscreen, Salvar e Carregar abrem uma modal** pra escolher o slot
-  (e, no print, dar um nome) em vez de um contador pra clicar antes — sem
-  precisar entrar na tela de anotações pra isso.
-- **App portátil, sem instalação**: sem banco de dados nenhum — tudo em
-  pastas ao lado do executável (`roms/`, `core/`, `assets/`, `saves/`,
-  `notes/`), ou em `~/Documents/SNES Xperience` no macOS; `saves/` e
-  `notes/` organizam por jogo (`<pasta>/<título>/...`, nomes de arquivo
-  simples), não por hash da ROM.
-- **Sem raspagem online**: capa, logo, back cover e arte de cartucho vêm
-  de imagens que você mesmo solta em `assets/`; o nome canônico do jogo
-  vem de um DAT [No-Intro](https://datomatic.no-intro.org/) local
-  opcional.
-- **Núcleo baixa sozinho**: o `snes9x_libretro` vem do buildbot oficial do
-  libretro, direto do menu de configurações — não precisa procurar/copiar
-  o arquivo à mão.
+- **Escolher um jogo insere o cartucho de verdade**: a tela inicial é o
+  console com o slot vazio e um botão "Inserir cartucho"; o jogo entra na
+  estante, o cartucho desce e assenta no slot (gif abaixo), e o console só
+  liga quando você clicar em Power — igual ao hardware.
+- **Cartucho entra e sai com animação** no painel, com clique de encaixe e
+  de destravamento:
+
+![Cartucho entrando e saindo do slot do console](docs/img/cartucho.gif)
+
+- **Painel de console de verdade**: logo e back cover do jogo, chaves
+  Power/Reset roxas (Power retoma de onde parou; Reset é momentâneo) e
+  Ejetar, que só solta o cartucho com o console desligado.
+- **Tubo CRT de verdade**: filtro NTSC RF, travado em 16:9, tela cheia por
+  padrão (desligável) e botão de fechar no canto — sem barra de título.
+- **Estante com busca, "jogados recentemente" e histórico**, com tempo de
+  jogo por jogo (só contando com o console ligado) e por sessão.
+- **Ano e editora de fábrica, sem DAT nenhum**: tabela embutida no binário
+  (derivada do [TOSEC](https://www.tosecdev.org/)); um DAT
+  [No-Intro](https://datomatic.no-intro.org/) local tem prioridade quando
+  concorda, e um botão em Configurações renomeia as ROMs para o padrão
+  No-Intro movendo save/anotação/arte junto.
+- **Anotações**: pausa o jogo e abre um livro de duas páginas — cheats
+  curados ligados por checklist, nota de texto livre e 15 slots de captura
+  de tela fixáveis e nomeáveis. Printscreen/Salvar/Carregar abrem modais
+  próprios.
+- **Só mouse e gamepad** para tudo; a única exceção é escrever uma
+  anotação, que precisa de teclado por natureza.
+- **Portátil, sem banco de dados e sem raspagem online**: tudo em pastas
+  ao lado do executável (`roms/`, `core/`, `assets/`, `saves/`, `notes/`)
+  — capa, logo, cartucho, contracapa e o wordmark do console
+  (`console-tag.png`) vêm de imagens suas; o core snes9x baixa sozinho pelo
+  menu de configurações.
+
+![Tela inicial: console com o slot vazio, botão de inserir e controles apagados](docs/img/inicial.png)
 
 ## Baixar
 
@@ -72,39 +51,28 @@ aba [Releases](https://github.com/ticianocorral/snes-xperience/releases).
 
 ## Jogar
 
-Na primeira execução o app cria sozinho as pastas `roms/`, `core/`,
-`assets/{cover,logo,cartridge,backcover}/`, `saves/`, `notes/` e o arquivo
-`xperience.cfg`. Coloque suas ROMs em `roms/` e o core do snes9x
-(`snes9x_libretro.dylib`/`.so`/`.dll`) em `core/` — ou baixe-o direto pelo
-menu de configurações, se preferir.
+Na primeira execução o app cria sozinho as pastas em `~/Documents/SNES
+Xperience` (no macOS; no Windows/Linux, ao lado do executável). Coloque
+suas ROMs em `roms/` e o core do snes9x em `core/` — ou baixe-o direto
+pelo menu de configurações.
 
 ```bash
 cargo run --bin xperience
 ```
 
-Abre na tela inicial (que também é a tela de "cartucho ejetado" — a mesma
-depois de voltar da estante ou ejetar um jogo); clique em "Inserir
-cartucho" pra abrir a estante. Sem capa nenhuma em `assets/cover/`, a
-estante vira uma lista numerada; solte um `<nome-da-rom>.png` (mesmo nome
-do arquivo, sem extensão) em `assets/cover/`, `assets/logo/`,
-`assets/cartridge/` ou `assets/backcover/` pra dar capa/logo/cartucho/
-contracapa a um jogo — capas são desenhadas em paisagem, arte de frente
-horizontal.
-
-Um `nointro.dat` (DAT XML do No-Intro, "Nintendo - Super Nintendo
-Entertainment System") na raiz do app dá o nome canônico do jogo em vez
-do nome interno do cabeçalho ou do arquivo — opcional, baixe você mesmo,
-o app não busca isso sozinho.
+Clique em "Inserir cartucho" para abrir a estante. Solte um
+`<nome-da-rom>.png` (mesmo nome do arquivo, sem extensão) em
+`assets/{cover,logo,cartridge,backcover}/` para dar arte a um jogo — capas
+são desenhadas em paisagem. Um `nointro.dat` (DAT XML do No-Intro) na raiz
+do app dá o nome canônico dos jogos — opcional, baixe você mesmo.
 
 ## Compilar
 
 Precisa de Rust estável e do SDL3.
 
 ```bash
-# macOS
-brew install sdl3
-cargo build
-cargo test
+brew install sdl3   # macOS
+cargo build && cargo test
 ```
 
 Sem SDL3 no sistema, compile-o junto (precisa de CMake + toolchain C):
@@ -113,8 +81,7 @@ Sem SDL3 no sistema, compile-o junto (precisa de CMake + toolchain C):
 cargo build --features xperience-platform/vendored-sdl
 ```
 
-`emu-run` roda uma ROM solta sem o resto do app (idle/estante/config) —
-útil pra testar o core isoladamente:
+`emu-run` roda uma ROM solta sem o resto do app:
 
 ```bash
 cargo run --bin emu-run -- --core caminho/snes9x_libretro.dylib --rom jogo.sfc
@@ -127,31 +94,22 @@ Nenhum core ou ROM é distribuído com o projeto — ver
 
 Quatro camadas, dependências só para baixo:
 
-| Camada       | Crate                  | Responsabilidade                                                                          |
-| ------------ | ---------------------- | ------------------------------------------------------------------------------------------ |
-| Apresentação | `xperience-app`        | binários (`xperience`, `emu-run`, `selector`) + `runner`/`shelf`/`settings`/`core_update`/`rom_rename`/`update_check`   |
-| Domínio      | `xperience-domain`     | identificação de ROM, catálogo (JSON, sem banco), nomeação por DAT No-Intro, ano/editora embutidos (TOSEC)                 |
-| Emulação     | `xperience-emulation`  | core libretro carregado em runtime, laço de execução                                       |
-| Plataforma   | `xperience-platform`   | SDL3: o `Cabinet` (janela única — gabinete, tubo CRT, seletor), áudio, gamepad              |
+| Camada       | Crate                 | Responsabilidade                                                        |
+| ------------ | --------------------- | ----------------------------------------------------------------------- |
+| Apresentação | `xperience-app`       | binários (`xperience`, `emu-run`, `selector`) + `runner`/`shelf`/`settings` |
+| Domínio      | `xperience-domain`    | identificação de ROM, catálogo (JSON), DAT No-Intro, TOSEC               |
+| Emulação     | `xperience-emulation` | core libretro carregado em runtime, laço de execução                     |
+| Plataforma   | `xperience-platform`  | SDL3: o `Cabinet` (gabinete, tubo CRT, painel), áudio, gamepad           |
 
 `xperience-ntsc` é um crate folha à parte (o `snes_ntsc` do blargg,
-vendorizado). A camada de emulação não sabe que existe uma moldura; a de
-plataforma não conhece o core.
-
-Para o histórico completo de implementação, fase a fase, ver
+vendorizado). Para o histórico completo de implementação, ver
 [`docs/plano-emulador-moldura.md`](docs/plano-emulador-moldura.md) e
 `docs/fase-0.md` … `docs/fase-4.md`.
 
-## Versionamento
+## Versionamento e licenças
 
-Segue [SemVer 2.0.0](https://semver.org/lang/pt-BR/). Todo o workspace
-compartilha uma versão (`[workspace.package]` em `Cargo.toml`); cada
-release é uma tag `vX.Y.Z` e um item no [`CHANGELOG.md`](CHANGELOG.md).
-Enquanto for `0.x`, a API das crates e as flags de linha de comando podem
-mudar entre _minors_.
-
-## Licenças de terceiros
-
-Ver [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md). Ao distribuir um
-binário que carrega o core do snes9x, o texto da licença dele precisa
-acompanhar.
+[SemVer 2.0.0](https://semver.org/lang/pt-BR/): todo o workspace
+compartilha uma versão (`[workspace.package]` em `Cargo.toml`), cada
+release é uma tag `vX.Y.Z` e um item no
+[`CHANGELOG.md`](CHANGELOG.md). Licenças de terceiros em
+[`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md).

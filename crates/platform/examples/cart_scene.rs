@@ -70,11 +70,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         (w, h, rgba)
     });
-    // Optional third argument: the console tag as a raw file (same format),
-    // drawn on the slot's loading base like `assets/console-tag.png` does.
+    // Optional third/fourth arguments: the console tag and the idle brand
+    // logo as raw files (same format) — the real `assets/console-tag.png`
+    // and `assets/console.png` in the app.
     if let Some(tag_arg) = std::env::args().nth(3) {
         if let Some((tw, th, trgba)) = load_raw(&tag_arg) {
             cab.set_slot_tag(Some((tw, th, trgba.as_slice())));
+        }
+    }
+    if let Some(logo_arg) = std::env::args().nth(4) {
+        if let Some((lw, lh, lrgba)) = load_raw(&logo_arg) {
+            cab.set_console_logo(Some((lw, lh, lrgba.as_slice())));
         }
     }
     cab.set_panel(
@@ -84,22 +90,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &[(PanelButton::Power, "Ligar".into())],
     );
 
-    for (t, ejecting) in [
-        (0.0f32, false),
-        (0.25, false),
-        (0.5, false),
-        (0.75, false),
-        (1.0, false),
-        (0.25, true),
-        (0.5, true),
-        (0.75, true),
-        (1.0, true),
-    ] {
-        cab.set_cartridge_motion(Some((t, ejecting)));
-        let kind = if ejecting { "eject" } else { "insert" };
-        let name = out.join(format!("{kind}_{:02}.bmp", (t * 100.0) as i32));
-        cab.capture_static_bmp(0.0, &name)?;
-        println!("{}", name.display());
+    // 5% steps for both motions — dense enough to assemble a smooth GIF.
+    for ejecting in [false, true] {
+        for i in 0..=20usize {
+            let t = i as f32 / 20.0;
+            cab.set_cartridge_motion(Some((t, ejecting)));
+            let kind = if ejecting { "eject" } else { "insert" };
+            let name = out.join(format!("{kind}_{:02}.bmp", (t * 100.0) as i32));
+            cab.capture_static_bmp(0.0, &name)?;
+        }
+        println!("{} frames ok", if ejecting { "eject" } else { "insert" });
     }
 
     // The idle screen: panel dropped, the same slot block with the

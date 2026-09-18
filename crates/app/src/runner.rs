@@ -1108,6 +1108,18 @@ pub fn run_game(
         })
     };
     let logo_img = decode_panel_art(&spec.logo, "logo");
+    // Console tag wordmark on the slot's base (plan revision) — the same
+    // optional `assets/console-tag.png` the idle screen loads; reloaded here
+    // so a direct `emu-run`/game launch shows it too, file-gone removes it.
+    let tag_path = crate::dirs::assets_dir().join("console-tag.png");
+    let slot_tag = tag_path
+        .is_file()
+        .then(|| decode_art(&tag_path, 1024))
+        .transpose()
+        .map_err(|e| log::warn!("console tag {}: {e}", tag_path.display()))
+        .ok()
+        .flatten();
+    cab.set_slot_tag(slot_tag.as_ref().map(|(w, h, d)| (*w, *h, d.as_slice())));
     let cartridge_img = decode_panel_art(&spec.cartridge, "cartridge");
     let has_cartridge_art = cartridge_img.is_some();
     cab.set_panel(
