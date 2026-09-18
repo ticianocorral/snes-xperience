@@ -9,6 +9,15 @@ aviso — só o incremento de _minor_ marca um conjunto de mudanças.
 
 ## [Não lançado]
 
+## [0.11.1] - 2026-09-18
+
+### Documentação
+
+- README reescrito e enxuto, com capturas novas: gameplay real rodando no
+  CRT, tela inicial e um gif do cartucho entrando e saindo do slot do
+  console. As capturas saem headless (`emu-run --shot` e o exemplo
+  `cart_scene`), e o runner também carrega a `console-tag.png` agora.
+
 ## [0.11.0] - 2026-09-18
 
 ### Adicionado
