@@ -376,6 +376,10 @@ pub enum ShelfButton {
     /// art/info overflows the panel; see `draw_shelf_panel`.
     PanelScrollUp,
     PanelScrollDown,
+    /// The focused game's back cover, drawn in the panel — clicking it opens
+    /// the enlarged view (plan revision: "ao clicar no back cover
+    /// possibilitar mostrar em tamanho maior, com botão de fechar").
+    Backcover,
 }
 
 /// The pause book: `captures` is the fixed slot count (plan revision, 15),
@@ -1851,6 +1855,66 @@ impl Cabinet {
         let _ = nt.tex.update(None, &self.noise, (NW * 4) as usize);
     }
 
+    /// The back cover enlarged (plan revision: "ao clicar no back cover
+    /// possibilitar mostrar em tamanho maior, com botão de fechar"): the
+    /// image aspect-preserved as large as the window allows over a dark
+    /// backdrop, with a "Fechar" button centred right below it. Returns the
+    /// button's rect as the click target — everything else on screen is
+    /// inert while this is up.
+    pub fn frame_image_zoom(&mut self, id: u64, label: &str) -> Rect {
+        let (real_w, real_h) = self.canvas.output_size().unwrap_or((1280, 800));
+        let canvas_rect = cabinet_canvas_rect(real_w, real_h);
+        self.canvas_rect = canvas_rect;
+
+        let Self {
+            canvas,
+            font,
+            images,
+            ..
+        } = self;
+        let images = &*images;
+        canvas.set_draw_color(Color::RGB(8, 8, 9));
+        canvas.clear();
+        canvas.set_viewport(Some(canvas_rect));
+
+        // The image, aspect-preserved, in the largest centred area that
+        // still leaves room for the close button below it.
+        let btn_h = GLYPH_H as i32 + 12;
+        let area = Rect::new(
+            canvas_rect.x() + 80,
+            canvas_rect.y() + 36,
+            canvas_rect.width().saturating_sub(160),
+            canvas_rect
+                .height()
+                .saturating_sub(36 + 40 + btn_h as u32 + 16)
+                .max(60),
+        );
+        let img = images.get(&id);
+        let (iw, ih) = img.map(|t| (t.w, t.h)).unwrap_or((16, 9));
+        let scale =
+            (area.width() as f32 / iw.max(1) as f32).min(area.height() as f32 / ih.max(1) as f32);
+        let dw = ((iw as f32) * scale).round().max(1.0) as u32;
+        let dh = ((ih as f32) * scale).round().max(1.0) as u32;
+        let dx = area.x() + (area.width() as i32 - dw as i32) / 2;
+        let dy = area.y() + (area.height() as i32 - dh as i32) / 2;
+        if let Some(t) = img {
+            let _ = canvas.copy(&t.tex, None, Rect::new(dx, dy, dw, dh));
+        }
+
+        let btn_w = (GLYPH_W as i32 * label.chars().count() as i32) + 28;
+        let btn = Rect::new(
+            canvas_rect.x() + (canvas_rect.width() as i32 - btn_w) / 2,
+            area.y() + area.height() as i32 + 16,
+            btn_w as u32,
+            btn_h as u32,
+        );
+        draw_button(canvas, font, btn, label, true);
+
+        canvas.set_viewport(None);
+        canvas.present();
+        btn
+    }
+
     /// Render `draw` into the screen buffer. Shared by `frame_2d` / `capture_2d`.
     fn paint_2d<F: FnOnce(&mut Screen)>(&mut self, bg: (u8, u8, u8), draw: F) {
         let (real_w, real_h) = self.canvas.output_size().unwrap_or((1280, 720));
@@ -3140,8 +3204,20 @@ fn draw_shelf_panel(
         if cy + h > body_limit {
             break;
         }
+        let block_top = cy;
         cy = draw_panel_block(canvas, font, images, x, cy, inner_w, block);
         shown += 1;
+        // The back cover is clickable (plan revision: "ao clicar no back
+        // cover possibilitar mostrar em tamanho maior, com botão de
+        // fechar") — outline it as the affordance and hand the hit rect up.
+        if let (PanelBlock::Image(id, _), Some(bc)) = (block, panel.backcover_img) {
+            if *id == bc {
+                let hit = Rect::new(x, block_top, inner_w, h.max(1) as u32);
+                canvas.set_draw_color(Color::RGBA(240, 200, 80, 150));
+                let _ = canvas.draw_rect(hit);
+                buttons.push((ShelfButton::Backcover, hit));
+            }
+        }
     }
 
     if scrollable {
