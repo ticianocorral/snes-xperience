@@ -9,6 +9,39 @@ aviso — só o incremento de _minor_ marca um conjunto de mudanças.
 
 ## [Não lançado]
 
+## [0.12.0] - 2026-09-19
+
+### Adicionado
+
+- **Clique na contracapa abre a imagem ampliada** — no painel da estante,
+  a contracapa (com contorno sutil de affordance) abre em tamanho maior na
+  tela inteira, com botão "Fechar"; a ampliada re-decodifica o arquivo em
+  resolução cheia para ficar nítida.
+- **Marca do console embutida no binário** — `console.png` (logo da tela
+  inicial) e `console-tag.png` (wordmark na base do slot) vão dentro do
+  executável; os arquivos em `assets/` viram override opcional, e um
+  override quebrado cai para a embutida em vez de sumir.
+- **Exemplo headless da cena do cartucho** — `cargo run -p
+  xperience-platform --example cart_scene` renderiza o encaixe com arte
+  real em BMPs, sem abrir janela.
+
+### Alterado
+
+- **Steam Deck (1280×800, 16:10) usa a resolução nativa** — o gabinete não
+  fica mais travado em 16:9: displays na faixa 16:10..16:9 desenham o
+  gabinete na tela inteira (um pouco mais alto, tubo maior); ultrawide
+  mantém o letterbox 16:9 documentado.
+- **Performance** (fases 1-4 da análise): a estante não re-ordena nem
+  realoca a lista a 60fps (cache por filtro, títulos pré-calculados); as
+  capas decodificam no máximo uma por frame (scroll sem engasgo); o boot
+  tem cache de hash por (caminho, tamanho, mtime) em `hashcache.json` —
+  acervo inalterado não relê nem re-hasheia ROM nenhuma; a tela de estática
+  reusa a malha CRT cacheada, regenera o ruído a ~30Hz, e o ruído não
+  para o laço; MD5 removido da identificação (nunca era usado); pacing
+  híbrido (sleep + spin curto) nos quatro laços.
+- **README resumido** com capturas novas (gameplay, tela inicial) e um gif
+  da animação do cartucho.
+
 ## [0.11.1] - 2026-09-18
 
 ### Documentação
