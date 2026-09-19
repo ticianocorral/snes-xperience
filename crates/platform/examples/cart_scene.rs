@@ -26,7 +26,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(&out)?;
 
     let plat = Platform::new()?;
-    let mut cab: Cabinet = plat.create_cabinet("cart scene", 1280, 720)?;
+    let mut cab: Cabinet = plat.create_cabinet("cart scene", 1280, 800)?;
 
     // Real art via the raw file, else a stand-in cartridge: 700x500 RGBA
     // like the real `assets/cartridge` scans — grey shell, dark connector

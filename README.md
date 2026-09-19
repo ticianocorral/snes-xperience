@@ -20,8 +20,9 @@ janela com o jogo. Projeto pessoal, sem fins comerciais.
 - **Painel de console de verdade**: logo e back cover do jogo, chaves
   Power/Reset roxas (Power retoma de onde parou; Reset é momentâneo) e
   Ejetar, que só solta o cartucho com o console desligado.
-- **Tubo CRT de verdade**: filtro NTSC RF, travado em 16:9, tela cheia por
-  padrão (desligável) e botão de fechar no canto — sem barra de título.
+- **Tubo CRT de verdade**: filtro NTSC RF, tela cheia por padrão
+  (desligável) usando a resolução nativa do monitor em 16:10/16:9 (Steam
+  Deck, laptops, TVs) e botão de fechar no canto — sem barra de título.
 - **Estante com busca, "jogados recentemente" e histórico**, com tempo de
   jogo por jogo (só contando com o console ligado) e por sessão.
 - **Ano e editora de fábrica, sem DAT nenhum**: tabela embutida no binário

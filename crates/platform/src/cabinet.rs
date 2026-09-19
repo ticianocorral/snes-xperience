@@ -246,8 +246,8 @@ pub struct Cabinet {
     /// `hit_shelf_button` scans this, same pattern as `panel_buttons`.
     shelf_buttons: Vec<(ShelfButton, Rect)>,
     /// Where the cabinet actually drew last frame, in real window/output
-    /// pixels — always 16:9, letterboxed/pillarboxed to fit whatever the
-    /// window's own shape is (plan: don't distort on an ultrawide monitor).
+    /// pixels — native for displays in the 16:10..16:9 band, else a centered
+    /// 16:9 letterbox/pillarbox (plan: don't distort on an ultrawide).
     /// Every other stored rect (`screen`, `panel_buttons`, …) lives in this
     /// rect's own local space; `window_to_output` subtracts its offset
     /// before any hit-test runs.
@@ -2135,13 +2135,19 @@ fn fit_aspect_in(area: Rect, aspect: f32) -> Rect {
 }
 
 /// Where the cabinet actually draws within the real window/display: the
-/// largest 16:9 rect that fits, centered — a modern-TV shape, regardless of
-/// the window's own. `screen_area`/`panel_rect` (and everything downstream)
-/// only ever see this rect's width/height, never the raw output size, so an
-/// ultrawide monitor gets letterbox bars on the sides instead of a
-/// stretched-wide tube.
+/// whole display when its shape is in the 16:10..16:9 band (Steam Deck's
+/// 1280x800, laptops, modern TVs — the composition draws proportionally, so
+/// the cabinet simply gets a touch taller), centered otherwise: displays
+/// outside the band keep the largest 16:9 rect that fits — an ultrawide
+/// monitor gets letterbox bars on the sides instead of a stretched-wide
+/// cabinet. `screen_area`/`panel_rect` (and everything downstream) only
+/// ever see this rect's width/height, never the raw output size.
 fn cabinet_canvas_rect(out_w: u32, out_h: u32) -> Rect {
-    fit_aspect_in(Rect::new(0, 0, out_w, out_h), 16.0 / 9.0)
+    const MIN_ASPECT: f32 = 1.6; // 16:10 — Steam Deck
+    const MAX_ASPECT: f32 = 16.0 / 9.0;
+    let out_aspect = out_w as f32 / out_h.max(1) as f32;
+    let aspect = out_aspect.clamp(MIN_ASPECT, MAX_ASPECT);
+    fit_aspect_in(Rect::new(0, 0, out_w, out_h), aspect)
 }
 
 /// The cabinet opening: the window inset by the bezel fractions (a wider chin).
@@ -4396,5 +4402,50 @@ mod tests {
         assert_eq!(wrapped_height(90, 1, "hello you"), row);
         // A single word longer than the line is hard-split.
         assert_eq!(wrapped_height(90, 1, &"x".repeat(25)), 3 * row);
+    }
+}
+
+#[cfg(test)]
+mod canvas_rect_tests {
+    use super::cabinet_canvas_rect;
+
+    #[test]
+    fn deck_and_16x9_displays_fill_natively() {
+        // Steam Deck 1280x800 (16:10): the canvas fills the display — no
+        // letterbox bars (plan revision: melhor experiencia no Deck).
+        assert_eq!(
+            cabinet_canvas_rect(1280, 800),
+            sdl3::rect::Rect::new(0, 0, 1280, 800)
+        );
+        // 16:9 TVs/monitors: unchanged, fills exactly.
+        assert_eq!(
+            cabinet_canvas_rect(1920, 1080),
+            sdl3::rect::Rect::new(0, 0, 1920, 1080)
+        );
+        assert_eq!(
+            cabinet_canvas_rect(1280, 720),
+            sdl3::rect::Rect::new(0, 0, 1280, 720)
+        );
+    }
+
+    #[test]
+    fn ultrawide_keeps_the_16x9_letterbox() {
+        // 3440x1440 (21:9): 16:9 canvas centered, side bars.
+        let r = cabinet_canvas_rect(3440, 1440);
+        assert_eq!((r.width(), r.height()), (2560, 1440));
+        assert_eq!(r.x(), 440);
+        assert_eq!(r.y(), 0);
+    }
+
+    #[test]
+    fn shapes_outside_the_band_clamp_to_it() {
+        // 4:3 display: clamps to 16:10 (narrower pillarbox than 16:9).
+        let r = cabinet_canvas_rect(1280, 1024);
+        assert_eq!((r.width(), r.height()), (1280, 800));
+        assert_eq!(r.y(), 112);
+        // 3:2 (Surface): clamps to 16:10 as well.
+        let r = cabinet_canvas_rect(1500, 1000);
+        assert_eq!((r.width(), r.height()), (1500, 938));
+        assert_eq!(r.y(), 31);
     }
 }
