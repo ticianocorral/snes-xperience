@@ -422,7 +422,6 @@ impl RecentLayout {
 /// autoexecutável app, not a misconfiguration.
 fn empty_roms_screen(plat: &mut Platform, cab: &mut Cabinet) -> Result<Pick> {
     let frame = Duration::from_millis(16);
-    let mut next = Instant::now() + frame;
     cab.set_shelf_panel(empty_shelf_panel());
     cab.set_close_button(true);
     loop {
@@ -441,8 +440,12 @@ fn empty_roms_screen(plat: &mut Platform, cab: &mut Cabinet) -> Result<Pick> {
             match cab.hit_shelf_button(ox, oy) {
                 Some(ShelfButton::Back) => return Ok(Pick::Back),
                 Some(ShelfButton::Settings) => return Ok(Pick::Settings),
-                // No game focused on this screen, so nothing to scroll.
-                Some(ShelfButton::PanelScrollUp) | Some(ShelfButton::PanelScrollDown) | None => {}
+                // No game focused on this screen, so nothing to scroll (and
+                // no back cover to enlarge).
+                Some(ShelfButton::PanelScrollUp)
+                | Some(ShelfButton::PanelScrollDown)
+                | Some(ShelfButton::Backcover)
+                | None => {}
             }
         }
         let (scr_w, _) = cab.shelf_screen_size();
@@ -459,7 +462,7 @@ fn empty_roms_screen(plat: &mut Platform, cab: &mut Cabinet) -> Result<Pick> {
             );
         };
         cab.frame_shelf(BG, render);
-        crate::runner::pace_frame(&mut next, frame);
+        std::thread::sleep(frame);
     }
 }
 
@@ -484,6 +487,11 @@ pub fn run(
     // Never re-stat a game's art more than once per shelf visit — most games
     // won't have any, and disk isn't free even if it's cheap.
     let mut tried_cover: HashSet<String> = HashSet::new();
+    // Back cover enlarged (plan revision: "ao clicar no back cover
+    // possibilitar mostrar em tamanho maior, com botão de fechar"): Some =
+    // the close button's rect — the zoom replaces the whole shelf until
+    // dismissed.
+    let mut zoom_close: Option<(i32, i32, u32, u32)> = None;
     let mut tried_logo: HashSet<String> = HashSet::new();
     let mut tried_cartridge: HashSet<String> = HashSet::new();
     let mut tried_backcover: HashSet<String> = HashSet::new();
@@ -508,6 +516,7 @@ pub fn run(
     let mut filter_draft = String::new();
     let mut editing_filter = false;
     let frame = Duration::from_millis(16);
+    let mut next = Instant::now() + frame;
     let mut frame_no = 0u64;
     // The filtered/sorted listings are rebuilt only when the applied filter
     // changes (and once up front) — re-sorting ~700 entries with fresh String
@@ -523,7 +532,6 @@ pub fn run(
     const FADE_IN_FRAMES: u32 = 18;
     let mut fade_frame: u32 = 0;
 
-    let mut next = Instant::now() + frame;
     loop {
         frame_no += 1;
         if opts.max_frames.is_some_and(|n| frame_no > n) {
@@ -615,123 +623,165 @@ pub fn run(
             if m.quit {
                 return Ok(Pick::Quit);
             }
-            for nav in m.nav {
-                match nav {
-                    MenuNav::Left => {
-                        if in_recent {
-                            recent_idx = recent_idx.saturating_sub(1);
-                        } else {
-                            sel = sel.saturating_sub(1);
+            if zoom_close.is_some() {
+                // The enlarged back cover is up: only the close button (or
+                // Back) dismisses it — clicks elsewhere do nothing.
+                if m.nav.iter().any(|n| matches!(n, MenuNav::Back)) {
+                    zoom_close = None;
+                }
+                if let Some((x, y)) = m.click {
+                    let (ox, oy) = cab.window_to_output(x, y);
+                    if let Some(close) = zoom_close {
+                        if in_rect(ox, oy, close) {
+                            zoom_close = None;
                         }
                     }
-                    MenuNav::Right => {
-                        if in_recent {
-                            if recent_idx + 1 < recent.len() {
-                                recent_idx += 1;
-                            }
-                        } else if sel + 1 < view.len() {
-                            sel += 1;
-                        }
-                    }
-                    MenuNav::Up => {
-                        if !in_recent {
-                            if show_recent && sel < grid.cols {
-                                in_recent = true;
-                                recent_idx = sel.min(recent.len().saturating_sub(1));
+                }
+            } else {
+                for nav in m.nav {
+                    match nav {
+                        MenuNav::Left => {
+                            if in_recent {
+                                recent_idx = recent_idx.saturating_sub(1);
                             } else {
-                                sel = sel.saturating_sub(grid.cols);
+                                sel = sel.saturating_sub(1);
+                            }
+                        }
+                        MenuNav::Right => {
+                            if in_recent {
+                                if recent_idx + 1 < recent.len() {
+                                    recent_idx += 1;
+                                }
+                            } else if sel + 1 < view.len() {
+                                sel += 1;
+                            }
+                        }
+                        MenuNav::Up => {
+                            if !in_recent {
+                                if show_recent && sel < grid.cols {
+                                    in_recent = true;
+                                    recent_idx = sel.min(recent.len().saturating_sub(1));
+                                } else {
+                                    sel = sel.saturating_sub(grid.cols);
+                                }
+                            }
+                        }
+                        MenuNav::Down => {
+                            if in_recent {
+                                in_recent = false;
+                                sel = recent_idx.min(view.len().saturating_sub(1));
+                            } else if sel + grid.cols < view.len() {
+                                sel += grid.cols;
+                            }
+                        }
+                        MenuNav::PageUp => {
+                            if !in_recent {
+                                sel = sel.saturating_sub(grid.cols * grid.vis_rows);
+                            }
+                        }
+                        MenuNav::PageDown => {
+                            if !in_recent {
+                                sel = (sel + grid.cols * grid.vis_rows)
+                                    .min(view.len().saturating_sub(1))
+                            }
+                        }
+                        MenuNav::Home => {
+                            if show_recent {
+                                in_recent = true;
+                                recent_idx = 0;
+                            } else {
+                                sel = 0;
+                            }
+                        }
+                        MenuNav::End => {
+                            in_recent = false;
+                            sel = view.len().saturating_sub(1);
+                        }
+                        MenuNav::Back => return Ok(Pick::Back),
+                        MenuNav::Confirm => {
+                            let picked = if in_recent {
+                                recent.get(recent_idx)
+                            } else {
+                                view.get(sel)
+                            };
+                            if let Some(e) = picked {
+                                return Ok(pick_play(catalog, &logo_dir, &cartridge_dir, e));
                             }
                         }
                     }
-                    MenuNav::Down => {
-                        if in_recent {
-                            in_recent = false;
-                            sel = recent_idx.min(view.len().saturating_sub(1));
-                        } else if sel + grid.cols < view.len() {
-                            sel += grid.cols;
-                        }
-                    }
-                    MenuNav::PageUp => {
-                        if !in_recent {
-                            sel = sel.saturating_sub(grid.cols * grid.vis_rows);
-                        }
-                    }
-                    MenuNav::PageDown => {
-                        if !in_recent {
-                            sel =
-                                (sel + grid.cols * grid.vis_rows).min(view.len().saturating_sub(1))
-                        }
-                    }
-                    MenuNav::Home => {
-                        if show_recent {
-                            in_recent = true;
-                            recent_idx = 0;
-                        } else {
-                            sel = 0;
-                        }
-                    }
-                    MenuNav::End => {
-                        in_recent = false;
-                        sel = view.len().saturating_sub(1);
-                    }
-                    MenuNav::Back => return Ok(Pick::Back),
-                    MenuNav::Confirm => {
-                        let picked = if in_recent {
-                            recent.get(recent_idx)
-                        } else {
-                            view.get(sel)
-                        };
-                        if let Some(e) = picked {
-                            return Ok(pick_play(catalog, &logo_dir, &cartridge_dir, e));
-                        }
-                    }
                 }
-            }
 
-            // Mouse: click a tile to select it, click the already-selected one
-            // to launch — the same two-step a controller does (move, then A).
-            // The flat panel's "Configurações"/"Voltar" buttons (plan
-            // revision: now outside the tube) are the only way into either
-            // without a gamepad now.
-            if let Some((x, y)) = m.click {
-                let (ox, oy) = cab.window_to_output(x, y);
-                if cab.hit_close_button(ox, oy) {
-                    return Ok(Pick::Quit);
-                }
-                if let Some(hit) = cab.hit_shelf_button(ox, oy) {
-                    match hit {
-                        ShelfButton::Back => return Ok(Pick::Back),
-                        ShelfButton::Settings => return Ok(Pick::Settings),
-                        ShelfButton::PanelScrollUp => panel_scroll = panel_scroll.saturating_sub(1),
-                        ShelfButton::PanelScrollDown => panel_scroll += 1,
+                // Mouse: click a tile to select it, click the already-selected one
+                // to launch — the same two-step a controller does (move, then A).
+                // The flat panel's "Configurações"/"Voltar" buttons (plan
+                // revision: now outside the tube) are the only way into either
+                // without a gamepad now.
+                if let Some((x, y)) = m.click {
+                    let (ox, oy) = cab.window_to_output(x, y);
+                    if cab.hit_close_button(ox, oy) {
+                        return Ok(Pick::Quit);
                     }
-                } else if let Some((lx, ly)) = cab.hit_screen_point(ox, oy) {
-                    if in_rect(lx, ly, filter_rect) {
-                        editing_filter = true;
-                        filter_draft = filter_query.clone();
-                        plat.start_text_input(cab);
-                    } else if in_rect(lx, ly, history_rect) {
-                        return Ok(Pick::History);
-                    } else if let Some(i) = show_recent
-                        .then(|| recent_layout.hit(lx, ly, recent.len()))
-                        .flatten()
-                    {
-                        if in_recent && i == recent_idx {
-                            if let Some(e) = recent.get(i) {
-                                return Ok(pick_play(catalog, &logo_dir, &cartridge_dir, e));
+                    if let Some(hit) = cab.hit_shelf_button(ox, oy) {
+                        match hit {
+                            ShelfButton::Back => return Ok(Pick::Back),
+                            ShelfButton::Settings => return Ok(Pick::Settings),
+                            ShelfButton::PanelScrollUp => {
+                                panel_scroll = panel_scroll.saturating_sub(1)
                             }
-                        } else {
-                            in_recent = true;
-                            recent_idx = i;
+                            ShelfButton::PanelScrollDown => panel_scroll += 1,
+                            ShelfButton::Backcover => {
+                                // Open the enlarged view: re-decode the file at
+                                // full resolution for a crisp enlargement (the
+                                // panel texture is thumbnailed to 512).
+                                let picked = if in_recent {
+                                    recent.get(recent_idx)
+                                } else {
+                                    view.get(sel)
+                                };
+                                if let Some(e) = picked {
+                                    let bid = backcover_id(&e.rom.sha1);
+                                    if cab.has_image(bid) {
+                                        if let Some(path) =
+                                            find_local_art(&backcover_dir, &e.rom.path)
+                                        {
+                                            if let Ok((w, h, rgba)) = decode_art_scaled(&path, 2048)
+                                            {
+                                                cab.set_image(bid, w, h, &rgba);
+                                                zoom_close = Some((0, 0, 1, 1));
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
-                    } else if let Some(i) = grid.tile_at(lx, ly, top_row, view.len()) {
-                        if !in_recent && i == sel {
-                            if let Some(e) = view.get(i) {
-                                return Ok(pick_play(catalog, &logo_dir, &cartridge_dir, e));
+                    } else if let Some((lx, ly)) = cab.hit_screen_point(ox, oy) {
+                        if in_rect(lx, ly, filter_rect) {
+                            editing_filter = true;
+                            filter_draft = filter_query.clone();
+                            plat.start_text_input(cab);
+                        } else if in_rect(lx, ly, history_rect) {
+                            return Ok(Pick::History);
+                        } else if let Some(i) = show_recent
+                            .then(|| recent_layout.hit(lx, ly, recent.len()))
+                            .flatten()
+                        {
+                            if in_recent && i == recent_idx {
+                                if let Some(e) = recent.get(i) {
+                                    return Ok(pick_play(catalog, &logo_dir, &cartridge_dir, e));
+                                }
+                            } else {
+                                in_recent = true;
+                                recent_idx = i;
                             }
-                        } else {
-                            in_recent = false;
-                            sel = i;
+                        } else if let Some(i) = grid.tile_at(lx, ly, top_row, view.len()) {
+                            if !in_recent && i == sel {
+                                if let Some(e) = view.get(i) {
+                                    return Ok(pick_play(catalog, &logo_dir, &cartridge_dir, e));
+                                }
+                            } else {
+                                in_recent = false;
+                                sel = i;
+                            }
                         }
                     }
                 }
@@ -981,13 +1031,25 @@ pub fn run(
         // not just during the entrance. Easing in from a fresh eject just
         // ramps *toward* that resting `SHELF_ALPHA` instead of straight to
         // fully opaque.
-        match opts.fade_in {
-            Some(level) if fade_frame < FADE_IN_FRAMES => {
-                fade_frame += 1;
-                let alpha = (fade_frame as f32 / FADE_IN_FRAMES as f32) * SHELF_ALPHA;
-                cab.frame_shelf_fade_in(BG, render, level, alpha);
+        // Back cover enlarged: it replaces the whole shelf while up.
+        if zoom_close.is_some() {
+            match focused {
+                Some(e) => {
+                    let bid = backcover_id(&e.rom.sha1);
+                    let r = cab.frame_image_zoom(bid, "Fechar");
+                    zoom_close = Some((r.x(), r.y(), r.width(), r.height()));
+                }
+                None => zoom_close = None,
             }
-            _ => cab.frame_shelf_fade_in(BG, render, idle::RESTING_STATIC, SHELF_ALPHA),
+        } else {
+            match opts.fade_in {
+                Some(level) if fade_frame < FADE_IN_FRAMES => {
+                    fade_frame += 1;
+                    let alpha = (fade_frame as f32 / FADE_IN_FRAMES as f32) * SHELF_ALPHA;
+                    cab.frame_shelf_fade_in(BG, render, level, alpha);
+                }
+                _ => cab.frame_shelf_fade_in(BG, render, idle::RESTING_STATIC, SHELF_ALPHA),
+            }
         }
 
         crate::runner::pace_frame(&mut next, frame);
@@ -1013,7 +1075,6 @@ pub fn run_history(plat: &mut Platform, cab: &mut Cabinet, catalog: &Catalog) ->
     cab.set_shelf_panel(empty_shelf_panel());
     cab.set_close_button(true);
 
-    let mut next = Instant::now() + frame;
     loop {
         let (scr_w, scr_h) = cab.shelf_screen_size();
         let vis_rows = ((scr_h as i32 - MARGIN * 2 - HEADER_H) / HISTORY_ROW_H).max(1) as usize;
@@ -1058,7 +1119,9 @@ pub fn run_history(plat: &mut Platform, cab: &mut Cabinet, catalog: &Catalog) ->
                     ShelfButton::Back => return Ok(Pick::Back),
                     ShelfButton::Settings => return Ok(Pick::Settings),
                     // The history screen's panel never has any per-game
-                    // content, so it never scrolls.
+                    // content, so it never scrolls (and never has a back
+                    // cover to enlarge).
+                    ShelfButton::Backcover => {}
                     ShelfButton::PanelScrollUp | ShelfButton::PanelScrollDown => {}
                 }
             } else if let Some((lx, ly)) = cab.hit_screen_point(ox, oy) {
@@ -1076,7 +1139,7 @@ pub fn run_history(plat: &mut Platform, cab: &mut Cabinet, catalog: &Catalog) ->
             |d: &mut Screen| draw_history_list(d, &ranked, top, vis_rows, Some(sel), scr_w);
         cab.frame_shelf(BG, render);
 
-        crate::runner::pace_frame(&mut next, frame);
+        std::thread::sleep(frame);
     }
 }
 
@@ -1252,7 +1315,13 @@ fn draw_scrollbar(d: &mut Screen, grid: &GridLayout, view_len: usize, top_row: u
 /// memory (covers feed 200x150 tiles, logos a ~340px panel slot — 512 covers
 /// both at >2x and keeps alpha for transparent logos).
 fn decode_art(path: &Path) -> Result<(u32, u32, Vec<u8>)> {
-    let img = image::open(path)?.thumbnail(512, 512).to_rgba8();
+    decode_art_scaled(path, 512)
+}
+
+/// Same decode, with an explicit size cap — the back cover's zoomed view
+/// re-decodes at full resolution so the enlargement stays crisp.
+fn decode_art_scaled(path: &Path, max: u32) -> Result<(u32, u32, Vec<u8>)> {
+    let img = image::open(path)?.thumbnail(max, max).to_rgba8();
     let (w, h) = img.dimensions();
     Ok((w, h, img.into_raw()))
 }
