@@ -36,7 +36,7 @@ fn main() -> Result<()> {
 
     let mut plat = Platform::new().map_err(|e| anyhow!(e.to_string()))?;
     let mut cab = plat
-        .create_cabinet("SNES Xperience", 1280, 800)
+        .create_cabinet("SNES Xperience", 1280, 800, false)
         .map_err(|e| anyhow!(e.to_string()))?;
 
     // Headless self-check: the "Histórico" screen, dev/testing only.

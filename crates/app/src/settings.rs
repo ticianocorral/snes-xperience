@@ -1,14 +1,21 @@
-//! The settings screen — the idle screen's "Configurações" button. Two flat
-//! lists (main, controls), no nesting deeper than that: click a row to act
-//! on it (or gamepad nav + Confirm/Back — plan revision: no keyboard
-//! shortcuts). Edits save to `xperience.cfg` immediately, not on some later
-//! "apply" step — there's nothing to lose by backing out.
+//! The settings screen — the idle screen's/shelf's "Configurações" button,
+//! redrawn on the shelf's own layout (plan revision: "a tela de
+//! configurações não está no padrão do resto do app — faça a tv na mesma
+//! proporção e coloque o painel"): rows inside the tube, exactly like the
+//! shelf's grid area, and a flat side panel carrying the section buttons
+//! ("jogo", "vídeo", "sistema", "controles") plus "Voltar". No nesting
+//! deeper than a section: click a row to act on it (or gamepad nav +
+//! Confirm/Back — plan revision: no keyboard shortcuts). Edits save to
+//! `xperience.cfg` immediately, not on some later "apply" step — there's
+//! nothing to lose by backing out.
 
 use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
-use xperience_platform::{Cabinet, MenuMode, MenuNav, PadButton, Platform, Screen};
+use xperience_platform::{
+    Cabinet, MenuMode, MenuNav, PadButton, Platform, Screen, SettingsButton, SettingsPanelInfo,
+};
 
 use crate::config::Config;
 use crate::core_update::{self, CoreUpdateMsg};
@@ -27,29 +34,38 @@ const ROW_H: i32 = 30;
 const LIST_TOP: i32 = MARGIN + 50;
 const RUNAHEAD_MAX: u32 = 4;
 
+/// The settings sections, in panel order — the tube shows one section's
+/// rows at a time; the panel's `Section(i)` buttons switch between them
+/// (plan revision: "se for interessante faça secoes na configuração").
+const SECTION_NAMES: [&str; 4] = ["jogo", "vídeo", "sistema", "controles"];
+const SEC_JOGO: usize = 0;
+const SEC_VIDEO: usize = 1;
+const SEC_SISTEMA: usize = 2;
+const SEC_CONTROLES: usize = 3;
+
+/// How many rows a section shows — shared by the nav clamps and the click
+/// hit-test so they can't drift apart. `controles` is the key-bind list, so
+/// its count comes from `cfg.keymap.describe()`.
+fn row_count(sec: usize, cfg: &Config) -> usize {
+    match sec {
+        SEC_JOGO => 2,
+        SEC_VIDEO => 2,
+        SEC_SISTEMA => 3,
+        SEC_CONTROLES => cfg.keymap.describe().len(),
+        _ => 0,
+    }
+}
+
 /// Which row (if any) a screen-local click y lands in, given how many rows
 /// are actually on screen right now — settings rows span the full width, so
-/// only y matters. Shared by `draw_main`/`draw_controls`'s layout and the
-/// click handling in `run`, so they can't drift apart.
+/// only y matters. Shared by the draw functions and the click handling in
+/// `run`, so they can't drift apart.
 fn row_at(y: i32, count: usize) -> Option<usize> {
     if y < LIST_TOP {
         return None;
     }
     let i = ((y - LIST_TOP) / ROW_H) as usize;
     (i < count).then_some(i)
-}
-
-/// Whether a screen-local click y lands in the bottom hint band — the one
-/// place `draw_controls` offers a way back without a scrollable row list of
-/// its own to put "Voltar" in (`draw_main`'s does, as its last row).
-fn back_band_hit(y: i32, screen_h: i32) -> bool {
-    y >= screen_h - MARGIN - ROW_H
-}
-
-#[derive(PartialEq, Eq)]
-enum Mode {
-    Main,
-    Controls,
 }
 
 /// Where the "Núcleo" row's background download stands right now — drives
@@ -65,9 +81,8 @@ enum CoreStatus {
 /// `true` if the whole app should quit (window closed / Cmd-Q) instead of
 /// returning to the shelf.
 pub fn run(plat: &mut Platform, cab: &mut Cabinet, cfg: &mut Config) -> Result<bool> {
-    let mut mode = Mode::Main;
-    let mut main_sel: usize = 0;
-    let mut controls_sel: usize = 0;
+    let mut sec = SEC_JOGO;
+    let mut sel: usize = 0;
     let mut controls_top: usize = 0;
     let mut awaiting_key: Option<usize> = None; // index into keymap.describe()
     let mut core_status = CoreStatus::Idle;
@@ -121,130 +136,178 @@ pub fn run(plat: &mut Platform, cab: &mut Cabinet, cfg: &mut Config) -> Result<b
                 awaiting_key = None;
             }
         } else {
-            // Mouse click — every action here also has a gamepad-nav path
-            // below (`m.nav`, fed by d-pad/buttons regardless of keyboard),
-            // this just adds the click-driven one (plan revision: no
-            // keyboard shortcuts left for either screen).
+            // Mouse click — the panel's section buttons (and "Voltar") come
+            // first, then the rows inside the tube. Every action here also
+            // has a gamepad-nav path below (`m.nav`), this just adds the
+            // click-driven one (plan revision: no keyboard shortcuts).
             if let Some((cx, cy)) = m.click {
                 let (ox, oy) = cab.window_to_output(cx, cy);
                 if cab.hit_close_button(ox, oy) {
                     return Ok(true);
                 }
-                if let Some((_, ly)) = cab.hit_screen_point(ox, oy) {
-                    match mode {
-                        Mode::Main => {
-                            if let Some(i) = row_at(ly, MAIN_ROWS) {
-                                main_sel = i;
-                                match i {
-                                    0 => mode = Mode::Controls,
-                                    1 => start_core_download(&mut core_status, &mut core_worker),
-                                    2 => {
-                                        cfg.runahead = (cfg.runahead + 1) % (RUNAHEAD_MAX + 1);
-                                        let _ = cfg.save();
-                                    }
-                                    3 => {
-                                        cfg.fullscreen = !cfg.fullscreen;
-                                        cab.toggle_fullscreen();
-                                        let _ = cfg.save();
-                                    }
-                                    4 => {
-                                        cfg.check_updates_on_start = !cfg.check_updates_on_start;
-                                        let _ = cfg.save();
-                                    }
-                                    5 => rename_status = Some(run_rom_rename()),
-                                    6 => return Ok(false),
-                                    _ => {}
-                                }
-                            }
-                        }
-                        Mode::Controls => {
-                            let rows = cfg.keymap.describe().len();
-                            let visible = ((cab.screen_size().1 as i32 - MARGIN * 2 - 60) / ROW_H)
-                                .max(1) as usize;
-                            let shown = visible.min(rows.saturating_sub(controls_top));
-                            if let Some(i) = row_at(ly, shown) {
-                                controls_sel = controls_top + i;
-                                awaiting_key = Some(controls_sel);
-                            } else if back_band_hit(ly, cab.screen_size().1 as i32) {
-                                mode = Mode::Main;
+                if cab.hit_minimize_button(ox, oy) {
+                    cab.minimize();
+                    continue;
+                }
+                match cab.hit_settings_button(ox, oy) {
+                    Some(SettingsButton::Back) => return Ok(false),
+                    Some(SettingsButton::Section(i)) => {
+                        sec = i.min(SECTION_NAMES.len() - 1);
+                        sel = 0;
+                        controls_top = 0;
+                    }
+                    None => {
+                        if let Some((_, ly)) = cab.hit_screen_point(ox, oy) {
+                            if let Some(i) = row_at(ly, row_count(sec, cfg)) {
+                                sel = i;
+                                activate_row(
+                                    cab, cfg, &mut sec, &mut sel, &mut awaiting_key, i,
+                                    &mut core_status, &mut core_worker, &mut rename_status,
+                                );
                             }
                         }
                     }
                 }
             }
-            match mode {
-                Mode::Main => {
-                    for nav in &m.nav {
-                        match nav {
-                            MenuNav::Up => main_sel = main_sel.saturating_sub(1),
-                            MenuNav::Down => main_sel = (main_sel + 1).min(MAIN_ROWS - 1),
-                            MenuNav::Back => return Ok(false),
-                            MenuNav::Confirm => match main_sel {
-                                0 => mode = Mode::Controls,
-                                1 => start_core_download(&mut core_status, &mut core_worker),
-                                3 => {
-                                    cfg.fullscreen = !cfg.fullscreen;
-                                    cab.toggle_fullscreen();
-                                    let _ = cfg.save();
-                                }
-                                4 => {
-                                    cfg.check_updates_on_start = !cfg.check_updates_on_start;
-                                    let _ = cfg.save();
-                                }
-                                5 => rename_status = Some(run_rom_rename()),
-                                6 => return Ok(false),
-                                _ => {}
-                            },
-                            MenuNav::Left if main_sel == 2 => {
-                                cfg.runahead = cfg.runahead.saturating_sub(1);
-                                let _ = cfg.save();
-                            }
-                            MenuNav::Right if main_sel == 2 => {
-                                cfg.runahead = (cfg.runahead + 1).min(RUNAHEAD_MAX);
-                                let _ = cfg.save();
-                            }
-                            MenuNav::Left | MenuNav::Right if main_sel == 3 => {
-                                cfg.fullscreen = !cfg.fullscreen;
-                                cab.toggle_fullscreen();
-                                let _ = cfg.save();
-                            }
-                            MenuNav::Left | MenuNav::Right if main_sel == 4 => {
-                                cfg.check_updates_on_start = !cfg.check_updates_on_start;
-                                let _ = cfg.save();
-                            }
-                            _ => {}
+            for nav in &m.nav {
+                match nav {
+                    MenuNav::Up => sel = sel.saturating_sub(1),
+                    MenuNav::Down => {
+                        sel = (sel + 1).min(row_count(sec, cfg).saturating_sub(1));
+                    }
+                    // "controles" came from "jogo"'s Controles row, so its
+                    // Back goes there; every other section's Back leaves
+                    // settings entirely.
+                    MenuNav::Back => {
+                        if sec == SEC_CONTROLES {
+                            sec = SEC_JOGO;
+                            sel = 0;
+                        } else {
+                            return Ok(false);
                         }
                     }
+                    MenuNav::Confirm => {
+                        let cur = sel;
+                        activate_row(
+                            cab, cfg, &mut sec, &mut sel, &mut awaiting_key, cur,
+                            &mut core_status, &mut core_worker, &mut rename_status,
+                        );
+                    }
+                    // The toggle/slider rows keep their old left/right
+                    // feel; everything else ignores them.
+                    MenuNav::Left => adjust_row(cfg, sec, sel, cab, false),
+                    MenuNav::Right => adjust_row(cfg, sec, sel, cab, true),
+                    _ => {}
                 }
-                Mode::Controls => {
-                    let rows = cfg.keymap.describe().len();
-                    for nav in &m.nav {
-                        match nav {
-                            MenuNav::Up => controls_sel = controls_sel.saturating_sub(1),
-                            MenuNav::Down => controls_sel = (controls_sel + 1).min(rows - 1),
-                            MenuNav::Back => mode = Mode::Main,
-                            MenuNav::Confirm => awaiting_key = Some(controls_sel),
-                            _ => {}
-                        }
-                    }
-                    let visible =
-                        ((cab.screen_size().1 as i32 - MARGIN * 2 - 60) / ROW_H).max(1) as usize;
-                    if controls_sel < controls_top {
-                        controls_top = controls_sel;
-                    } else if controls_sel >= controls_top + visible {
-                        controls_top = controls_sel + 1 - visible;
-                    }
+            }
+            // Keep the controles cursor inside its scroll window.
+            if sec == SEC_CONTROLES {
+                let (_, sh) = cab.shelf_screen_size();
+                let visible = ((sh as i32 - MARGIN * 2 - 60) / ROW_H).max(1) as usize;
+                if sel < controls_top {
+                    controls_top = sel;
+                } else if sel >= controls_top + visible {
+                    controls_top = sel + 1 - visible;
                 }
             }
         }
 
-        let render = |d: &mut Screen| match mode {
-            Mode::Main => draw_main(d, cfg, main_sel, &core_status, rename_status.as_deref()),
-            Mode::Controls => draw_controls(d, cfg, controls_sel, controls_top, awaiting_key),
+        // The flat side panel — section buttons + Voltar, rebuilt every
+        // frame like the shelf's own panel.
+        cab.set_settings_panel(SettingsPanelInfo {
+            title: "configurações".to_string(),
+            sections: SECTION_NAMES.iter().map(|s| s.to_string()).collect(),
+            selected: sec,
+        });
+
+        let render = |d: &mut Screen| match sec {
+            SEC_VIDEO => draw_video(d, cfg, sel),
+            SEC_SISTEMA => draw_sistema(d, cfg, sel, &core_status, rename_status.as_deref()),
+            SEC_CONTROLES => draw_controls(d, cfg, sel, controls_top, awaiting_key),
+            _ => draw_jogo(d, cfg, sel),
         };
-        cab.frame_2d(BG, render);
+        cab.frame_settings(BG, render);
 
         crate::runner::pace_frame(&mut next, frame_time);
+    }
+}
+
+/// Act on row `i` of the current section — the click path and the gamepad's
+/// Confirm both land here, so they can't drift apart.
+fn activate_row(
+    cab: &mut Cabinet,
+    cfg: &mut Config,
+    sec: &mut usize,
+    sel: &mut usize,
+    awaiting_key: &mut Option<usize>,
+    i: usize,
+    core_status: &mut CoreStatus,
+    core_worker: &mut Option<Receiver<CoreUpdateMsg>>,
+    rename_status: &mut Option<String>,
+) {
+    match *sec {
+        SEC_JOGO => match i {
+            0 => {
+                *sec = SEC_CONTROLES;
+                *sel = 0;
+            }
+            _ => {
+                cfg.runahead = (cfg.runahead + 1) % (RUNAHEAD_MAX + 1);
+                let _ = cfg.save();
+            }
+        },
+        SEC_VIDEO => match i {
+            0 => {
+                cfg.fullscreen = !cfg.fullscreen;
+                cab.toggle_fullscreen();
+                let _ = cfg.save();
+            }
+            _ => {
+                cfg.hiss_on_static = !cfg.hiss_on_static;
+                let _ = cfg.save();
+                cab.set_static_hiss(cfg.hiss_on_static);
+            }
+        },
+        SEC_SISTEMA => match i {
+            0 => start_core_download(core_status, core_worker),
+            1 => {
+                cfg.check_updates_on_start = !cfg.check_updates_on_start;
+                let _ = cfg.save();
+            }
+            _ => *rename_status = Some(run_rom_rename()),
+        },
+        SEC_CONTROLES => *awaiting_key = Some(*sel),
+        _ => {}
+    }
+}
+
+/// The left/right adjustments — run-ahead steps, fullscreen/check-updates
+/// toggle. Rows without a horizontal feel ignore them.
+fn adjust_row(cfg: &mut Config, sec: usize, sel: usize, cab: &mut Cabinet, right: bool) {
+    match (sec, sel) {
+        (SEC_JOGO, 1) => {
+            cfg.runahead = if right {
+                (cfg.runahead + 1).min(RUNAHEAD_MAX)
+            } else {
+                cfg.runahead.saturating_sub(1)
+            };
+            let _ = cfg.save();
+        }
+        (SEC_VIDEO, 0) => {
+            cfg.fullscreen = !cfg.fullscreen;
+            cab.toggle_fullscreen();
+            let _ = cfg.save();
+        }
+        (SEC_VIDEO, 1) => {
+            cfg.hiss_on_static = !cfg.hiss_on_static;
+            let _ = cfg.save();
+            cab.set_static_hiss(cfg.hiss_on_static);
+        }
+        (SEC_SISTEMA, 1) => {
+            cfg.check_updates_on_start = !cfg.check_updates_on_start;
+            let _ = cfg.save();
+        }
+        _ => {}
     }
 }
 
@@ -272,7 +335,7 @@ fn start_core_download(status: &mut CoreStatus, worker: &mut Option<Receiver<Cor
 }
 
 /// How long since the installed core was written, in the coarse terms
-/// `draw_main`'s row wants — `None` if there's no core installed at all.
+/// `draw_sistema`'s row wants — `None` if there's no core installed at all.
 fn core_installed_label() -> Option<String> {
     let path = crate::dirs::core_dir().join(core_update::core_file_name());
     let modified = std::fs::metadata(&path).ok()?.modified().ok()?;
@@ -332,8 +395,6 @@ fn core_row_label(status: &CoreStatus) -> String {
     }
 }
 
-const MAIN_ROWS: usize = 7;
-
 fn bind_row(cfg: &mut Config, row: usize, key_name: &str) {
     let Some((action, _)) = cfg.keymap.describe().into_iter().nth(row) else {
         return;
@@ -348,7 +409,43 @@ fn bind_row(cfg: &mut Config, row: usize, key_name: &str) {
     }
 }
 
-fn draw_main(
+fn draw_jogo(d: &mut Screen, cfg: &Config, sel: usize) {
+    let x = MARGIN;
+    d.text(x, MARGIN, 2, TEXT, "jogo");
+    let mut y = LIST_TOP;
+    let rows = [
+        "Controles".to_string(),
+        format!("Run-ahead: {} quadro(s)", cfg.runahead),
+    ];
+    for (i, row) in rows.iter().enumerate() {
+        draw_row(d, x, y, row, i == sel);
+        y += ROW_H;
+    }
+    draw_hint(d, "clique numa opção pra mudar -- setas do gamepad ajustam, A confirma");
+}
+
+fn draw_video(d: &mut Screen, cfg: &Config, sel: usize) {
+    let x = MARGIN;
+    d.text(x, MARGIN, 2, TEXT, "vídeo");
+    let mut y = LIST_TOP;
+    let rows = [
+        format!(
+            "Tela cheia: {}",
+            if cfg.fullscreen { "ligada" } else { "desligada" }
+        ),
+        format!(
+            "Chiado da TV fora do ar: {}",
+            if cfg.hiss_on_static { "ligado" } else { "desligado" }
+        ),
+    ];
+    for (i, row) in rows.iter().enumerate() {
+        draw_row(d, x, y, row, i == sel);
+        y += ROW_H;
+    }
+    draw_hint(d, "clique numa opção pra alternar (o chiado toca na TV desligada)");
+}
+
+fn draw_sistema(
     d: &mut Screen,
     cfg: &Config,
     sel: usize,
@@ -356,21 +453,10 @@ fn draw_main(
     rename_status: Option<&str>,
 ) {
     let x = MARGIN;
-    d.text(x, MARGIN, 2, TEXT, "configurações");
+    d.text(x, MARGIN, 2, TEXT, "sistema");
     let mut y = LIST_TOP;
-
     let rows = [
-        "Controles".to_string(),
         core_row_label(core_status),
-        format!("Run-ahead: {} quadro(s)", cfg.runahead),
-        format!(
-            "Tela cheia: {}",
-            if cfg.fullscreen {
-                "ligada"
-            } else {
-                "desligada"
-            }
-        ),
         format!(
             "Verificar atualizações ao abrir: {}",
             if cfg.check_updates_on_start {
@@ -382,20 +468,12 @@ fn draw_main(
         rename_status
             .unwrap_or("Renomear ROMs para o padrão No-Intro")
             .to_string(),
-        "Voltar".to_string(),
     ];
     for (i, row) in rows.iter().enumerate() {
         draw_row(d, x, y, row, i == sel);
         y += ROW_H;
     }
-
-    d.text(
-        x,
-        d.size().1 as i32 - MARGIN,
-        1,
-        HINT,
-        "clique numa opção (role a lista com o mouse ou d-pad, botão/gamepad confirma)",
-    );
+    draw_hint(d, "clique numa opção pra executar ou alternar");
 }
 
 fn draw_controls(d: &mut Screen, cfg: &Config, sel: usize, top: usize, awaiting: Option<usize>) {
@@ -404,7 +482,8 @@ fn draw_controls(d: &mut Screen, cfg: &Config, sel: usize, top: usize, awaiting:
     let mut y = LIST_TOP;
 
     let binds = cfg.keymap.describe();
-    let visible = ((d.size().1 as i32 - MARGIN * 2 - 60) / ROW_H).max(1) as usize;
+    let (_, sh) = d.size();
+    let visible = ((sh as i32 - MARGIN * 2 - 60) / ROW_H).max(1) as usize;
     for (i, (action, key)) in binds.iter().enumerate().skip(top).take(visible) {
         let label = if awaiting == Some(i) {
             format!("{action}: aperte uma tecla... (esc cancela)")
@@ -415,29 +494,43 @@ fn draw_controls(d: &mut Screen, cfg: &Config, sel: usize, top: usize, awaiting:
         y += ROW_H;
     }
 
-    d.text(
-        x,
-        d.size().1 as i32 - MARGIN,
-        1,
-        HINT,
-        "clique numa ação pra trocar a tecla -- clique aqui embaixo pra voltar",
-    );
+    draw_hint(d, "clique numa ação pra trocar a tecla -- esc volta pro jogo");
 }
 
-/// Headless preview of one screen (`"main"` | `"controls"`), for
-/// verification — not part of the interactive `run` loop.
+/// The one-line help at the bottom of the tube, inside it like the shelf's
+/// own footer text (shared by every section so the sections read the same).
+fn draw_hint(d: &mut Screen, s: &str) {
+    d.text(MARGIN, d.size().1 as i32 - MARGIN, 1, HINT, s);
+}
+
+/// Headless preview of one section (dev/testing) — not part of the
+/// interactive `run` loop. Accepts the section names, plus the old
+/// "main"/"controls" aliases.
 pub fn capture_preview(
     cab: &mut Cabinet,
     cfg: &Config,
     screen: &str,
     path: &std::path::Path,
 ) -> Result<()> {
-    let render = |d: &mut Screen| match screen {
-        "controls" => draw_controls(d, cfg, 0, 0, None),
-        _ => draw_main(d, cfg, 0, &CoreStatus::Idle, None),
+    let sec = match screen {
+        "video" => SEC_VIDEO,
+        "sistema" => SEC_SISTEMA,
+        "controls" => SEC_CONTROLES,
+        _ => SEC_JOGO,
+    };
+    cab.set_settings_panel(SettingsPanelInfo {
+        title: "configurações".to_string(),
+        sections: SECTION_NAMES.iter().map(|s| s.to_string()).collect(),
+        selected: sec,
+    });
+    let render = |d: &mut Screen| match sec {
+        SEC_VIDEO => draw_video(d, cfg, 0),
+        SEC_SISTEMA => draw_sistema(d, cfg, 0, &CoreStatus::Idle, None),
+        SEC_CONTROLES => draw_controls(d, cfg, 0, 0, None),
+        _ => draw_jogo(d, cfg, 0),
     };
     cab.set_close_button(true);
-    cab.capture_2d(BG, render, path)
+    cab.capture_settings(BG, render, path)
         .map_err(|e| anyhow::anyhow!(e.to_string()))
 }
 

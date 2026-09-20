@@ -100,6 +100,26 @@ algum membro da família, só aplicado a mais hashes.
 
 
 
+## Efeitos sonoros do console (Pixabay)
+
+Os sons de inserir/ejetar cartucho e ligar/desligar/resetar (`crates/app/src/
+sfx/*.wav`, embutidos no binário) são recortes de efeitos do usuário
+[u_fom5qo8e5o](https://pixabay.com/users/u_fom5qo8e5o-48608561/) no Pixabay,
+usados sob a [Pixabay Content License](https://pixabay.com/service/license-summary/)
+(grátis para uso comercial, sem atribuição exigida — os créditos aqui são por
+cortesia):
+
+- "SNES cartridge insert" — pixabay.com/sound-effects/film-special-effects-snes-cartridge-insert-296151/
+- "SNES Eject" — pixabay.com/sound-effects/film-special-effects-snes-eject-296153/
+- "SNES power on" — pixabay.com/sound-effects/film-special-effects-snes-power-on-296158/
+- "SNES POwer off" — pixabay.com/sound-effects/film-special-effects-snes-power-off-296155/
+- "SNES reset" — pixabay.com/sound-effects/snes-reset-296152/
+
+Os arquivos foram aparados (silêncio inicial removido, fade de ~120 ms no
+corte) e convertidos para WAV mono 22 050 Hz; nenhum outro ajuste.
+
+
+
 ## Marcas
 
 "Super Nintendo", "Super Famicom", "SNES" e o trade dress do console são marcas

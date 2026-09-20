@@ -270,6 +270,12 @@ fn flashed(flash: &HashMap<PanelButton, Instant>, b: PanelButton) -> bool {
 /// snappy, not as a held state to notice.
 const RESET_SPRING: Duration = Duration::from_millis(220);
 
+/// How long the "CH 3" channel banner stays over the picture after power-on
+/// (plan revision: "quando ligar o console, mostrar por 3 segundos e remover
+/// da tela"). While the console is off, the static path draws it constantly
+/// instead — see `Cabinet::present_static`.
+const CH3_FLASH: Duration = Duration::from_secs(3);
+
 /// Whether Reset's rocker should be drawn up right now — same `flash` map
 /// the "feito!" labels use, just a different (shorter) window.
 fn reset_pressed(flash: &HashMap<PanelButton, Instant>) -> bool {
@@ -348,7 +354,10 @@ fn flush_sram(path: &Path, last: &mut Option<Vec<u8>>, cur: Option<Vec<u8>>) {
 fn power_off_burst(plat: &Platform, cab: &mut Cabinet) -> f32 {
     const RATE: u32 = 22_050;
     const SPAN: Duration = Duration::from_millis(650);
-    let audio = plat.open_audio(RATE).ok();
+    // The real power-switch foley replaces the synthesized buzz (plan
+    // revision); the visual burst plays either way.
+    let has_sfx = crate::sfx::play(cab, crate::sfx::Sfx::PowerOff);
+    let audio = (!has_sfx).then(|| plat.open_audio(RATE).ok()).flatten();
     let frame = Duration::from_millis(16);
     let mut rng: u32 = 0x1234_5678;
     let start = Instant::now();
@@ -392,7 +401,8 @@ fn power_off_burst(plat: &Platform, cab: &mut Cabinet) -> f32 {
 fn power_on_burst(plat: &Platform, cab: &mut Cabinet) {
     const RATE: u32 = 22_050;
     const SPAN: Duration = Duration::from_millis(450);
-    let audio = plat.open_audio(RATE).ok();
+    let has_sfx = crate::sfx::play(cab, crate::sfx::Sfx::PowerOn);
+    let audio = (!has_sfx).then(|| plat.open_audio(RATE).ok()).flatten();
     let frame = Duration::from_millis(16);
     let mut rng: u32 = 0x8765_4321;
     let start = Instant::now();
@@ -482,7 +492,11 @@ fn tone_click(plat: &Platform, freq: f32) {
 fn cartridge_insert_animation(plat: &Platform, cab: &mut Cabinet) {
     const RATE: u32 = 22_050;
     const SPAN: Duration = Duration::from_millis(520);
-    let audio = plat.open_audio(RATE).ok();
+    // Real foley (plan revision: pixabay sounds for insert/eject/power/reset)
+    // — when it plays, the synthesized sliding hiss and seat click stay out
+    // of the way; the foley already carries the whole motion.
+    let has_sfx = crate::sfx::play(cab, crate::sfx::Sfx::Insert);
+    let audio = (!has_sfx).then(|| plat.open_audio(RATE).ok()).flatten();
     let frame = Duration::from_millis(16);
     let mut rng: u32 = 0x2468_ace0;
     let start = Instant::now();
@@ -510,7 +524,9 @@ fn cartridge_insert_animation(plat: &Platform, cab: &mut Cabinet) {
     }
     cab.set_cartridge_motion(None);
     cab.present_static(OFF_STATIC_LEVEL);
-    tone_click(plat, 180.0);
+    if !has_sfx {
+        tone_click(plat, 180.0);
+    }
 }
 
 /// The mirror of `cartridge_insert_animation`, played right as an
@@ -522,10 +538,15 @@ fn cartridge_insert_animation(plat: &Platform, cab: &mut Cabinet) {
 /// screen right after drops the panel entirely, so there's no stuck
 /// mid-motion state left over to reset here.
 fn cartridge_eject_animation(plat: &Platform, cab: &mut Cabinet) {
-    tone_click(plat, 130.0);
+    // Real foley for the whole leave-the-slot motion when it's available;
+    // the synthesized unseat click + hiss are the fallback.
+    let has_sfx = crate::sfx::play(cab, crate::sfx::Sfx::Eject);
+    if !has_sfx {
+        tone_click(plat, 130.0);
+    }
     const RATE: u32 = 22_050;
     const SPAN: Duration = Duration::from_millis(430);
-    let audio = plat.open_audio(RATE).ok();
+    let audio = (!has_sfx).then(|| plat.open_audio(RATE).ok()).flatten();
     let frame = Duration::from_millis(16);
     let mut rng: u32 = 0x0ff1_ce00;
     let start = Instant::now();
@@ -1474,7 +1495,16 @@ pub fn run_game(
             .filter_map(|ev| match ev {
                 UiEvent::Click(x, y) => {
                     let (ox, oy) = cab.window_to_output(x, y);
-                    if modal != Modal::None {
+                    // The titlebar pair is drawn on every screen now —
+                    // gameplay included (plan revision: "mostrar o fechar e
+                    // minimizar em todas as telas"). Checked before every
+                    // in-screen hit-test.
+                    if cab.hit_close_button(ox, oy) {
+                        Some(UiEvent::CloseRequested)
+                    } else if cab.hit_minimize_button(ox, oy) {
+                        cab.minimize();
+                        None
+                    } else if modal != Modal::None {
                         // Not reachable during the naming/searching step —
                         // that's `NoteEdit::PrintName`/`CheatSearch`, polled
                         // via `poll_text_entry` instead (above), so `Click`
@@ -1523,6 +1553,7 @@ pub fn run_game(
                             // that's up now.
                             PanelButton::Insert
                             | PanelButton::Settings
+                            | PanelButton::CoreDownload
                             | PanelButton::PauseContinue
                             | PanelButton::PauseNotePrev
                             | PanelButton::PauseNoteNext
@@ -1569,11 +1600,14 @@ pub fn run_game(
                     } else {
                         // Ligar de novo: same button as power off, now
                         // toggling back on — the game resumes exactly where
-                        // it was, no reload.
+                        // it was, no reload. The "CH 3" banner flashes for a
+                        // few seconds over the picture, the way a TV shows
+                        // the channel when you tune it (plan revision).
                         power_on_burst(plat, cab);
                         powered = true;
                         powered_since = Some(Instant::now());
                         cab.set_powered(true);
+                        cab.flash_ch3(CH3_FLASH);
                         log::info!("power on — resuming");
                     }
                 }
@@ -1591,6 +1625,7 @@ pub fn run_game(
                 UiEvent::Reset => {
                     if powered {
                         core.reset();
+                        crate::sfx::play(cab, crate::sfx::Sfx::Reset);
                         // Momentary rocker (plan revision) — springs back on
                         // its own next frame via `reset_pressed`/`RESET_SPRING`,
                         // same clock as the "feito!" flashes.

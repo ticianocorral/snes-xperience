@@ -8,6 +8,7 @@
 //! - [`rom_rename`] — rename ROMs to their canonical No-Intro name (settings-screen action).
 //! - [`runner`] — the emulator run-loop (`emu-run`, and `xperience` between games).
 //! - [`settings`] — the settings screen (`xperience` only, opened with `O` on the shelf).
+//! - [`sfx`] — the console's embedded foley sounds (insert/eject/power/reset).
 //! - [`shelf`] — the selector grid (`selector`, and `xperience` between games).
 //! - [`update_check`] — startup checks for a newer release/snes9x core.
 
@@ -19,5 +20,6 @@ pub mod idle;
 pub mod rom_rename;
 pub mod runner;
 pub mod settings;
+pub mod sfx;
 pub mod shelf;
 pub mod update_check;

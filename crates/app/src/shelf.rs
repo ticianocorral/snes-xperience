@@ -442,6 +442,10 @@ fn empty_roms_screen(plat: &mut Platform, cab: &mut Cabinet) -> Result<Pick> {
             if cab.hit_close_button(ox, oy) {
                 return Ok(Pick::Quit);
             }
+            if cab.hit_minimize_button(ox, oy) {
+                cab.minimize();
+                continue;
+            }
             match cab.hit_shelf_button(ox, oy) {
                 Some(ShelfButton::Back) => return Ok(Pick::Back),
                 Some(ShelfButton::Settings) => return Ok(Pick::Settings),
@@ -735,6 +739,9 @@ pub fn run(
                     let (ox, oy) = cab.window_to_output(x, y);
                     if cab.hit_close_button(ox, oy) {
                         return Ok(Pick::Quit);
+                    }
+                    if cab.hit_minimize_button(ox, oy) {
+                        cab.minimize();
                     }
                     if let Some(hit) = cab.hit_shelf_button(ox, oy) {
                         match hit {
@@ -1131,6 +1138,10 @@ pub fn run_history(plat: &mut Platform, cab: &mut Cabinet, catalog: &Catalog) ->
             let (ox, oy) = cab.window_to_output(x, y);
             if cab.hit_close_button(ox, oy) {
                 return Ok(Pick::Quit);
+            }
+            if cab.hit_minimize_button(ox, oy) {
+                cab.minimize();
+                continue;
             }
             if let Some(hit) = cab.hit_shelf_button(ox, oy) {
                 match hit {
