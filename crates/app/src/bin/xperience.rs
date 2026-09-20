@@ -212,12 +212,17 @@ fn main() -> Result<()> {
             None
         }
     };
-    let catalog = Catalog::open(
-        &xperience_app::dirs::roms_dir(),
-        &xperience_app::dirs::library_path(),
-        dat.as_ref(),
-    )
-    .with_context(|| "opening the catalog")?;
+    // Re-run whenever the player hits "Atualizar" on the shelf (plan
+    // revision) — a fresh scan of roms/ merged with the same persisted
+    // sidecar, no app restart needed.
+    let open_catalog = || {
+        Catalog::open(
+            &xperience_app::dirs::roms_dir(),
+            &xperience_app::dirs::library_path(),
+            dat.as_ref(),
+        )
+    };
+    let mut catalog = open_catalog().with_context(|| "opening the catalog")?;
     log::info!("{} rom(s) in roms/", catalog.counts()?);
 
     let mut plat = Platform::new().map_err(|e| anyhow!(e.to_string()))?;
@@ -336,6 +341,13 @@ fn main() -> Result<()> {
                         wheel,
                         cartridge,
                     } => (rom, wheel, cartridge),
+                    // "Atualizar" (plan revision) — rescan roms/ and come
+                    // straight back to the shelf with the fresh catalog.
+                    Pick::Refresh => {
+                        catalog = open_catalog().with_context(|| "refreshing the catalog")?;
+                        log::info!("{} rom(s) in roms/", catalog.counts()?);
+                        continue;
+                    }
                 };
             shelf_opts.fade_in = None; // consumed
 

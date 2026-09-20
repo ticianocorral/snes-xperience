@@ -9,6 +9,14 @@ aviso — só o incremento de _minor_ marca um conjunto de mudanças.
 
 ## [Não lançado]
 
+### Adicionado
+- Suporte a ROMs em formato `.zip`: a varredura reconhece arquivos zip em
+  `roms/`, identifica o jogo pela ROM interna (hash, DAT e arte seguem
+  funcionando) e o núcleo recebe os bytes extraídos na hora de jogar.
+- Botão "Atualizar" na estante: reescaneia `roms/` e atualiza a lista sem
+  precisar abrir e fechar o app (também disponível na tela de "nenhuma rom
+  encontrada").
+
 ## [0.12.0] - 2026-09-19
 
 ### Adicionado
