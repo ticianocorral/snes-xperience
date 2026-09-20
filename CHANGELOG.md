@@ -9,10 +9,25 @@ aviso — só o incremento de _minor_ marca um conjunto de mudanças.
 
 ## [Não lançado]
 
+## [0.14.0] - 2026-09-19
+
 ### Adicionado
 - Efeitos sonoros reais do console (Pixabay, embutidos no binário): inserir
   cartucho, ejetar, ligar, desligar e resetar — aparados para caber no tempo
   de cada ação, com os bipes sintetizados antigos como fallback.
+- Chiado de TV fora do ar opcional (configurações > vídeo, desligado por
+  padrão), com volume acompanhando o nível da neve.
+- Banner "CH 3" na TV fora do ar e flash de 3 segundos ao ligar o console.
+- Botão "Baixar núcleo snes9x" na tela inicial (com aviso e progresso ao
+  vivo) quando a pasta core/ está vazia.
+
+### Mudado
+- Configurações redesenhadas no layout da casa (tubo + painel lateral) com
+  seções: jogo, vídeo, sistema, controles.
+- Nameplate em duas linhas: versão do app e, abaixo, a do snes9x.
+- Janela nasce direto no modo configurado (sem flash de redimensionamento).
+- Botão de minimizar ao lado do fechar, visíveis e funcionais em todas as
+  telas.
 
 ## [0.13.0] - 2026-09-19
 
