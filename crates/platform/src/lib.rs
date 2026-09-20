@@ -7,7 +7,8 @@ mod input;
 
 pub use audio::AudioOut;
 pub use cabinet::{
-    Cabinet, FrameRef, PanelButton, PixelFormat, Screen, ShelfButton, ShelfPanelInfo, BRAND,
+    Cabinet, FrameRef, PanelButton, PixelFormat, Screen, SettingsButton, SettingsPanelInfo,
+    ShelfButton, ShelfPanelInfo, BRAND,
 };
 pub use input::{Input, KeyMap, PadButton, UiEvent, MAX_PORTS};
 
@@ -184,8 +185,16 @@ impl Platform {
         title: &str,
         width: u32,
         height: u32,
+        fullscreen: bool,
     ) -> Result<Cabinet, PlatformError> {
-        Cabinet::new(&self.video_subsystem, title, width, height)
+        Cabinet::new(
+            &self.video_subsystem,
+            &self.audio_subsystem,
+            title,
+            width,
+            height,
+            fullscreen,
+        )
     }
 
     /// Drain events for a menu screen: mouse click, mouse wheel (-> `Up`/

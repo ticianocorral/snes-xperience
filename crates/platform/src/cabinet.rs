@@ -16,9 +16,9 @@ use sdl3::rect::Rect;
 use sdl3::render::{
     BlendMode, ClippingRect, ScaleMode as SdlScaleMode, Texture, Vertex, WindowCanvas,
 };
-use sdl3::VideoSubsystem;
+use sdl3::{{AudioSubsystem, VideoSubsystem}};
 
-use crate::PlatformError;
+use crate::{{audio::AudioOut, PlatformError}};
 
 /// CRT tube shape. `WARP` is how hard the edges bow (0 = flat); `VIGNETTE` is
 /// how much the corners darken; `GRID` is the mesh resolution.
@@ -71,6 +71,9 @@ const PANEL_MAX: u32 = 520;
 const PANEL_BG: (u8, u8, u8) = (16, 15, 14);
 const PANEL_TEXT: (u8, u8, u8) = (225, 220, 210);
 const PANEL_DIM: (u8, u8, u8) = (140, 134, 124);
+/// Warm amber for the idle screen's core warning (plan revision) — reads as
+/// "atenção" without shouting over the panel's own palette.
+const PANEL_WARN: (u8, u8, u8) = (228, 180, 90);
 /// Fill for a clickable panel button (`draw_button`) — a shade lighter than
 /// `PANEL_BG` so it reads as its own control, not flat background text.
 const PANEL_BTN_BG: (u8, u8, u8) = (34, 32, 29);
@@ -245,6 +248,44 @@ pub struct Cabinet {
     /// Clickable buttons on the shelf's flat panel drawn last frame —
     /// `hit_shelf_button` scans this, same pattern as `panel_buttons`.
     shelf_buttons: Vec<(ShelfButton, Rect)>,
+    /// The settings screen's own flat panel content (plan revision) — `None`
+    /// outside settings.
+    settings_panel: Option<SettingsPanelInfo>,
+    /// Clickable buttons on the settings panel drawn last frame —
+    /// `hit_settings_button` scans this.
+    settings_buttons: Vec<(SettingsButton, Rect)>,
+    /// The audio subsystem handle, for the ambient static hiss (plan
+    /// revision: "som de chiado de tv fora do ar") — the hiss engine itself
+    /// lives here because `present_static` is where "TV fora do ar" happens.
+    audio: AudioSubsystem,
+    /// Whether the ambient hiss should play at all — the settings toggle,
+    /// off by default. App-side gate; `present_static` only queues while
+    /// this is set.
+    static_hiss: bool,
+    /// The open hiss stream, kept across frames (idle loops at 60fps);
+    /// `None` until the first hissing static frame after the toggle turns
+    /// on.
+    hiss: Option<AudioOut>,
+    /// XORSHIFT state for the hiss samples — same generator the power
+    /// bursts use, so the texture of the noise matches.
+    hiss_rng: u32,
+    /// The idle screen's core-download prompt (plan revision): `Some(label)`
+    /// draws a warning plus this button in the idle panel — the label is the
+    /// app's own live status ("Baixar núcleo" / progress text). `None`
+    /// restores the plain idle panel.
+    idle_core_prompt: Option<String>,
+    /// The foley stream (app-supplied one-shots: insert/eject/power/reset,
+    /// plan revision) — opened lazily on the first sound and kept alive for
+    /// the process, because a stream dropped right after `queue` destroys
+    /// the queued audio before the device ever plays it (the bug that made
+    /// the first foley attempt silent).
+    foley: Option<AudioOut>,
+    /// The "CH 3" channel banner's deadline during gameplay (plan revision:
+    /// "quando ligar o console, mostrar por 3 segundos e remover da tela")
+    /// — `None` means not showing. The static path (`present_static`)
+    /// always draws it instead: no signal, same as an old TV parked on
+    /// channel 3.
+    ch3_until: Option<Instant>,
     /// Where the cabinet actually drew last frame, in real window/output
     /// pixels — native for displays in the 16:10..16:9 band, else a centered
     /// 16:9 letterbox/pillarbox (plan: don't distort on an ultrawide).
@@ -266,10 +307,15 @@ pub struct Cabinet {
     /// would be a much bigger surprise than on a menu screen). Explicitly
     /// set on every screen's own entry, not just left over from whatever ran
     /// before — same pattern `clear_panel`/`set_powered` already follow.
-    show_close: bool,
+
     /// Where the close button drew last frame, in output/canvas coordinates
     /// — `hit_close_button` scans this, same pattern as `panel_buttons`.
+    /// Drawn on every screen now (plan revision: "mostrar o fechar e
+    /// minimizar em todas as telas"), next to its minimize sibling.
     close_button: Rect,
+    /// The top-left minimize button's rect drawn last frame —
+    /// `hit_minimize_button` scans this.
+    minimize_button: Rect,
 }
 
 /// A clickable spot in the side panel: the idle screen's "Inserir cartucho"
@@ -281,6 +327,11 @@ pub struct Cabinet {
 pub enum PanelButton {
     Insert,
     Settings,
+    /// The idle screen's "Baixar núcleo" button (plan revision: "ao iniciar
+    /// o app pela primeira vez e/ou nao tiver o core na pasta, mostrar
+    /// botão para baixar") — only drawn while the core is missing; the
+    /// download itself lives app-side.
+    CoreDownload,
     Power,
     Eject,
     Reset,
@@ -384,6 +435,29 @@ pub enum ShelfButton {
     /// para buscar jogos novos sem precisar abrir e fechar o app") —
     /// re-scan `roms/` and rebuild the shelf.
     Refresh,
+}
+
+/// A clickable spot on the settings screen's flat panel (plan revision: "a
+/// tela de configurações não está no padrão do resto do app — faça a tv na
+/// mesma proporção e coloque o painel") — the sections live in the panel,
+/// like the shelf's own buttons do. `Section(i)` switches the settings list
+/// shown inside the tube; `Back` leaves settings entirely.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SettingsButton {
+    Section(usize),
+    Back,
+}
+
+/// The settings screen's flat panel content — one button per section plus
+/// the always-present "Voltar". Drawn by `draw_settings_panel`, hit-tested
+/// through `hit_settings_button`; settings.rs sets it every frame like the
+/// shelf does with [`ShelfPanelInfo`].
+pub struct SettingsPanelInfo {
+    pub title: String,
+    /// Section labels, top to bottom — `Section(i)` indexes into this.
+    pub sections: Vec<String>,
+    /// Which section is currently shown in the tube (button drawn lit).
+    pub selected: usize,
 }
 
 /// The pause book: `captures` is the fixed slot count (plan revision, 15),
@@ -621,14 +695,21 @@ fn content_bbox(w: u32, h: u32, rgba: &[u8]) -> (u32, u32, u32, u32) {
 impl Cabinet {
     pub(crate) fn new(
         video: &VideoSubsystem,
+        audio: &AudioSubsystem,
         title: &str,
         width: u32,
         height: u32,
+        fullscreen: bool,
     ) -> Result<Self, PlatformError> {
-        let window = video
-            .window(title, width, height)
-            .position_centered()
-            .resizable()
+        // Fullscreen from birth, when requested (plan revision: "tem como
+        // fazer abrir direto na forma correta?") — toggling right after the
+        // first frames let the raw windowed size flash on screen first.
+        let mut builder = video.window(title, width, height);
+        builder.position_centered().resizable();
+        if fullscreen {
+            builder.fullscreen();
+        }
+        let window = builder
             .build()
             .map_err(|e| PlatformError::Sdl(e.to_string()))?;
         let mut canvas = window.into_canvas();
@@ -663,10 +744,19 @@ impl Cabinet {
             modal_buttons: Vec::new(),
             shelf_panel: None,
             shelf_buttons: Vec::new(),
+            settings_panel: None,
+            settings_buttons: Vec::new(),
+            audio: audio.clone(),
+            idle_core_prompt: None,
+            static_hiss: false,
+            hiss: None,
+            hiss_rng: 0x2545_f491,
+            foley: None,
+            ch3_until: None,
             canvas_rect,
             nameplate: BRAND.to_string(),
-            show_close: false,
             close_button: Rect::new(0, 0, 0, 0),
+            minimize_button: Rect::new(0, 0, 0, 0),
         })
     }
 
@@ -675,6 +765,14 @@ impl Cabinet {
     /// installed snes9x core changes (a download/update via settings).
     pub fn set_nameplate(&mut self, text: &str) {
         self.nameplate = text.to_string();
+    }
+
+    /// The idle panel's core prompt (plan revision: "avisar que para jogar é
+    /// necessário o download do core") — `Some(button_label)` shows the
+    /// warning line plus a "CoreDownload" button; `None` hides both. Only
+    /// ever rendered on the idle (panel-less) screen.
+    pub fn set_idle_core_prompt(&mut self, label: Option<&str>) {
+        self.idle_core_prompt = label.map(|l| l.to_string());
     }
 
     pub fn toggle_fullscreen(&mut self) {
@@ -711,8 +809,9 @@ impl Cabinet {
     /// history), and with `false` on entering one that shouldn't
     /// (gameplay) — the flag has no default that fits every screen, so it's
     /// never implicitly reset between them.
-    pub fn set_close_button(&mut self, show: bool) {
-        self.show_close = show;
+    pub fn set_close_button(&mut self, _show: bool) {
+        // The fechar/minimizar pair is drawn on every screen now (plan
+        // revision); kept as a no-op so existing callers keep compiling.
     }
 
     /// Whether an output-space point lands on the close button drawn last
@@ -721,7 +820,20 @@ impl Cabinet {
     /// `close_button`. Coordinates from a click go through
     /// `window_to_output` first.
     pub fn hit_close_button(&self, out_x: i32, out_y: i32) -> bool {
-        self.show_close && self.close_button.contains_point((out_x, out_y))
+        self.close_button.contains_point((out_x, out_y))
+    }
+
+    /// Whether a click (already mapped by `window_to_output`) landed on the
+    /// top-left minimize button. Screens call `minimize()` when this hits.
+    pub fn hit_minimize_button(&self, out_x: i32, out_y: i32) -> bool {
+        self.minimize_button.contains_point((out_x, out_y))
+    }
+
+    /// Iconify the window (plan revision: "botão de minimizar ao lado de
+    /// fechar") — the app keeps running; restoring is the user's click on
+    /// the Dock/taskbar, like any OS window.
+    pub fn minimize(&mut self) {
+        let _ = self.canvas.window_mut().minimize();
     }
 
     /// Which panel button, if any, sits under an output-space point — the
@@ -760,6 +872,19 @@ impl Cabinet {
     /// own grid draw closure; the struct is small enough that this is cheap.
     pub fn set_shelf_panel(&mut self, info: ShelfPanelInfo) {
         self.shelf_panel = Some(info);
+    }
+
+    /// Settings screen's flat panel content — see [`SettingsPanelInfo`]
+    /// (plan revision: settings now lives on the shelf's layout, tube +
+    /// panel, and the panel carries the section buttons).
+    pub fn set_settings_panel(&mut self, info: SettingsPanelInfo) {
+        self.settings_panel = Some(info);
+    }
+    pub fn hit_settings_button(&self, out_x: i32, out_y: i32) -> Option<SettingsButton> {
+        self.settings_buttons
+            .iter()
+            .find(|(_, r)| r.contains_point((out_x, out_y)))
+            .map(|(b, _)| *b)
     }
 
     /// Map an output/canvas-space click into the 2D screen buffer's local
@@ -1308,6 +1433,25 @@ impl Cabinet {
             out_h,
             &self.nameplate,
         );
+        // The timed "CH 3" flash (plan revision): power-on shows the channel
+        // banner over the picture for a few seconds, then it's gone. Expired
+        // deadlines clear here so the banner truly disappears from the frame
+        // instead of relying on the next flash.
+        if self.ch3_until.is_some_and(|until| Instant::now() >= until) {
+            self.ch3_until = None;
+        }
+        if self.ch3_until.is_some() {
+            draw_ch3_osd(&mut self.canvas, &mut self.font, self.screen);
+        }
+        // The picture is back, so any queued hiss goes — cut, not faded
+        // (same rule the power bursts use for their own buzz).
+        if let Some(h) = &self.hiss {
+            h.clear();
+        }
+        // Fechar/minimizar on every screen, gameplay included (plan
+        // revision: "mostrar o fechar e minimizar em todas as telas").
+        self.close_button = draw_close_button(&mut self.canvas, &mut self.font);
+        self.minimize_button = draw_minimize_button(&mut self.canvas, &mut self.font);
         self.panel_buttons = draw_panel(
             &mut self.canvas,
             &mut self.font,
@@ -1315,6 +1459,7 @@ impl Cabinet {
             self.panel.as_ref(),
             panel,
             self.session,
+            self.idle_core_prompt.as_deref(),
         );
         self.canvas.set_viewport(None);
         self.canvas.present();
@@ -1357,6 +1502,7 @@ impl Cabinet {
         let bezel = self.bezel.take().unwrap();
         let panel_info = self.panel.as_ref();
         let session = self.session;
+        let idle_core_prompt = self.idle_core_prompt.as_deref();
         let font = &mut self.font;
         let images = &self.images;
         let nameplate = self.nameplate.as_str();
@@ -1368,7 +1514,15 @@ impl Cabinet {
             let _ = c.render_geometry(&mesh.verts, Some(&src.tex), &mesh.indices[..]);
             let _ = c.render_geometry(&bezel.verts, None, &bezel.indices[..]);
             draw_brand(c, font, screen, out_h, nameplate);
-            draw_panel(c, font, images, panel_info, panel, session);
+            draw_panel(
+                c,
+                font,
+                images,
+                panel_info,
+                panel,
+                session,
+                idle_core_prompt,
+            );
             c.set_viewport(None);
             saved = c
                 .read_pixels(None::<Rect>)
@@ -1493,8 +1647,8 @@ impl Cabinet {
         let bezel = self.bezel.take().unwrap();
         let font = &mut self.font;
         let nameplate = self.nameplate.as_str();
-        let show_close = self.show_close;
         let mut close_button = self.close_button;
+        let mut minimize_button = self.minimize_button;
         let mut saved: Result<(), PlatformError> = Ok(());
         let outcome = self.canvas.with_texture_canvas(&mut target, |c| {
             c.set_draw_color(Color::RGB(RECESS.0, RECESS.1, RECESS.2));
@@ -1503,9 +1657,8 @@ impl Cabinet {
             let _ = c.render_geometry(&mesh.verts, Some(&st.tex), &mesh.indices[..]);
             let _ = c.render_geometry(&bezel.verts, None, &bezel.indices[..]);
             draw_brand(c, font, screen, canvas_rect.height(), nameplate);
-            if show_close {
-                close_button = draw_close_button(c, font);
-            }
+            close_button = draw_close_button(c, font);
+            minimize_button = draw_minimize_button(c, font);
             c.set_viewport(None);
             saved = c
                 .read_pixels(None::<Rect>)
@@ -1513,6 +1666,7 @@ impl Cabinet {
                 .map_err(|e| PlatformError::Sdl(e.to_string()));
         });
         self.close_button = close_button;
+        self.minimize_button = minimize_button;
         self.screen_tex = Some(st);
         self.bezel = Some(bezel);
         outcome.map_err(|e| PlatformError::Sdl(e.to_string()))?;
@@ -1546,8 +1700,8 @@ impl Cabinet {
         let images = &self.images;
         let shelf_panel = self.shelf_panel.as_ref();
         let nameplate = self.nameplate.as_str();
-        let show_close = self.show_close;
         let mut close_button = self.close_button;
+        let mut minimize_button = self.minimize_button;
         let mut saved: Result<(), PlatformError> = Ok(());
         let outcome = self.canvas.with_texture_canvas(&mut target, |c| {
             c.set_draw_color(Color::RGB(RECESS.0, RECESS.1, RECESS.2));
@@ -1557,9 +1711,8 @@ impl Cabinet {
             let _ = c.render_geometry(&bezel.verts, None, &bezel.indices[..]);
             draw_brand(c, font, screen, canvas_rect.height(), nameplate);
             let _ = draw_shelf_panel(c, font, images, shelf_panel, panel);
-            if show_close {
-                close_button = draw_close_button(c, font);
-            }
+            close_button = draw_close_button(c, font);
+            minimize_button = draw_minimize_button(c, font);
             c.set_viewport(None);
             saved = c
                 .read_pixels(None::<Rect>)
@@ -1567,10 +1720,92 @@ impl Cabinet {
                 .map_err(|e| PlatformError::Sdl(e.to_string()));
         });
         self.close_button = close_button;
+        self.minimize_button = minimize_button;
         self.screen_tex = Some(st);
         self.bezel = Some(bezel);
         outcome.map_err(|e| PlatformError::Sdl(e.to_string()))?;
         saved
+    }
+
+    /// Show the green "CH 3" channel banner over the picture for `dur`
+    /// (plan revision: "quando ligar o console, mostrar por 3 segundos e
+    /// remover da tela") — the runner calls this on power-on, the way an old
+    /// TV flashes the channel number when you tune it. While the tube is on
+    /// static instead, `present_static` draws the banner constantly, no
+    /// timer involved.
+    pub fn flash_ch3(&mut self, dur: Duration) {
+        self.ch3_until = Some(Instant::now() + dur);
+    }
+
+    /// Settings gate for the ambient static hiss (plan revision: "colocar
+    /// na configuração para tocar ou não. por padrão vem desligado") — off
+    /// by default; `present_static` queues the white noise only while this
+    /// is set. Turning it off drops the stream immediately.
+    pub fn set_static_hiss(&mut self, on: bool) {
+        self.static_hiss = on;
+        if !on {
+            self.hiss = None;
+        }
+    }
+
+    /// Queue a one-shot sound (mono `samples` at `rate`) on the cabinet's
+    /// persistent foley stream — the stream outlives the call, so the queued
+    /// audio actually plays (a stream dropped immediately after `queue`
+    /// takes its audio with it). Returns `false` when no audio device is
+    /// available; callers keep their fallback in that case.
+    pub fn play_foley(&mut self, samples: &[i16], rate: u32) -> bool {
+        if self.foley.is_none() {
+            match AudioOut::new(&self.audio, rate) {
+                Ok(a) => self.foley = Some(a),
+                Err(e) => {
+                    log::warn!("foley stream: {e}");
+                    return false;
+                }
+            }
+        }
+        // Mono → the interleaved stereo `AudioOut` wants. Non-blocking: SDL
+        // buffers and plays on its own; overlapping sounds queue in order.
+        let mut buf = Vec::with_capacity(samples.len() * 2);
+        for &s in samples {
+            buf.push(s);
+            buf.push(s);
+        }
+        if let Some(a) = &self.foley {
+            a.queue(&buf);
+        }
+        true
+    }
+
+    /// Queue one frame's worth of hiss at `level` (the same 0..1 the visual
+    /// snow uses, so blizzards hiss louder than the resting hiss). Opens the
+    /// stream lazily on the first hissing frame.
+    fn queue_static_hiss(&mut self, level: f32) {
+        const RATE: u32 = 22_050;
+        if self.hiss.is_none() {
+            match AudioOut::new(&self.audio, RATE) {
+                Ok(a) => self.hiss = Some(a),
+                Err(e) => {
+                    log::warn!("static hiss: {e}");
+                    self.static_hiss = false;
+                    return;
+                }
+            }
+        }
+        let n = (RATE / 60) as usize;
+        let amp = (level.clamp(0.0, 1.0) * 1800.0) as i32;
+        let mut buf = Vec::with_capacity(n * 2);
+        for _ in 0..n {
+            self.hiss_rng ^= self.hiss_rng << 13;
+            self.hiss_rng ^= self.hiss_rng >> 17;
+            self.hiss_rng ^= self.hiss_rng << 5;
+            let s = (((self.hiss_rng >> 8) & 0xFFFF) as i32 - 0x8000) * amp / 0x8000;
+            let v = s.clamp(-32000, 32000) as i16;
+            buf.push(v);
+            buf.push(v);
+        }
+        if let Some(a) = &self.hiss {
+            a.queue(&buf);
+        }
     }
 
     /// One frame of signal-off snow through the tube, cartridge still visible
@@ -1614,6 +1849,18 @@ impl Cabinet {
             wh,
             &self.nameplate,
         );
+        // Sem sinal (plan revision): the channel banner stays up the whole
+        // time the TV is showing snow — game inserted but powered off, the
+        // idle screen, all of it — like a real set parked on channel 3.
+        draw_ch3_osd(&mut self.canvas, &mut self.font, self.screen);
+        // The ambient hiss (opt-in via settings): follows the same level as
+        // the visual snow, so a burst hisses loud and the resting hiss stays
+        // a quiet background shhh.
+        if self.static_hiss {
+            self.queue_static_hiss(level);
+        } else if let Some(h) = &self.hiss {
+            h.clear();
+        }
         self.panel_buttons = draw_panel(
             &mut self.canvas,
             &mut self.font,
@@ -1621,10 +1868,10 @@ impl Cabinet {
             self.panel.as_ref(),
             panel,
             self.session,
+            self.idle_core_prompt.as_deref(),
         );
-        if self.show_close {
-            self.close_button = draw_close_button(&mut self.canvas, &mut self.font);
-        }
+        self.close_button = draw_close_button(&mut self.canvas, &mut self.font);
+        self.minimize_button = draw_minimize_button(&mut self.canvas, &mut self.font);
         self.canvas.set_viewport(None);
         self.canvas.present();
     }
@@ -1657,11 +1904,12 @@ impl Cabinet {
         let bezel = self.bezel.take().unwrap();
         let panel_info = self.panel.as_ref();
         let session = self.session;
+        let idle_core_prompt = self.idle_core_prompt.as_deref();
         let font = &mut self.font;
         let images = &self.images;
         let nameplate = self.nameplate.as_str();
-        let show_close = self.show_close;
         let mut close_button = self.close_button;
+        let mut minimize_button = self.minimize_button;
         let mut saved: Result<(), PlatformError> = Ok(());
         let outcome = self.canvas.with_texture_canvas(&mut target, |c| {
             c.set_draw_color(Color::RGB(RECESS.0, RECESS.1, RECESS.2));
@@ -1670,10 +1918,18 @@ impl Cabinet {
             let _ = c.render_geometry(&mesh.verts, Some(&nt.tex), &mesh.indices[..]);
             let _ = c.render_geometry(&bezel.verts, None, &bezel.indices[..]);
             draw_brand(c, font, screen, wh, nameplate);
-            draw_panel(c, font, images, panel_info, panel, session);
-            if show_close {
-                close_button = draw_close_button(c, font);
-            }
+            draw_ch3_osd(c, font, screen);
+            draw_panel(
+                c,
+                font,
+                images,
+                panel_info,
+                panel,
+                session,
+                idle_core_prompt,
+            );
+            close_button = draw_close_button(c, font);
+            minimize_button = draw_minimize_button(c, font);
             c.set_viewport(None);
             saved = c
                 .read_pixels(None::<Rect>)
@@ -1681,6 +1937,7 @@ impl Cabinet {
                 .map_err(|e| PlatformError::Sdl(e.to_string()));
         });
         self.close_button = close_button;
+        self.minimize_button = minimize_button;
         self.noise_tex = Some(nt);
         self.bezel = Some(bezel);
         outcome.map_err(|e| PlatformError::Sdl(e.to_string()))?;
@@ -1815,9 +2072,8 @@ impl Cabinet {
             self.shelf_panel.as_ref(),
             panel,
         );
-        if self.show_close {
-            self.close_button = draw_close_button(&mut self.canvas, &mut self.font);
-        }
+        self.close_button = draw_close_button(&mut self.canvas, &mut self.font);
+        self.minimize_button = draw_minimize_button(&mut self.canvas, &mut self.font);
 
         self.canvas.set_viewport(None);
         self.canvas.present();
@@ -1990,10 +2246,88 @@ impl Cabinet {
             self.canvas_rect.height(),
             &self.nameplate,
         );
-        if self.show_close {
-            self.close_button = draw_close_button(&mut self.canvas, &mut self.font);
-        }
+        self.close_button = draw_close_button(&mut self.canvas, &mut self.font);
+        self.minimize_button = draw_minimize_button(&mut self.canvas, &mut self.font);
         self.canvas.set_viewport(None);
+    }
+
+    /// Like [`Cabinet::composite_screen`], but also draws the settings
+    /// screen's flat panel (plan revision) right after the warped content —
+    /// the section buttons and "Voltar", hit-tested via
+    /// `hit_settings_button`.
+    fn composite_settings(&mut self) {
+        self.composite_screen();
+        let panel = panel_rect(self.canvas_rect.width(), self.canvas_rect.height());
+        self.canvas.set_viewport(Some(self.canvas_rect));
+        self.settings_buttons = draw_settings_panel(
+            &mut self.canvas,
+            &mut self.font,
+            self.settings_panel.as_ref(),
+            panel,
+        );
+        self.canvas.set_viewport(None);
+    }
+
+    /// Like [`Cabinet::frame_shelf`], but for the settings screen (plan
+    /// revision: "a tela de configurações não está no padrão do resto do
+    /// app") — the exact same split as the shelf (warped tube on the left,
+    /// flat panel on the right), so the TV keeps the same proportions
+    /// everywhere.
+    pub fn frame_settings<F: FnOnce(&mut Screen)>(&mut self, bg: (u8, u8, u8), draw: F) {
+        self.paint_shelf(bg, draw);
+        self.composite_settings();
+        self.canvas.present();
+    }
+
+    /// Like [`Cabinet::capture_shelf`], but drawing the settings panel
+    /// (headless preview — the BMP matches what a real window would show).
+    pub fn capture_settings<F: FnOnce(&mut Screen)>(
+        &mut self,
+        bg: (u8, u8, u8),
+        draw: F,
+        path: &std::path::Path,
+    ) -> Result<(), PlatformError> {
+        self.paint_shelf(bg, draw);
+
+        let (ww, wh) = self.canvas.output_size().unwrap_or((1280, 720));
+        let canvas_rect = self.canvas_rect;
+        let panel = panel_rect(canvas_rect.width(), canvas_rect.height());
+        let screen = self.screen;
+        let mesh = build_crt_mesh(screen, 1.0);
+        let mut target = self
+            .canvas
+            .create_texture_target(SdlFormat::RGBA32, ww, wh)
+            .map_err(|e| PlatformError::Sdl(e.to_string()))?;
+        let st = self.screen_tex.take().unwrap();
+        let bezel = self.bezel.take().unwrap();
+        let font = &mut self.font;
+        let settings_panel = self.settings_panel.as_ref();
+        let nameplate = self.nameplate.as_str();
+        let mut close_button = self.close_button;
+        let mut minimize_button = self.minimize_button;
+        let mut saved: Result<(), PlatformError> = Ok(());
+        let outcome = self.canvas.with_texture_canvas(&mut target, |c| {
+            c.set_draw_color(Color::RGB(RECESS.0, RECESS.1, RECESS.2));
+            c.clear();
+            c.set_viewport(Some(canvas_rect));
+            let _ = c.render_geometry(&mesh.verts, Some(&st.tex), &mesh.indices[..]);
+            let _ = c.render_geometry(&bezel.verts, None, &bezel.indices[..]);
+            draw_brand(c, font, screen, canvas_rect.height(), nameplate);
+            let _ = draw_settings_panel(c, font, settings_panel, panel);
+            close_button = draw_close_button(c, font);
+            minimize_button = draw_minimize_button(c, font);
+            c.set_viewport(None);
+            saved = c
+                .read_pixels(None::<Rect>)
+                .and_then(|s| s.save_bmp(path))
+                .map_err(|e| PlatformError::Sdl(e.to_string()));
+        });
+        self.close_button = close_button;
+        self.minimize_button = minimize_button;
+        self.screen_tex = Some(st);
+        self.bezel = Some(bezel);
+        outcome.map_err(|e| PlatformError::Sdl(e.to_string()))?;
+        saved
     }
 
     /// Like [`Cabinet::composite_screen`], but also draws the shelf's flat
@@ -2269,14 +2603,13 @@ fn build_bezel_mesh(out_w: u32, out_h: u32, screen: Rect, key: (u32, u32, u32, u
 
 /// The top-left "fechar app" button (plan revision: "criar botao de fechar
 /// app no canto superior esquerdo") — a small square with an "X", same
-/// visual language as `draw_button`. Always the same fixed distance from
-/// the cabinet's own top-left corner (canvas-local coordinates, the same
-/// space `window_to_output` maps clicks into), so it sits in the same spot
-/// regardless of window size or ultrawide letterboxing. Callers draw this
-/// last, on top of whatever else the screen drew, and only while
-/// `Cabinet::show_close` is set — see that field's own doc comment for why
-/// gameplay never turns it on. Returns the rect drawn, for
-/// `Cabinet::close_button`/`hit_close_button`.
+/// visual language as `draw_button`. Fixed distance from the cabinet's own
+/// top-left corner (canvas-local coordinates, the same space
+/// `window_to_output` maps clicks into), so it sits in the same spot
+/// regardless of window size or ultrawide letterboxing. Callers draw the
+/// pair last, on top of whatever else the screen drew, on EVERY screen now
+/// (plan revision: "mostrar o fechar e minimizar em todas as telas").
+/// Returns the rect drawn, for `Cabinet::close_button`/`hit_close_button`.
 fn draw_close_button(canvas: &mut WindowCanvas, font: &mut Texture) -> Rect {
     const MARGIN: i32 = 14;
     const SIZE: u32 = 32;
@@ -2289,11 +2622,66 @@ fn draw_close_button(canvas: &mut WindowCanvas, font: &mut Texture) -> Rect {
     )
 }
 
+/// The minimize button, sitting right next to `draw_close_button` (plan
+/// revision: "colocar botão de minimizar ao lado de fechar") — same square
+/// look, a dash for the iconify glyph. Returns the rect drawn, for
+/// `Cabinet::minimize_button`/`hit_minimize_button`.
+fn draw_minimize_button(canvas: &mut WindowCanvas, font: &mut Texture) -> Rect {
+    const MARGIN: i32 = 14;
+    const SIZE: u32 = 32;
+    const GAP: i32 = 8;
+    draw_button(
+        canvas,
+        font,
+        Rect::new(MARGIN + SIZE as i32 + GAP, MARGIN, SIZE, SIZE),
+        "-",
+        true,
+    )
+}
+
 /// The set's nameplate, printed into the chin left of the tube — part of the
 /// cabinet itself, so unlike the panel it's drawn in every context (shelf,
 /// game, idle-off) and never disappears. A no-op if the chin is too short to
 /// hold it. `label` is `Cabinet::nameplate` (plan revision — `BRAND` plus the
 /// app/core version once the app calls `set_nameplate`).
+/// The channel banner's green — vivid OSD green, like the phosphor filter a
+/// TV applies to its own on-screen display (plan revision, "CH 3").
+const OSD_GREEN: (u8, u8, u8) = (60, 230, 70);
+
+/// The "CH 3" channel banner (plan revision: "quando a tv tiver fora do ar
+/// ... mostrar CH 3 na tv como era na tv antiga quando nao tinha sinal") —
+/// green, top-right of the tube. Drawn flat on the glass, deliberately NOT
+/// warped with the picture: an OSD is the TV's own overlay, not part of the
+/// signal (same reasoning as `draw_brand`'s chin text).
+fn draw_ch3_osd(canvas: &mut WindowCanvas, font: &mut Texture, screen: Rect) {
+    const LABEL: &str = "CH  3";
+    const SCALE: u32 = 3;
+    let w = GLYPH_W as i32 * SCALE as i32 * LABEL.chars().count() as i32;
+    let margin = 24;
+    let x = screen.right() - margin - w;
+    let y = screen.top() + margin;
+    // A 2px dark offset keeps the green readable over bright snow without a
+    // full outline pass.
+    draw_text_absolute(
+        canvas,
+        font,
+        x + 2,
+        y + 2,
+        TextStyle::new(SCALE, (12, 14, 12)),
+        LABEL,
+        usize::MAX,
+    );
+    draw_text_absolute(
+        canvas,
+        font,
+        x,
+        y,
+        TextStyle::new(SCALE, OSD_GREEN),
+        LABEL,
+        usize::MAX,
+    );
+}
+
 fn draw_brand(
     canvas: &mut WindowCanvas,
     font: &mut Texture,
@@ -2306,16 +2694,33 @@ fn draw_brand(
     if chin_h < 24 {
         return;
     }
-    let y = chin_top + (chin_h - GLYPH_H as i32) / 2;
-    draw_text_absolute(
-        canvas,
-        font,
-        screen.left(),
-        y,
-        TextStyle::new(1, BRAND_TEXT),
-        label,
-        usize::MAX,
-    );
+    // A '\n' in the label stacks lines (plan revision: "no nameplate colocar
+    // a versão do snes9x abaixo do snes xperience") — the block centred in
+    // the chin. When the chin can't fit them all, keep only the first (the
+    // app's own name/version) rather than spilling over the bezel.
+    let lines: Vec<&str> = label.split('\n').collect();
+    let row = GLYPH_H as i32;
+    let gap = 4i32;
+    let fits = chin_h >= (lines.len() as i32 * row + (lines.len() as i32 - 1) * gap).max(row);
+    let shown = if fits {
+        &lines[..]
+    } else {
+        &lines[..1]
+    };
+    let block_h = shown.len() as i32 * row + (shown.len() as i32 - 1) * gap;
+    let mut y = chin_top + (chin_h - block_h) / 2;
+    for line in shown {
+        draw_text_absolute(
+            canvas,
+            font,
+            screen.left(),
+            y,
+            TextStyle::new(1, BRAND_TEXT),
+            line,
+            usize::MAX,
+        );
+        y += row + gap;
+    }
 }
 
 /// Like `Screen::image_fit`, but at absolute window coordinates instead of
@@ -2698,6 +3103,7 @@ fn draw_panel(
     panel: Option<&PanelInfo>,
     rect: Rect,
     session: Duration,
+    idle_core_prompt: Option<&str>,
 ) -> Vec<(PanelButton, Rect)> {
     if rect.width() == 0 {
         return Vec::new();
@@ -2789,13 +3195,40 @@ fn draw_panel(
 
         let btn_h = (GLYPH_H + 12) as i32;
         let settings = Rect::new(x, rect.bottom() - pad - btn_h, inner_w, btn_h as u32);
-        return vec![
+        let mut buttons = vec![
             (PanelButton::Insert, insert_drawn),
             (
                 PanelButton::Settings,
                 draw_button(canvas, font, settings, "Configurações", true),
             ),
         ];
+        // The core prompt (plan revision: "avisar que para jogar é
+        // necessário o download do core" / "coloque o aviso em cima do
+        // botão de download"): warning line directly above the button, both
+        // just above the Configurações footer.
+        if let Some(label) = idle_core_prompt {
+            const WARN: &str = "Para jogar é necessário baixar o núcleo snes9x.";
+            let btn_top = settings.y() - 8 - btn_h;
+            let warn_h = wrapped_height(inner_w, 1, WARN);
+            let warn_y = btn_top - 6 - warn_h;
+            if warn_y > cy {
+                draw_text_wrapped_absolute(
+                    canvas,
+                    font,
+                    x,
+                    warn_y,
+                    inner_w,
+                    TextStyle::new(1, PANEL_WARN),
+                    WARN,
+                );
+                let btn = Rect::new(x, btn_top, inner_w, btn_h as u32);
+                buttons.push((
+                    PanelButton::CoreDownload,
+                    draw_button(canvas, font, btn, label, true),
+                ));
+            }
+        }
+        return buttons;
     };
 
     // 1. Logo, or the title if there isn't one (plan §3.2, item 1).
@@ -3087,6 +3520,67 @@ fn draw_panel(
 /// buttons. Returns the clickable buttons drawn this frame, in `rect`'s
 /// (output/canvas) coordinate space — the caller stores them for
 /// `Cabinet::hit_shelf_button`.
+/// The settings screen's flat panel (plan revision: "coloque o painel ... se
+/// for interessante faça secoes na configuração"): title, one button per
+/// section (the current one lit), and "Voltar" pinned at the bottom — the
+/// same bottom-button stack the shelf panel uses.
+fn draw_settings_panel(
+    canvas: &mut WindowCanvas,
+    font: &mut Texture,
+    panel: Option<&SettingsPanelInfo>,
+    rect: Rect,
+) -> Vec<(SettingsButton, Rect)> {
+    if rect.width() == 0 {
+        return Vec::new();
+    }
+    canvas.set_draw_color(Color::RGB(PANEL_BG.0, PANEL_BG.1, PANEL_BG.2));
+    let _ = canvas.fill_rect(rect);
+
+    let pad = 20i32;
+    let inner_w = rect.width().saturating_sub(pad as u32 * 2);
+    let x = rect.x() + pad;
+    let mut y = rect.y() + pad;
+
+    let Some(panel) = panel else {
+        return Vec::new();
+    };
+    draw_text_wrapped_absolute(
+        canvas,
+        font,
+        x,
+        y,
+        inner_w,
+        TextStyle::new(2, PANEL_TEXT),
+        &panel.title,
+    );
+    y += 2 * GLYPH_H as i32 + 16;
+
+    let btn_h = (GLYPH_H + 12) as i32;
+    let back_rect = Rect::new(x, rect.bottom() - pad - btn_h, inner_w, btn_h as u32);
+    let mut buttons = vec![(
+        SettingsButton::Back,
+        draw_button(canvas, font, back_rect, "Voltar", true),
+    )];
+
+    // Section buttons, top to bottom under the title — the currently shown
+    // section lit, the others dim (same lit/dim language as every other
+    // panel button).
+    let limit = back_rect.y() - 12;
+    for (i, name) in panel.sections.iter().enumerate() {
+        if y + btn_h > limit {
+            break;
+        }
+        let r = Rect::new(x, y, inner_w, btn_h as u32);
+        buttons.push((
+            SettingsButton::Section(i),
+            draw_button(canvas, font, r, name, i == panel.selected),
+        ));
+        y += btn_h + 8;
+    }
+
+    buttons
+}
+
 fn draw_shelf_panel(
     canvas: &mut WindowCanvas,
     font: &mut Texture,

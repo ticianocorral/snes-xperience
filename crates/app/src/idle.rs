@@ -11,9 +11,12 @@ use std::path::Path;
 use std::sync::mpsc::{Receiver, TryRecvError};
 use std::time::{Duration, Instant};
 
+use std::sync::mpsc;
+
 use anyhow::Result;
 use xperience_platform::{Cabinet, MenuMode, MenuNav, PanelButton, Platform, Screen};
 
+use crate::core_update::{self, CoreUpdateMsg};
 use crate::update_check::UpdateNotice;
 
 const NOTICE_BG: (u8, u8, u8) = (18, 18, 20);
@@ -52,6 +55,7 @@ pub fn run(
     cab: &mut Cabinet,
     static_level: f32,
     notice_rx: &mut Option<Receiver<UpdateNotice>>,
+    core_installed: bool,
 ) -> Result<IdleExit> {
     // Whatever game was loaded before (if any) is gone now — without this the
     // panel keeps showing its stale logo/commands instead of the "Inserir
@@ -64,7 +68,40 @@ pub fn run(
     let frame = Duration::from_millis(16);
     let mut next = Instant::now() + frame;
     let mut notice: Option<UpdateNotice> = None;
+    // Core missing (plan revision: "ao iniciar o app pela primeira vez e/ou
+    // nao tiver o core na pasta, mostrar botão para baixar — avisar que para
+    // jogar é necessário o download do core"): the panel grows a warning
+    // line plus a "Baixar núcleo" button whose label carries the live
+    // progress. Done returns to the plain idle panel.
+    let mut core_missing = !core_installed;
+    let mut core_rx: Option<mpsc::Receiver<CoreUpdateMsg>> = None;
+    let mut core_label = "Baixar núcleo snes9x".to_string();
     loop {
+        if let Some(rx) = &core_rx {
+            match rx.try_recv() {
+                Ok(CoreUpdateMsg::Progress { downloaded, total }) => {
+                    let mb = downloaded as f64 / 1_048_576.0;
+                    core_label = match total {
+                        Some(t) => {
+                            format!("Baixando núcleo... {mb:.1}/{:.1} MB", t as f64 / 1_048_576.0)
+                        }
+                        None => format!("Baixando núcleo... {mb:.1} MB"),
+                    };
+                }
+                Ok(CoreUpdateMsg::Done) => {
+                    core_missing = false;
+                    core_rx = None;
+                    core_label.clear();
+                }
+                Ok(CoreUpdateMsg::Failed(e)) => {
+                    core_label = format!("Falha ({e}) - clique para tentar de novo");
+                    core_rx = None;
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => core_rx = None,
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            }
+        }
+        cab.set_idle_core_prompt(core_missing.then_some(core_label.as_str()));
         if let Some(rx) = notice_rx.as_ref() {
             match rx.try_recv() {
                 Ok(n) => {
@@ -101,9 +138,30 @@ pub fn run(
             if cab.hit_close_button(ox, oy) {
                 return Ok(IdleExit::Quit);
             }
+            if cab.hit_minimize_button(ox, oy) {
+                cab.minimize();
+                continue;
+            }
             match cab.hit_panel_button(ox, oy) {
                 Some(PanelButton::Insert) => return Ok(IdleExit::OpenShelf),
                 Some(PanelButton::Settings) => return Ok(IdleExit::OpenSettings),
+                Some(PanelButton::CoreDownload) => {
+                    // Already downloading? The click is ignored until the
+                    // worker reports Done/Failed.
+                    if core_rx.is_none() {
+                        if let Some(url) = core_update::core_download_url() {
+                            let (tx, rx) = mpsc::channel();
+                            let dest = crate::dirs::core_dir();
+                            std::thread::spawn(move || {
+                                core_update::download_and_install(url, &dest, &tx)
+                            });
+                            core_rx = Some(rx);
+                        } else {
+                            core_label =
+                                "Sem build automática - use configurações".to_string();
+                        }
+                    }
+                }
                 _ => {}
             }
         }
@@ -159,8 +217,16 @@ fn draw_notice(d: &mut Screen, lines: &[String]) {
 
 /// Headless preview of the idle screen (dev/testing) — same setup as `run`,
 /// one frame captured through the tube instead of a live loop.
-pub fn capture_preview(cab: &mut Cabinet, static_level: f32, path: &Path) -> Result<()> {
+pub fn capture_preview(
+    cab: &mut Cabinet,
+    static_level: f32,
+    core_installed: bool,
+    path: &Path,
+) -> Result<()> {
     cab.clear_panel();
+    if !core_installed {
+        cab.set_idle_core_prompt(Some("Baixar núcleo snes9x"));
+    }
     crate::console_art::load_brand_images(cab);
     cab.capture_static_bmp(static_level, path)
         .map_err(|e| anyhow::anyhow!(e.to_string()))

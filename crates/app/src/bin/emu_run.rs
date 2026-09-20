@@ -226,7 +226,7 @@ fn main() -> Result<()> {
 
     let mut platform = xperience_platform::Platform::new().map_err(|e| anyhow!(e.to_string()))?;
     let mut cabinet = platform
-        .create_cabinet("SNES Xperience", 1024, 768)
+        .create_cabinet("SNES Xperience", 1024, 768, false)
         .map_err(|e| anyhow!(e.to_string()))?;
     if cfg.fullscreen {
         cabinet.toggle_fullscreen();

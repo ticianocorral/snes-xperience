@@ -9,6 +9,11 @@ aviso — só o incremento de _minor_ marca um conjunto de mudanças.
 
 ## [Não lançado]
 
+### Adicionado
+- Efeitos sonoros reais do console (Pixabay, embutidos no binário): inserir
+  cartucho, ejetar, ligar, desligar e resetar — aparados para caber no tempo
+  de cada ação, com os bipes sintetizados antigos como fallback.
+
 ## [0.13.0] - 2026-09-19
 
 ### Adicionado

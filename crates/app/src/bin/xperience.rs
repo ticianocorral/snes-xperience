@@ -68,9 +68,11 @@ fn default_core_path() -> Option<PathBuf> {
 }
 
 /// The cabinet's nameplate text (plan revision: "mostrar versao do app e
-/// versao do snes9x, onde esta o nome do app na tv") — the app's own version
-/// plus, if a core is installed, whatever `retro_get_system_info` reports for
-/// it. `Core::load` only resolves symbols and reads that info (no `retro_
+/// versao do snes9x, onde esta o nome do app na tv"; later revision: "no
+/// nameplate colocar a versão do snes9x abaixo do snes xperience") — the
+/// app's own version on the first line and, if a core is installed, the
+/// core's version on a second line below it (`draw_brand` splits on '\n').
+/// `Core::load` only resolves symbols and reads that info (no `retro_
 /// init`), so peeking at it here and dropping the `Core` right after is
 /// cheap and side-effect-free.
 fn nameplate_text(core_path: Option<&Path>) -> String {
@@ -80,7 +82,7 @@ fn nameplate_text(core_path: Option<&Path>) -> String {
         .map(|c| c.system_version().to_string())
         .filter(|v| !v.is_empty());
     match core_version {
-        Some(v) => format!("{} v{app_version} - snes9x {v}", xperience_platform::BRAND),
+        Some(v) => format!("{} v{app_version}\nsnes9x {v}", xperience_platform::BRAND),
         None => format!("{} v{app_version}", xperience_platform::BRAND),
     }
 }
@@ -228,11 +230,11 @@ fn main() -> Result<()> {
     let mut plat = Platform::new().map_err(|e| anyhow!(e.to_string()))?;
     // One window for the whole session — shelf and game both draw into it.
     let mut cab = plat
-        .create_cabinet("SNES Xperience", 1280, 800)
+        .create_cabinet("SNES Xperience", 1280, 800, cfg.fullscreen)
         .map_err(|e| anyhow!(e.to_string()))?;
-    if cfg.fullscreen {
-        cab.toggle_fullscreen();
-    }
+    // The ambient static hiss (opt-in, settings "vídeo") — gate applied once
+    // here and live on every settings toggle after.
+    cab.set_static_hiss(cfg.hiss_on_static);
 
     // Headless self-check: render one settings screen and exit.
     if let (Some(screen), Some(path)) = (&args.debug_settings, &args.shot) {
@@ -243,7 +245,12 @@ fn main() -> Result<()> {
     if let (true, Some(path)) = (args.debug_idle, &args.shot) {
         let core_path = args.core.clone().or_else(default_core_path);
         cab.set_nameplate(&nameplate_text(core_path.as_deref()));
-        idle::capture_preview(&mut cab, idle::RESTING_STATIC, path)?;
+        idle::capture_preview(
+            &mut cab,
+            idle::RESTING_STATIC,
+            core_path.is_some(),
+            path,
+        )?;
         log::info!("wrote {} (idle preview)", path.display());
         return Ok(());
     }
@@ -282,7 +289,19 @@ fn main() -> Result<()> {
     }
 
     'app: loop {
-        match idle::run(&mut plat, &mut cab, idle_static, &mut update_rx)? {
+        let exit = idle::run(
+            &mut plat,
+            &mut cab,
+            idle_static,
+            &mut update_rx,
+            core_path.is_some(),
+        )?;
+        // The idle screen's own "Baixar núcleo" button may have just
+        // installed one — re-resolve (cheap when core/ is unchanged) and
+        // refresh the nameplate either way.
+        core_path = args.core.clone().or_else(default_core_path);
+        cab.set_nameplate(&nameplate_text(core_path.as_deref()));
+        match exit {
             IdleExit::Quit => break 'app,
             IdleExit::OpenShelf => shelf_opts.fade_in = Some(idle_static),
             IdleExit::OpenSettings => {
@@ -414,8 +433,9 @@ fn no_core_screen(plat: &mut Platform, cab: &mut Cabinet) -> Result<bool> {
                 700,
                 1,
                 (150, 150, 158),
-                "baixe o núcleo snes9x pelo menu de configurações (O na estante) \
-                 antes de jogar, ou coloque o arquivo em core/ à mão.",
+                "para jogar é necessário o núcleo snes9x: volte à tela inicial e \
+                 clique em \"Baixar núcleo snes9x\", baixe pelo menu de configurações \
+                 ou coloque o arquivo em core/ à mão.",
             );
             d.text(
                 40,

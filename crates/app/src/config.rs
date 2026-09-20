@@ -25,6 +25,10 @@ pub struct Config {
     /// a one-time notice on the idle screen; a network failure just means no
     /// notice, never an error.
     pub check_updates_on_start: bool,
+    /// Ambient white-noise hiss while the TV shows static (idle, power-off)
+    /// — plan revision: "som de chiado de tv fora do ar ... colocar na
+    /// configuração para tocar ou não. por padrão vem desligado".
+    pub hiss_on_static: bool,
     pub keymap: KeyMap,
     /// Where it was read from (or freshly written), for logging and for
     /// `save()`.
@@ -39,6 +43,8 @@ struct Raw {
     fullscreen: Option<bool>,
     #[serde(default)]
     check_updates_on_start: Option<bool>,
+    #[serde(default)]
+    hiss_on_static: Option<bool>,
     #[serde(default)]
     keyboard: BTreeMap<String, String>,
 }
@@ -60,6 +66,7 @@ impl Config {
             // settings screen's own toggle still turns it off from there.
             fullscreen: true,
             check_updates_on_start: true,
+            hiss_on_static: false,
             keymap: KeyMap::defaults(),
             source: path.clone(),
         };
@@ -100,6 +107,9 @@ impl Config {
         if let Some(c) = raw.check_updates_on_start {
             self.check_updates_on_start = c;
         }
+        if let Some(h) = raw.hiss_on_static {
+            self.hiss_on_static = h;
+        }
         for (action, key) in &raw.keyboard {
             let Ok(b) = action.parse::<PadButton>() else {
                 // Not a gameplay button — either a typo, or (most likely for
@@ -128,14 +138,16 @@ impl Config {
              # runahead: speculative frames to hide input lag (0 disables).\n\
              # fullscreen: start in fullscreen.\n\
              # check_updates_on_start: look for a newer release/snes9x core at launch.\n\
+             # hiss_on_static: white-noise hiss while the TV shows static (off by default).\n\
              # [keyboard]: action = \"SDL key name\" (e.g. \"Left Shift\", \"F2\", \"]\").\n\n",
         );
         s.push_str(&format!("runahead = {}\n", self.runahead));
         s.push_str(&format!("fullscreen = {}\n", self.fullscreen));
         s.push_str(&format!(
-            "check_updates_on_start = {}\n\n",
+            "check_updates_on_start = {}\n",
             self.check_updates_on_start
         ));
+        s.push_str(&format!("hiss_on_static = {}\n\n", self.hiss_on_static));
         s.push_str("[keyboard]\n");
         for (action, key) in self.keymap.describe() {
             s.push_str(&format!("{action} = {key:?}\n"));
@@ -166,6 +178,7 @@ mod tests {
             runahead: 1,
             fullscreen: false,
             check_updates_on_start: true,
+            hiss_on_static: false,
             keymap: KeyMap::defaults(),
             source: None,
         }
