@@ -9,6 +9,8 @@ aviso — só o incremento de _minor_ marca um conjunto de mudanças.
 
 ## [Não lançado]
 
+## [0.13.0] - 2026-09-19
+
 ### Adicionado
 - Suporte a ROMs em formato `.zip`: a varredura reconhece arquivos zip em
   `roms/`, identifica o jogo pela ROM interna (hash, DAT e arte seguem
