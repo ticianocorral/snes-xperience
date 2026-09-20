@@ -113,6 +113,11 @@ pub enum Pick {
     /// Clicked "Histórico" — open the all-time most-played list (plan
     /// revision), then come back to the shelf.
     History,
+    /// Clicked "Atualizar" (plan revision: "adicionar opção de atualizar a
+    /// estante para buscar jogos novos sem precisar abrir e fechar o app")
+    /// — the caller re-scans `roms/` and reopens the shelf with the fresh
+    /// catalog.
+    Refresh,
 }
 
 /// Knobs for [`run`].
@@ -441,7 +446,10 @@ fn empty_roms_screen(plat: &mut Platform, cab: &mut Cabinet) -> Result<Pick> {
                 Some(ShelfButton::Back) => return Ok(Pick::Back),
                 Some(ShelfButton::Settings) => return Ok(Pick::Settings),
                 // No game focused on this screen, so nothing to scroll (and
-                // no back cover to enlarge).
+                // no back cover to enlarge) — but "Atualizar" still matters
+                // here: it's how an empty roms/ folder gets noticed without
+                // restarting the app.
+                Some(ShelfButton::Refresh) => return Ok(Pick::Refresh),
                 Some(ShelfButton::PanelScrollUp)
                 | Some(ShelfButton::PanelScrollDown)
                 | Some(ShelfButton::Backcover)
@@ -457,8 +465,9 @@ fn empty_roms_screen(plat: &mut Platform, cab: &mut Cabinet) -> Result<Pick> {
                 scr_w.saturating_sub(MARGIN as u32 * 2),
                 1,
                 DIM,
-                "copie seus arquivos .sfc/.smc para a pasta roms/, ao lado do \
-                 executável, e volte para esta tela.",
+                "copie seus arquivos .sfc/.smc/.zip para a pasta roms/, ao lado \
+                 do executável, e clique em Atualizar (ou volte e abra a estante \
+                 de novo).",
             );
         };
         cab.frame_shelf(BG, render);
@@ -488,9 +497,9 @@ pub fn run(
     // won't have any, and disk isn't free even if it's cheap.
     let mut tried_cover: HashSet<String> = HashSet::new();
     // Back cover enlarged (plan revision: "ao clicar no back cover
-    // possibilitar mostrar em tamanho maior, com botão de fechar"): Some =
-    // the close button's rect — the zoom replaces the whole shelf until
-    // dismissed.
+    // possibilitar mostrar em tamanho maior"): Some = the "voltar" button's
+    // screen-local rect — the zoom replaces the tube's content until
+    // dismissed (the flat panel stays).
     let mut zoom_close: Option<(i32, i32, u32, u32)> = None;
     let mut tried_logo: HashSet<String> = HashSet::new();
     let mut tried_cartridge: HashSet<String> = HashSet::new();
@@ -624,15 +633,21 @@ pub fn run(
                 return Ok(Pick::Quit);
             }
             if zoom_close.is_some() {
-                // The enlarged back cover is up: only the close button (or
-                // Back) dismisses it — clicks elsewhere do nothing.
+                // The enlarged back cover is up (inside the tube): only the
+                // "voltar" button (or Back) dismisses it — clicks elsewhere
+                // do nothing. The button lives in the warped screen buffer,
+                // so its rect is screen-local and goes through
+                // `hit_screen_point`, not raw output coordinates.
                 if m.nav.iter().any(|n| matches!(n, MenuNav::Back)) {
                     zoom_close = None;
                 }
                 if let Some((x, y)) = m.click {
                     let (ox, oy) = cab.window_to_output(x, y);
                     if let Some(close) = zoom_close {
-                        if in_rect(ox, oy, close) {
+                        if cab
+                            .hit_screen_point(ox, oy)
+                            .is_some_and(|(lx, ly)| in_rect(lx, ly, close))
+                        {
                             zoom_close = None;
                         }
                     }
@@ -725,6 +740,7 @@ pub fn run(
                         match hit {
                             ShelfButton::Back => return Ok(Pick::Back),
                             ShelfButton::Settings => return Ok(Pick::Settings),
+                            ShelfButton::Refresh => return Ok(Pick::Refresh),
                             ShelfButton::PanelScrollUp => {
                                 panel_scroll = panel_scroll.saturating_sub(1)
                             }
@@ -1031,12 +1047,14 @@ pub fn run(
         // not just during the entrance. Easing in from a fresh eject just
         // ramps *toward* that resting `SHELF_ALPHA` instead of straight to
         // fully opaque.
-        // Back cover enlarged: it replaces the whole shelf while up.
+        // Back cover enlarged: it replaces the tube's content while up —
+        // drawn through the same warp, on the TV — and the flat panel
+        // keeps showing beside it.
         if zoom_close.is_some() {
             match focused {
                 Some(e) => {
                     let bid = backcover_id(&e.rom.sha1);
-                    let r = cab.frame_image_zoom(bid, "Fechar");
+                    let r = cab.frame_image_zoom(bid, "voltar");
                     zoom_close = Some((r.x(), r.y(), r.width(), r.height()));
                 }
                 None => zoom_close = None,
@@ -1118,6 +1136,7 @@ pub fn run_history(plat: &mut Platform, cab: &mut Cabinet, catalog: &Catalog) ->
                 match hit {
                     ShelfButton::Back => return Ok(Pick::Back),
                     ShelfButton::Settings => return Ok(Pick::Settings),
+                    ShelfButton::Refresh => return Ok(Pick::Refresh),
                     // The history screen's panel never has any per-game
                     // content, so it never scrolls (and never has a back
                     // cover to enlarge).

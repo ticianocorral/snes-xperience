@@ -380,6 +380,10 @@ pub enum ShelfButton {
     /// the enlarged view (plan revision: "ao clicar no back cover
     /// possibilitar mostrar em tamanho maior, com botão de fechar").
     Backcover,
+    /// "Atualizar" (plan revision: "adicionar opção de atualizar a estante
+    /// para buscar jogos novos sem precisar abrir e fechar o app") —
+    /// re-scan `roms/` and rebuild the shelf.
+    Refresh,
 }
 
 /// The pause book: `captures` is the fixed slot count (plan revision, 15),
@@ -1856,62 +1860,55 @@ impl Cabinet {
     }
 
     /// The back cover enlarged (plan revision: "ao clicar no back cover
-    /// possibilitar mostrar em tamanho maior, com botão de fechar"): the
-    /// image aspect-preserved as large as the window allows over a dark
-    /// backdrop, with a "Fechar" button centred right below it. Returns the
-    /// button's rect as the click target — everything else on screen is
-    /// inert while this is up.
+    /// possibilitar mostrar em tamanho maior"): the image aspect-preserved as
+    /// large as the *tube* allows over a dark backdrop, with a "voltar" button
+    /// centred right below it — drawn into the screen buffer and warped
+    /// through the CRT mesh like the shelf itself, so the zoom happens on the
+    /// TV, not flat over the whole window (plan revision: "abrir ele dentro
+    /// da tv"). The flat side panel keeps drawing beside it, untouched.
+    /// Returns the button's rect in screen-local coordinates — hit-test it
+    /// through `hit_screen_point`, not raw output coordinates.
     pub fn frame_image_zoom(&mut self, id: u64, label: &str) -> Rect {
-        let (real_w, real_h) = self.canvas.output_size().unwrap_or((1280, 800));
-        let canvas_rect = cabinet_canvas_rect(real_w, real_h);
-        self.canvas_rect = canvas_rect;
-
-        let Self {
-            canvas,
-            font,
-            images,
-            ..
-        } = self;
-        let images = &*images;
-        canvas.set_draw_color(Color::RGB(8, 8, 9));
-        canvas.clear();
-        canvas.set_viewport(Some(canvas_rect));
-
-        // The image, aspect-preserved, in the largest centred area that
-        // still leaves room for the close button below it.
-        let btn_h = GLYPH_H as i32 + 12;
-        let area = Rect::new(
-            canvas_rect.x() + 80,
-            canvas_rect.y() + 36,
-            canvas_rect.width().saturating_sub(160),
-            canvas_rect
-                .height()
-                .saturating_sub(36 + 40 + btn_h as u32 + 16)
-                .max(60),
-        );
-        let img = images.get(&id);
-        let (iw, ih) = img.map(|t| (t.w, t.h)).unwrap_or((16, 9));
-        let scale =
-            (area.width() as f32 / iw.max(1) as f32).min(area.height() as f32 / ih.max(1) as f32);
-        let dw = ((iw as f32) * scale).round().max(1.0) as u32;
-        let dh = ((ih as f32) * scale).round().max(1.0) as u32;
-        let dx = area.x() + (area.width() as i32 - dw as i32) / 2;
-        let dy = area.y() + (area.height() as i32 - dh as i32) / 2;
-        if let Some(t) = img {
-            let _ = canvas.copy(&t.tex, None, Rect::new(dx, dy, dw, dh));
-        }
-
+        let (sw, sh) = self.shelf_screen_size();
+        let pad = 24i32;
+        let btn_h = GLYPH_H as i32 + 14;
         let btn_w = (GLYPH_W as i32 * label.chars().count() as i32) + 28;
         let btn = Rect::new(
-            canvas_rect.x() + (canvas_rect.width() as i32 - btn_w) / 2,
-            area.y() + area.height() as i32 + 16,
+            (sw as i32 - btn_w).max(pad) / 2,
+            sh as i32 - pad - btn_h,
             btn_w as u32,
             btn_h as u32,
         );
-        draw_button(canvas, font, btn, label, true);
-
-        canvas.set_viewport(None);
-        canvas.present();
+        let img_w = sw.saturating_sub(pad as u32 * 2);
+        let img_h = (sh as i32 - pad * 2 - btn_h - 14).max(60) as u32;
+        self.paint_shelf((10, 10, 11), |d| {
+            d.image_fit(id, pad, pad, img_w, img_h);
+            d.outline(
+                btn.x(),
+                btn.y(),
+                btn.width(),
+                btn.height(),
+                1,
+                (PANEL_TEXT.0, PANEL_TEXT.1, PANEL_TEXT.2, 255),
+            );
+            d.fill(
+                btn.x() + 1,
+                btn.y() + 1,
+                btn.width().saturating_sub(2),
+                btn.height().saturating_sub(2),
+                (PANEL_BTN_BG.0, PANEL_BTN_BG.1, PANEL_BTN_BG.2, 255),
+            );
+            let text_w = GLYPH_W as i32 * label.chars().count() as i32;
+            d.text(
+                btn.x() + (btn.width() as i32 - text_w) / 2,
+                btn.y() + (btn.height() as i32 - GLYPH_H as i32) / 2,
+                1,
+                PANEL_TEXT,
+                label,
+            );
+        });
+        self.composite_shelf();
+        self.canvas.present();
         btn
     }
 
@@ -3108,13 +3105,19 @@ fn draw_shelf_panel(
     let x = rect.x() + pad;
     let y = rect.y() + pad;
 
-    // Two stacked buttons at the bottom, "Voltar" above "Configurações" —
-    // the shelf's only mouse path into either (plan revision: no keyboard
-    // shortcuts left to reach them by).
+    // Three stacked buttons at the bottom, "Atualizar" / "Voltar" /
+    // "Configurações" top to bottom — the shelf's only mouse path into any
+    // of them (plan revision: no keyboard shortcuts left to reach them by;
+    // "Atualizar" re-scans roms/ without leaving the shelf).
     let btn_h = (GLYPH_H + 12) as i32;
     let settings_rect = Rect::new(x, rect.bottom() - pad - btn_h, inner_w, btn_h as u32);
     let back_rect = Rect::new(x, settings_rect.y() - 8 - btn_h, inner_w, btn_h as u32);
+    let refresh_rect = Rect::new(x, back_rect.y() - 8 - btn_h, inner_w, btn_h as u32);
     let mut buttons = vec![
+        (
+            ShelfButton::Refresh,
+            draw_button(canvas, font, refresh_rect, "Atualizar", true),
+        ),
         (
             ShelfButton::Back,
             draw_button(canvas, font, back_rect, "Voltar", true),
@@ -3129,9 +3132,9 @@ fn draw_shelf_panel(
         return buttons;
     };
 
-    // Everything above the button pair — same cutoff rule `draw_panel` uses
+    // Everything above the button trio — same cutoff rule `draw_panel` uses
     // for its command rows: a clean stop beats spilling into the buttons.
-    let limit = back_rect.y() - 12;
+    let limit = refresh_rect.y() - 12;
 
     let cy = if let Some(id) = panel.logo_img {
         draw_image_absolute(canvas, images, id, x, y, inner_w, 110);

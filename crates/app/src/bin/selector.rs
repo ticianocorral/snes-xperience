@@ -75,6 +75,10 @@ fn main() -> Result<()> {
             );
             std::process::exit(1);
         }
+        Pick::Refresh => {
+            eprintln!("the refresh button isn't wired up in `selector` — use `xperience`");
+            std::process::exit(1);
+        }
     }
 }
 

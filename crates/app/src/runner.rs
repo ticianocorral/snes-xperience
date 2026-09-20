@@ -1025,8 +1025,11 @@ pub fn run_game(
     core.set_directories(&spec.system_dir, &spec.save_dir);
     core.init();
 
-    let rom_bytes =
-        fs::read(&spec.rom).with_context(|| format!("reading ROM {}", spec.rom.display()))?;
+    // `load_rom` transparently extracts the ROM inside a .zip (plan
+    // revision: "add suporte a roms em formato zip") — the core gets raw
+    // ROM bytes either way.
+    let rom_bytes = xperience_domain::library::load_rom(&spec.rom)
+        .with_context(|| format!("reading ROM {}", spec.rom.display()))?;
     match xperience_domain::RomId::from_bytes(&rom_bytes) {
         Ok(id) => log::info!(
             "rom: {} bytes (+{} header), crc32={} sha1={} name={:?} {:?}",
