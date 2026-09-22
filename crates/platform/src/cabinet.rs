@@ -8,6 +8,7 @@
 
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
 use noto_sans_mono_bitmap::{get_raster, FontWeight, RasterHeight};
@@ -310,11 +311,17 @@ pub struct Cabinet {
     /// (line 0 = app version, line 1 = snes9x version); the app flips them
     /// via `set_nameplate_updates` once its startup check reports something.
     nameplate_updates: (bool, bool),
-    /// MOCK (design preview for the achievements notification — RetroAchievements
-    /// plan): lines drawn right-aligned in the chin, mirroring `set_nameplate`'s
-    /// block on the left. Throwaway scaffolding for `examples/ra_osd_mock.rs`;
-    /// the real feature (phase 4) replaces it with a timed OSD queue.
-    demo_osd: Option<Vec<String>>,
+    /// The chin's OSD queue (plan: `docs/plano-retroachievements.md`,
+    /// fase 4) — "CONQUISTA DESBLOQUEADA" blocks drawn right-aligned in the
+    /// chin, front entry only, expiring by time; the next one slides in
+    /// after. Pushed by the runner on an unlock event.
+    osd_queue: VecDeque<OsdEntry>,
+    /// The chin's persistent RetroAchievements badge: when the account is
+    /// on, the chin shows the RA mark + "ATIVADO" + the mode whenever the
+    /// OSD queue is empty — an unlock notification still takes the spot
+    /// while it lives, and the badge comes back when it expires. `None`
+    /// draws nothing (account off, or no cartridge in).
+    ra_status: Option<RaStatus>,
     /// Whether the top-left "fechar app" button is drawn/clickable this
     /// screen (plan revision: "criar botao de fechar app no canto superior
     /// esquerdo") — the idle/shelf/settings/history screens turn it on;
@@ -332,6 +339,33 @@ pub struct Cabinet {
     /// The top-left minimize button's rect drawn last frame —
     /// `hit_minimize_button` scans this.
     minimize_button: Rect,
+}
+
+/// One queued chin OSD block (plan fase 4) — the unlock notification with
+/// its expiry.
+struct OsdEntry {
+    lines: Vec<String>,
+    badge: Option<u64>,
+    until: Instant,
+}
+
+/// The persistent RetroAchievements chin badge's state — just the session
+/// mode; the drawing itself is fixed (`draw_chin_ra`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RaStatus {
+    pub hardcore: bool,
+}
+
+/// What the chin draws this frame: a queued notification wins over the
+/// persistent RA badge — which is what makes the badge "cede the spot" to
+/// each unlock and come back when the notification expires.
+enum ChinOsd {
+    Notify {
+        lines: Vec<String>,
+        badge: Option<u64>,
+    },
+    Ra { hardcore: bool },
+    None,
 }
 
 /// A clickable spot in the side panel: the idle screen's "Inserir cartucho"
@@ -354,6 +388,14 @@ pub enum PanelButton {
     /// Pauses and opens the notebook in one click (plan revision — replaces
     /// the old separate "Pausar" button; "Nota" moved to `PrintScreen`).
     Notebook,
+    /// Opens the achievements list modal (plan:
+    /// `docs/plano-retroachievements.md`, fase 4) — only drawn while an RA
+    /// session is active for the loaded game.
+    Achievements,
+    /// Opens the achievements list on the shelf (plan fase 2/4) — inside
+    /// the tube, like the back-cover zoom. Only drawn while the focused
+    /// game has an identified RA set.
+    ShelfAchievements,
     /// Grabs the current frame and opens a modal to pick which of the 15
     /// note slots to save it into, with a name (plan revision — replaces
     /// the old direct-capture "Nota" button and its slot cycler).
@@ -451,6 +493,10 @@ pub enum ShelfButton {
     /// marcador de favorito nos jogos") — drawn by `draw_shelf_panel` when
     /// `ShelfPanelInfo::favorite` is `Some`.
     ToggleFavorite,
+    /// Open the achievements list view (plan: `docs/plano-retroachievements
+    /// .md`, fase 2/4) — drawn by `draw_shelf_panel` when
+    /// `ShelfPanelInfo::achievements` is set.
+    ShelfAchievements,
     /// "Atualizar" (plan revision: "adicionar opção de atualizar a estante
     /// para buscar jogos novos sem precisar abrir e fechar o app") —
     /// re-scan `roms/` and rebuild the shelf.
@@ -651,6 +697,10 @@ pub struct ShelfPanelInfo {
     /// `ShelfButton::ToggleFavorite`), `None` no button at all (history /
     /// empty panel).
     pub favorite: Option<bool>,
+    /// The focused game is identified on RetroAchievements (plan fase 2) —
+    /// draws a "Conquistas" button (`ShelfButton::ShelfAchievements`)
+    /// between "Favoritar" and "Configurações".
+    pub achievements: bool,
 }
 
 struct SrcTexture {
@@ -782,7 +832,8 @@ impl Cabinet {
             canvas_rect,
             nameplate: BRAND.to_string(),
             nameplate_updates: (false, false),
-            demo_osd: None,
+            osd_queue: VecDeque::new(),
+            ra_status: None,
             close_button: Rect::new(0, 0, 0, 0),
             minimize_button: Rect::new(0, 0, 0, 0),
         })
@@ -805,8 +856,23 @@ impl Cabinet {
     /// MOCK (design preview for the achievements notification — see
     /// `demo_osd`): shows a line block in the chin's right side; an empty
     /// slice clears it.
-    pub fn set_demo_chin_osd(&mut self, lines: &[&str]) {
-        self.demo_osd = (!lines.is_empty()).then(|| lines.iter().map(|l| l.to_string()).collect());
+    /// Arm/disarm the persistent RetroAchievements chin badge — the runner
+    /// calls it with the live session's mode on cart insert and with `None`
+    /// when the cartridge leaves (or the account is off). No visual effect
+    /// while the OSD queue has a live notification: that draws first.
+    pub fn set_ra_status(&mut self, status: Option<RaStatus>) {
+        self.ra_status = status;
+    }
+
+    pub fn push_osd(&mut self, lines: &[&str], badge: Option<u64>, ttl: Duration) {
+        if lines.is_empty() {
+            return;
+        }
+        self.osd_queue.push_back(OsdEntry {
+            lines: lines.iter().map(|l| l.to_string()).collect(),
+            badge,
+            until: Instant::now() + ttl,
+        });
     }
 
     /// The idle panel's core prompt (plan revision: "avisar que para jogar é
@@ -1506,17 +1572,7 @@ impl Cabinet {
             &self.nameplate,
             self.nameplate_updates,
         );
-        if let Some(lines) = &self.demo_osd {
-            draw_demo_chin_osd(
-                &mut self.canvas,
-                &mut self.font,
-                &self.images,
-                self.screen,
-                out_h,
-                &self.nameplate,
-                lines,
-            );
-        }
+        self.draw_osd_front();
         // The timed "CH 3" flash (plan revision): power-on shows the channel
         // banner over the picture for a few seconds, then it's gone. Expired
         // deadlines clear here so the banner truly disappears from the frame
@@ -1587,11 +1643,11 @@ impl Cabinet {
         let panel_info = self.panel.as_ref();
         let session = self.session;
         let idle_core_prompt = self.idle_core_prompt.as_deref();
+        let osd = self.osd_for_capture();
         let font = &mut self.font;
         let images = &self.images;
         let nameplate = self.nameplate.as_str();
         let nameplate_updates = self.nameplate_updates;
-        let demo_osd = self.demo_osd.as_deref();
         let mut saved: Result<(), PlatformError> = Ok(());
         let outcome = self.canvas.with_texture_canvas(&mut target, |c| {
             c.set_draw_color(Color::RGB(RECESS.0, RECESS.1, RECESS.2));
@@ -1600,8 +1656,14 @@ impl Cabinet {
             let _ = c.render_geometry(&mesh.verts, Some(&src.tex), &mesh.indices[..]);
             let _ = c.render_geometry(&bezel.verts, None, &bezel.indices[..]);
             draw_brand(c, font, screen, out_h, nameplate, nameplate_updates);
-            if let Some(lines) = demo_osd {
-                draw_demo_chin_osd(c, font, images, screen, out_h, nameplate, lines);
+            match &osd {
+                ChinOsd::Notify { lines, badge } => {
+                    draw_chin_osd(c, font, images, screen, out_h, nameplate, lines, *badge);
+                }
+                ChinOsd::Ra { hardcore } => {
+                    draw_chin_ra(c, font, screen, out_h, nameplate, *hardcore);
+                }
+                ChinOsd::None => {}
             }
             draw_panel(
                 c,
@@ -2930,22 +2992,196 @@ fn draw_ch3_osd(canvas: &mut WindowCanvas, font: &mut Texture, screen: Rect) {
     );
 }
 
-/// MOCK: image id under which the demo OSD's achievement badge is drawn
-/// (`Cabinet::set_image` with this id, then `set_demo_chin_osd` as usual).
-/// When present, the badge sits left of the text block, the way the real
-/// feature will show each achievement's 64×64 badge.
+/// Image id the RA mock example registers its badge under.
 pub const DEMO_BADGE_IMG: u64 = u64::MAX;
 
-/// MOCK (design preview for the achievements notification — RetroAchievements
-/// plan, phase 4): a right-aligned block in the chin, mirroring `draw_brand`
-/// on the left. First line in the OSD green (the "CONQUISTA DESBLOQUEADA"
-/// header), the achievement name in near-white, the trailing line (points) in
-/// the nameplate's own grey — all flat on the glass with the same 2px dark
-/// shadow as the CH 3 banner. Lines longer than the space between the
-/// nameplate and the right margin are truncated with "..." so the two blocks
-/// never touch. Throwaway scaffolding for `examples/ra_osd_mock.rs`; the real
-/// feature replaces it with a timed OSD queue.
-fn draw_demo_chin_osd(
+impl Cabinet {
+    /// Drop expired fronts, then draw the front block — or, with the queue
+    /// empty, the persistent RetroAchievements badge (when armed).
+    fn draw_osd_front(&mut self) {
+        let now = Instant::now();
+        while self.osd_queue.front().is_some_and(|e| e.until <= now) {
+            self.osd_queue.pop_front();
+        }
+        let (_, out_h) = self.canvas.output_size().unwrap_or((1280, 720));
+        let Some(entry) = self.osd_queue.front() else {
+            if let Some(status) = self.ra_status {
+                draw_chin_ra(
+                    &mut self.canvas,
+                    &mut self.font,
+                    self.screen,
+                    out_h,
+                    &self.nameplate,
+                    status.hardcore,
+                );
+            }
+            return;
+        };
+        draw_chin_osd(
+            &mut self.canvas,
+            &mut self.font,
+            &self.images,
+            self.screen,
+            out_h,
+            &self.nameplate,
+            &entry.lines,
+            entry.badge,
+        );
+    }
+
+    /// `draw_osd_front`'s decision, for the offscreen capture path (whose
+    /// closure can't take `&mut self`) — expire and decide instead.
+    fn osd_for_capture(&self) -> ChinOsd {
+        let now = Instant::now();
+        if let Some(e) = self.osd_queue.front().filter(|e| e.until > now) {
+            return ChinOsd::Notify {
+                lines: e.lines.clone(),
+                badge: e.badge,
+            };
+        }
+        match self.ra_status {
+            Some(s) => ChinOsd::Ra {
+                hardcore: s.hardcore,
+            },
+            None => ChinOsd::None,
+        }
+    }
+}
+
+/// The badge's two rows and their colors — pure so the tests can pin the
+/// contract: "RA ATIVADO" always in the OSD green, the mode in amber when
+/// hardcore and in the nameplate grey when softcore.
+fn ra_badge_rows(hardcore: bool) -> [(&'static str, (u8, u8, u8)); 2] {
+    [
+        ("RA ATIVADO", OSD_GREEN),
+        (
+            if hardcore { "HARDCORE" } else { "SOFTCORE" },
+            if hardcore { (240, 180, 60) } else { (235, 235, 225) },
+        ),
+    ]
+}
+
+/// The persistent RetroAchievements badge — the same chin corner as the
+/// unlock block, shown whenever that block isn't on screen: a little
+/// gold-on-night-blue gamepad tile left of two rows, "RA ATIVADO" in the
+/// OSD green and the mode below (amber for hardcore, the nameplate grey
+/// for softcore). Same 2px dark shadow as everything else on the glass.
+fn draw_chin_ra(
+    canvas: &mut WindowCanvas,
+    font: &mut Texture,
+    screen: Rect,
+    out_h: u32,
+    nameplate: &str,
+    hardcore: bool,
+) {
+    const MARGIN: i32 = 24;
+    const TILE: i32 = 56;
+    const TILE_BG: (u8, u8, u8) = (18, 22, 52);
+    const TILE_EDGE: (u8, u8, u8) = (240, 180, 60);
+    const GOLD: (u8, u8, u8) = (240, 190, 70);
+    let chin_top = screen.bottom();
+    let chin_h = out_h as i32 - chin_top;
+    if chin_h < 24 {
+        return;
+    }
+    let cell = GLYPH_W as i32;
+    let row = GLYPH_H as i32;
+    let gap = 4i32;
+    let rows = ra_badge_rows(hardcore);
+    // Same left limit as the unlock block: the nameplate's widest line.
+    let nameplate_w = nameplate
+        .lines()
+        .map(|l| l.chars().count() as i32 * cell)
+        .max()
+        .unwrap_or(0);
+    let right = screen.right() - MARGIN;
+    let left_limit = screen.left() + nameplate_w + MARGIN * 2 + TILE + gap;
+    let max_cols = ((right - left_limit).max(cell) / cell) as usize;
+    let shown: Vec<(String, (u8, u8, u8))> = rows
+        .iter()
+        .map(|(l, c)| (truncate_to_cols(l, max_cols), *c))
+        .collect();
+    let block_h = 2 * row + gap;
+    let text_w = shown
+        .iter()
+        .map(|(l, _)| l.chars().count() as i32 * cell)
+        .max()
+        .unwrap_or(0);
+    let mut y = chin_top + (chin_h - block_h) / 2;
+    let tile_x = right - text_w - gap - TILE;
+    let tile_y = chin_top + (chin_h - TILE) / 2;
+
+    // The mark: an amber-framed night-blue tile with a tiny gold gamepad —
+    // the RA mark read through this cabinet's own glass.
+    canvas.set_draw_color(Color::RGB(TILE_EDGE.0, TILE_EDGE.1, TILE_EDGE.2));
+    let _ = canvas.fill_rect(Rect::new(tile_x, tile_y, TILE as u32, TILE as u32));
+    canvas.set_draw_color(Color::RGB(TILE_BG.0, TILE_BG.1, TILE_BG.2));
+    let _ = canvas.fill_rect(Rect::new(
+        tile_x + 2,
+        tile_y + 2,
+        (TILE - 4) as u32,
+        (TILE - 4) as u32,
+    ));
+    const PAD: [&str; 7] = [
+        "..............",
+        "##############",
+        "#..#......o.o#",
+        "#.###........#",
+        "#..#.........#",
+        "##############",
+        "..............",
+    ];
+    let s = 3;
+    let px = tile_x + (TILE - 14 * s) / 2;
+    let py = tile_y + (TILE - 7 * s) / 2;
+    canvas.set_draw_color(Color::RGB(GOLD.0, GOLD.1, GOLD.2));
+    for (gy, line) in PAD.iter().enumerate() {
+        for (gx, ch) in line.chars().enumerate() {
+            if ch == '.' {
+                continue;
+            }
+            let _ = canvas.fill_rect(Rect::new(
+                px + gx as i32 * s,
+                py + gy as i32 * s,
+                s as u32,
+                s as u32,
+            ));
+        }
+    }
+    for (line, color) in &shown {
+        let x = right - line.chars().count() as i32 * cell;
+        draw_text_absolute(
+            canvas,
+            font,
+            x + 2,
+            y + 2,
+            TextStyle::new(1, (12, 14, 12)),
+            line,
+            usize::MAX,
+        );
+        draw_text_absolute(
+            canvas,
+            font,
+            x,
+            y,
+            TextStyle::new(1, *color),
+            line,
+            usize::MAX,
+        );
+        y += row + gap;
+    }
+}
+
+/// The achievements notification (plan fase 4): a right-aligned block in
+/// the chin, mirroring `draw_brand` on the left. First line in the OSD
+/// green (the "CONQUISTA DESBLOQUEADA" header), the achievement name in
+/// near-white, the trailing line (points) in the nameplate's own grey —
+/// all flat on the glass with the same 2px dark shadow as the CH 3 banner.
+/// Lines longer than the space between the nameplate and the right margin
+/// are truncated with "..." so the two blocks never touch. `badge` is the
+/// image id registered via `set_image`, drawn left of the text.
+#[allow(clippy::too_many_arguments)] // canvas/font/images + 5 layout facts
+fn draw_chin_osd(
     canvas: &mut WindowCanvas,
     font: &mut Texture,
     images: &HashMap<u64, ImgTex>,
@@ -2953,6 +3189,7 @@ fn draw_demo_chin_osd(
     out_h: u32,
     nameplate: &str,
     lines: &[String],
+    badge: Option<u64>,
 ) {
     const MARGIN: i32 = 24;
     const LIGHT: (u8, u8, u8) = (235, 235, 225);
@@ -2965,7 +3202,7 @@ fn draw_demo_chin_osd(
     let cell = GLYPH_W as i32;
     let row = GLYPH_H as i32;
     let gap = 4i32;
-    let has_badge = images.contains_key(&DEMO_BADGE_IMG);
+    let has_badge = badge.is_some_and(|id| images.contains_key(&id));
     let badge_room = if has_badge { BADGE as i32 + 12 } else { 0 };
     // The nameplate's widest line sets this block's left limit, so a long
     // achievement name truncates instead of colliding with it.
@@ -2993,7 +3230,7 @@ fn draw_demo_chin_osd(
         draw_image_absolute(
             canvas,
             images,
-            DEMO_BADGE_IMG,
+            badge.unwrap_or(0),
             right - text_w - badge_room,
             chin_top + (chin_h - BADGE as i32) / 2,
             BADGE,
@@ -3074,12 +3311,13 @@ fn draw_brand(
             line,
             usize::MAX,
         );
-        // The "tem update" dot (plan revision: "um icone verde no nameplate
-        // do lado de cada um") — right after the line's own text, vertically
-        // centred on it. Line 0 is the app's version, line 1 the core's.
-        let wants_dot = i == 0 && updates.0 || i == 1 && updates.1;
-        if wants_dot {
-            draw_update_dot(
+        // The "tem update" arrow (plan revision: "um icone verde no
+        // nameplate ... uma seta verde pra cima com update") — right after
+        // the line's own text, vertically centred on it. Line 0 is the
+        // app's version, line 1 the core's.
+        let wants_arrow = i == 0 && updates.0 || i == 1 && updates.1;
+        if wants_arrow {
+            draw_update_arrow(
                 canvas,
                 screen.left() + line.chars().count() as i32 * GLYPH_W as i32 + 10,
                 y + row / 2,
@@ -3089,14 +3327,32 @@ fn draw_brand(
     }
 }
 
-/// A small filled green square with a 1px dark shadow — the nameplate's
-/// "tem update" marker (same green as the CH 3 banner / demo OSD header).
-fn draw_update_dot(canvas: &mut WindowCanvas, x: i32, y_center: i32) {
-    const DOT: u32 = 8;
-    canvas.set_draw_color(Color::RGB(12, 14, 12));
-    let _ = canvas.fill_rect(Rect::new(x + 1, y_center - DOT as i32 / 2 + 1, DOT, DOT));
-    canvas.set_draw_color(Color::RGB(OSD_GREEN.0, OSD_GREEN.1, OSD_GREEN.2));
-    let _ = canvas.fill_rect(Rect::new(x, y_center - DOT as i32 / 2, DOT, DOT));
+/// The nameplate's "tem update" marker (plan revision: "uma seta verde pra
+/// cima com update") — a chunky pixel arrow pointing up, in the same green
+/// as the CH 3 banner / OSD header, with the furniture's usual 1px dark
+/// drop shadow. 11×12 px: a stepped triangle head (1-3-5-7-9 px rows,
+/// matching the bitmap font's chunkiness) over a 3px stem.
+fn draw_update_arrow(canvas: &mut WindowCanvas, x: i32, y_center: i32) {
+    const HEAD_ROWS: [i32; 5] = [1, 3, 5, 7, 9];
+    const STEM_W: i32 = 3;
+    const STEM_H: i32 = 3;
+    let total_h = HEAD_ROWS.len() as i32 + STEM_H;
+    let top = y_center - total_h / 2;
+    let cx = x + 5; // centre line of the widest head row
+    let mut draw = |color: Color, ox: i32, oy: i32| {
+        canvas.set_draw_color(color);
+        for (r, &w) in HEAD_ROWS.iter().enumerate() {
+            let _ = canvas.fill_rect(Rect::new(cx - w / 2 + ox, top + r as i32 + oy, w as u32, 1));
+        }
+        let _ = canvas.fill_rect(Rect::new(
+            cx - STEM_W / 2 + ox,
+            top + HEAD_ROWS.len() as i32 + oy,
+            STEM_W as u32,
+            STEM_H as u32,
+        ));
+    };
+    draw(Color::RGB(12, 14, 12), 1, 1); // shadow
+    draw(Color::RGB(OSD_GREEN.0, OSD_GREEN.1, OSD_GREEN.2), 0, 0);
 }
 
 /// Like `Screen::image_fit`, but at absolute window coordinates instead of
@@ -3975,16 +4231,21 @@ fn draw_shelf_panel(
     let x = rect.x() + pad;
     let y = rect.y() + pad;
     let panel_favorite = panel.and_then(|p| p.favorite);
+    let panel_achievements = panel.is_some_and(|p| p.achievements);
 
-    // Three stacked buttons at the bottom, "Favoritar" / "Configurações" /
-    // "Voltar" top to bottom — "Voltar" always the last one (plan revision:
-    // "botao voltar sempre o ultimo botao do painel, acima dele coloque
-    // configurações e depois acima o de favoritos"); "Atualizar" moved out
-    // of the panel into the header row beside "histórico".
+    // Stacked buttons at the bottom, "Favoritar" / "Conquistas" /
+    // "Configurações" / "Voltar" top to bottom — "Voltar" always the last
+    // one (plan revision: "botao voltar sempre o ultimo botao do painel,
+    // acima dele coloque configurações e depois acima o de favoritos");
+    // "Conquistas" sits between favoritar e configurações (plan revision:
+    // "quando ligar o RA colocar botão de lista de conquistas entre
+    // favoritar e configurações"); "Atualizar" moved out of the panel into
+    // the header row beside "histórico".
     let btn_h = (GLYPH_H + 12) as i32;
     let back_rect = Rect::new(x, rect.bottom() - pad - btn_h, inner_w, btn_h as u32);
     let settings_rect = Rect::new(x, back_rect.y() - 8 - btn_h, inner_w, btn_h as u32);
-    let fav_rect = Rect::new(x, settings_rect.y() - 8 - btn_h, inner_w, btn_h as u32);
+    let ach_rect = Rect::new(x, settings_rect.y() - 8 - btn_h, inner_w, btn_h as u32);
+    let fav_rect = Rect::new(x, ach_rect.y() - 8 - btn_h, inner_w, btn_h as u32);
     let mut buttons = vec![
         (
             ShelfButton::Back,
@@ -3995,6 +4256,12 @@ fn draw_shelf_panel(
             draw_button(canvas, font, settings_rect, "Configurações", true),
         ),
     ];
+    if panel_achievements {
+        buttons.push((
+            ShelfButton::ShelfAchievements,
+            draw_button(canvas, font, ach_rect, "Conquistas", true),
+        ));
+    }
     // The favorite button sits above the trio, drawn before the early
     // `None` return so it never depends on the panel having content.
     if let Some(fav) = panel_favorite {
@@ -4016,10 +4283,12 @@ fn draw_shelf_panel(
 
     // Everything above the buttons — same cutoff rule `draw_panel` uses
     // for its command rows: a clean stop beats spilling into the buttons.
-    let limit = if panel.favorite.is_some() {
-        fav_rect.y()
-    } else {
+    let limit = if panel_favorite.is_some() {
+        ach_rect.y()
+    } else if panel_achievements {
         settings_rect.y()
+    } else {
+        back_rect.y()
     } - 12;
 
     let cy = if let Some(id) = panel.logo_img {
@@ -5232,12 +5501,25 @@ fn build_font_atlas(canvas: &mut WindowCanvas) -> Result<Texture, PlatformError>
 #[cfg(test)]
 mod tests {
     use super::{
-        fit_aspect_in, panel_cartridge_rects, panel_slot_base, panel_slot_mouth, screen_area,
-        wrapped_height, CART_WIDTH_FRAC, GLYPH_H, SEAT_HIDDEN_FRAC,
+        fit_aspect_in, panel_cartridge_rects, panel_slot_base, panel_slot_mouth, ra_badge_rows,
+        screen_area, wrapped_height, CART_WIDTH_FRAC, GLYPH_H, OSD_GREEN, SEAT_HIDDEN_FRAC,
     };
     use sdl3::rect::Rect;
 
     #[test]
+    #[test]
+    fn ra_badge_rows_pin_the_ativado_contract() {
+        let hardcore = ra_badge_rows(true);
+        let softcore = ra_badge_rows(false);
+        // A primeira linha é sempre o "ativado" verde do OSD; o modo muda
+        // de texto e de cor (âmbar no hardcore, cinza claro no softcore).
+        assert_eq!(hardcore[0], ("RA ATIVADO", OSD_GREEN));
+        assert_eq!(softcore[0], ("RA ATIVADO", OSD_GREEN));
+        assert_eq!(hardcore[1].0, "HARDCORE");
+        assert_eq!(softcore[1].0, "SOFTCORE");
+        assert_ne!(hardcore[1].1, softcore[1].1);
+    }
+
     fn panel_slot_base_and_mouth_nest_in_the_block() {
         let block = Rect::new(40, 100, 320, 210);
         let base = panel_slot_base(block);

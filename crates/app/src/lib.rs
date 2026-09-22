@@ -18,6 +18,7 @@ pub mod core_update;
 pub mod dat_update;
 pub mod dirs;
 pub mod idle;
+pub mod ra;
 pub mod rom_rename;
 pub mod runner;
 pub mod settings;

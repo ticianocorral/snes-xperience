@@ -29,6 +29,17 @@ pub struct Config {
     /// — plan revision: "som de chiado de tv fora do ar ... colocar na
     /// configuração para tocar ou não. por padrão vem desligado".
     pub hiss_on_static: bool,
+    /// RetroAchievements account (plan: `docs/plano-retroachievements.md`,
+    /// fase 1) — the username and the web-API token the user generates on
+    /// retroachievements.org (Settings → Web API). Both empty (the default)
+    /// keeps every RA feature off: no network call, no UI beyond the
+    /// settings rows themselves.
+    pub ra_user: String,
+    pub ra_token: String,
+    /// Hardcore mode for achievements (default on once an account exists) —
+    /// cheats/savestates/run-ahead lock during play. Meaningful from fase 3
+    /// on; persisted now so the setting doesn't move later.
+    pub ra_hardcore: bool,
     pub keymap: KeyMap,
     /// Where it was read from (or freshly written), for logging and for
     /// `save()`.
@@ -45,6 +56,12 @@ struct Raw {
     check_updates_on_start: Option<bool>,
     #[serde(default)]
     hiss_on_static: Option<bool>,
+    #[serde(default)]
+    ra_user: Option<String>,
+    #[serde(default)]
+    ra_token: Option<String>,
+    #[serde(default)]
+    ra_hardcore: Option<bool>,
     #[serde(default)]
     keyboard: BTreeMap<String, String>,
 }
@@ -67,6 +84,9 @@ impl Config {
             fullscreen: true,
             check_updates_on_start: true,
             hiss_on_static: false,
+            ra_user: String::new(),
+            ra_token: String::new(),
+            ra_hardcore: true,
             keymap: KeyMap::defaults(),
             source: path.clone(),
         };
@@ -110,6 +130,15 @@ impl Config {
         if let Some(h) = raw.hiss_on_static {
             self.hiss_on_static = h;
         }
+        if let Some(u) = raw.ra_user {
+            self.ra_user = u;
+        }
+        if let Some(t) = raw.ra_token {
+            self.ra_token = t;
+        }
+        if let Some(h) = raw.ra_hardcore {
+            self.ra_hardcore = h;
+        }
         for (action, key) in &raw.keyboard {
             let Ok(b) = action.parse::<PadButton>() else {
                 // Not a gameplay button — either a typo, or (most likely for
@@ -139,6 +168,9 @@ impl Config {
              # fullscreen: start in fullscreen.\n\
              # check_updates_on_start: look for a newer release/snes9x core at launch.\n\
              # hiss_on_static: white-noise hiss while the TV shows static (off by default).\n\
+             # RetroAchievements: ra_user/ra_token from retroachievements.org\n\
+             # (Settings -> Web API); empty = the whole feature stays off.\n\
+             # ra_hardcore: no cheats/savestates while earning achievements.\n\
              # [keyboard]: action = \"SDL key name\" (e.g. \"Left Shift\", \"F2\", \"]\").\n\n",
         );
         s.push_str(&format!("runahead = {}\n", self.runahead));
@@ -148,6 +180,10 @@ impl Config {
             self.check_updates_on_start
         ));
         s.push_str(&format!("hiss_on_static = {}\n\n", self.hiss_on_static));
+        s.push_str("# RetroAchievements\n");
+        s.push_str(&format!("ra_user = {:?}\n", self.ra_user));
+        s.push_str(&format!("ra_token = {:?}\n", self.ra_token));
+        s.push_str(&format!("ra_hardcore = {}\n\n", self.ra_hardcore));
         s.push_str("[keyboard]\n");
         for (action, key) in self.keymap.describe() {
             s.push_str(&format!("{action} = {key:?}\n"));
@@ -179,6 +215,9 @@ mod tests {
             fullscreen: false,
             check_updates_on_start: true,
             hiss_on_static: false,
+            ra_user: String::new(),
+            ra_token: String::new(),
+            ra_hardcore: true,
             keymap: KeyMap::defaults(),
             source: None,
         }
@@ -231,6 +270,22 @@ mod tests {
             .keymap
             .describe()
             .contains(&("b".to_string(), "Space".to_string())));
+    }
+
+    #[test]
+    fn ra_fields_round_trip_and_default_off() {
+        let mut cfg = defaults();
+        assert!(cfg.ra_user.is_empty() && cfg.ra_token.is_empty());
+        assert!(cfg.ra_hardcore);
+        cfg.ra_user = "player1".into();
+        cfg.ra_token = "abc123".into();
+        cfg.ra_hardcore = false;
+        let raw: Raw = toml::from_str(&cfg.to_toml()).unwrap();
+        let mut round = defaults();
+        round.apply(raw).unwrap();
+        assert_eq!(round.ra_user, "player1");
+        assert_eq!(round.ra_token, "abc123");
+        assert!(!round.ra_hardcore);
     }
 
     #[test]

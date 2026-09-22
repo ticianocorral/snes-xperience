@@ -37,20 +37,27 @@ const RUNAHEAD_MAX: u32 = 4;
 /// The settings sections, in panel order — the tube shows one section's
 /// rows at a time; the panel's `Section(i)` buttons switch between them
 /// (plan revision: "se for interessante faça secoes na configuração").
-const SECTION_NAMES: [&str; 4] = ["jogo", "vídeo", "sistema", "controles"];
+const SECTION_NAMES: [&str; 5] = ["jogo", "vídeo", "sistema", "conquistas", "controles"];
 const SEC_JOGO: usize = 0;
 const SEC_VIDEO: usize = 1;
 const SEC_SISTEMA: usize = 2;
-const SEC_CONTROLES: usize = 3;
+const SEC_CONQUISTAS: usize = 3;
+const SEC_CONTROLES: usize = 4;
 
 /// How many rows a section shows — shared by the nav clamps and the click
 /// hit-test so they can't drift apart. `controles` is the key-bind list, so
 /// its count comes from `cfg.keymap.describe()`.
+/// Which "conquistas" row the text-entry editor is attached to.
+const RA_ROW_USER: usize = 0;
+const RA_ROW_TOKEN: usize = 1;
+
 fn row_count(sec: usize, cfg: &Config) -> usize {
     match sec {
         SEC_JOGO => 2,
         SEC_VIDEO => 2,
         SEC_SISTEMA => 3,
+        // usuário / token / testar login / hardcore
+        SEC_CONQUISTAS => 4,
         SEC_CONTROLES => cfg.keymap.describe().len(),
         _ => 0,
     }
@@ -77,6 +84,15 @@ enum CoreStatus {
     Failed(String),
 }
 
+/// The "testar login" row's state — the same Idle/busy/ok/fail shape the
+/// core row uses, minus progress (one small request).
+enum LoginStatus {
+    Idle,
+    Checking,
+    Ok(String),
+    Failed(String),
+}
+
 /// Run the settings screen until the player backs all the way out. Returns
 /// `true` if the whole app should quit (window closed / Cmd-Q) instead of
 /// returning to the shelf.
@@ -92,11 +108,32 @@ pub fn run(plat: &mut Platform, cab: &mut Cabinet, cfg: &mut Config) -> Result<b
     // network), so unlike the core download there's no worker/progress to
     // track, just a one-shot summary.
     let mut rename_status: Option<String> = None;
+    // RA account rows (plan: `docs/plano-retroachievements.md`, fase 1):
+    // the free-text editor (same deliberate keyboard exception as the
+    // shelf's filter box) and the login-test worker.
+    let mut ra_editing: Option<usize> = None;
+    let mut ra_draft = String::new();
+    let mut login_status = LoginStatus::Idle;
+    let mut login_worker: Option<Receiver<Result<String, String>>> = None;
     let frame_time = Duration::from_millis(16);
     let mut next = Instant::now();
     cab.set_close_button(true);
 
     loop {
+        if let Some(rx) = &login_worker {
+            match rx.try_recv() {
+                Ok(Ok(label)) => {
+                    login_status = LoginStatus::Ok(label);
+                    login_worker = None;
+                }
+                Ok(Err(e)) => {
+                    login_status = LoginStatus::Failed(e);
+                    login_worker = None;
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => login_worker = None,
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            }
+        }
         if let Some(rx) = &core_worker {
             while let Ok(msg) = rx.try_recv() {
                 match msg {
@@ -115,6 +152,70 @@ pub fn run(plat: &mut Platform, cab: &mut Cabinet, cfg: &mut Config) -> Result<b
                     }
                 }
             }
+        }
+
+        // While editing an RA field, ONLY the text-entry side is polled —
+        // a `poll_menu` first would drain (and discard) the TextInput
+        // events before `poll_text_entry` ever sees them.
+        if let Some(row) = ra_editing {
+            let te = plat.poll_text_entry();
+            if te.quit {
+                return Ok(true);
+            }
+            if te.backspace {
+                ra_draft.pop();
+            }
+            for c in te.typed.chars() {
+                if ra_draft.chars().count() < 40 {
+                    ra_draft.push(c);
+                }
+            }
+            // ⌘V/⌘C (Ctrl no resto): o colado entra pelo mesmo limite de
+            // 40 caracteres, e o copiado leva o campo inteiro — rascunhos
+            // não têm seleção.
+            if let Some(paste) = &te.paste {
+                for c in paste.chars() {
+                    if ra_draft.chars().count() < 40 {
+                        ra_draft.push(c);
+                    }
+                }
+            }
+            if te.copy {
+                plat.set_clipboard_text(&ra_draft);
+            }
+            if te.commit {
+                if row == RA_ROW_USER {
+                    cfg.ra_user = ra_draft.trim().to_string();
+                } else {
+                    cfg.ra_token = ra_draft.trim().to_string();
+                }
+                let _ = cfg.save();
+                login_status = LoginStatus::Idle;
+                ra_editing = None;
+                plat.stop_text_input(cab);
+            } else if te.cancel {
+                ra_editing = None;
+                plat.stop_text_input(cab);
+            }
+            // Clicks during editing do nothing (same rule as the shelf's
+            // filter box): finish or cancel the field first.
+            cab.set_settings_panel(SettingsPanelInfo {
+                title: "configurações".to_string(),
+                sections: SECTION_NAMES.iter().map(|s| s.to_string()).collect(),
+                selected: sec,
+            });
+            let render = |d: &mut Screen| match sec {
+                SEC_VIDEO => draw_video(d, cfg, sel),
+                SEC_SISTEMA => draw_sistema(d, cfg, sel, &core_status, rename_status.as_deref()),
+                SEC_CONQUISTAS => {
+                    draw_conquistas(d, cfg, sel, &login_status, ra_editing, &ra_draft)
+                }
+                SEC_CONTROLES => draw_controls(d, cfg, sel, controls_top, awaiting_key),
+                _ => draw_jogo(d, cfg, sel),
+            };
+            cab.frame_settings(BG, render);
+            crate::runner::pace_frame(&mut next, frame_time);
+            continue;
         }
 
         let poll_mode = if awaiting_key.is_some() {
@@ -166,12 +267,43 @@ pub fn run(plat: &mut Platform, cab: &mut Cabinet, cfg: &mut Config) -> Result<b
                                     &mut sec,
                                     &mut sel,
                                     &mut awaiting_key,
+                                    &mut ra_editing,
                                     i,
                                     &mut core_status,
                                     &mut core_worker,
                                     &mut rename_status,
+                                    &mut login_status,
+                                    &mut login_worker,
                                 );
+                                if ra_editing.is_some() {
+                                    ra_draft = String::new();
+                                    plat.start_text_input(cab);
+                                }
                             }
+                        }
+                    }
+                }
+            }
+            // Botão direito no usuário/token: abre o campo já colando — o
+            // caminho curto do token copiado direto no browser. Só os campos
+            // de texto: as outras linhas fazem coisa demais para disparar no
+            // botão "errado".
+            if let Some((cx, cy)) = m.right_click {
+                let (ox, oy) = cab.window_to_output(cx, cy);
+                if let Some((_, ly)) = cab.hit_screen_point(ox, oy) {
+                    if let Some(i) = row_at(ly, row_count(sec, cfg)) {
+                        if sec == SEC_CONQUISTAS && matches!(i, RA_ROW_USER | RA_ROW_TOKEN) {
+                            sel = i;
+                            ra_editing = Some(i);
+                            ra_draft = String::new();
+                            if let Some(paste) = plat.paste_from_clipboard() {
+                                for c in paste.chars() {
+                                    if ra_draft.chars().count() < 40 {
+                                        ra_draft.push(c);
+                                    }
+                                }
+                            }
+                            plat.start_text_input(cab);
                         }
                     }
                 }
@@ -195,17 +327,25 @@ pub fn run(plat: &mut Platform, cab: &mut Cabinet, cfg: &mut Config) -> Result<b
                     }
                     MenuNav::Confirm => {
                         let cur = sel;
+                        let was_editing = ra_editing.is_some();
                         activate_row(
                             cab,
                             cfg,
                             &mut sec,
                             &mut sel,
                             &mut awaiting_key,
+                            &mut ra_editing,
                             cur,
                             &mut core_status,
                             &mut core_worker,
                             &mut rename_status,
+                            &mut login_status,
+                            &mut login_worker,
                         );
+                        if !was_editing && ra_editing.is_some() {
+                            ra_draft = String::new();
+                            plat.start_text_input(cab);
+                        }
                     }
                     // The toggle/slider rows keep their old left/right
                     // feel; everything else ignores them.
@@ -237,6 +377,7 @@ pub fn run(plat: &mut Platform, cab: &mut Cabinet, cfg: &mut Config) -> Result<b
         let render = |d: &mut Screen| match sec {
             SEC_VIDEO => draw_video(d, cfg, sel),
             SEC_SISTEMA => draw_sistema(d, cfg, sel, &core_status, rename_status.as_deref()),
+            SEC_CONQUISTAS => draw_conquistas(d, cfg, sel, &login_status, ra_editing, &ra_draft),
             SEC_CONTROLES => draw_controls(d, cfg, sel, controls_top, awaiting_key),
             _ => draw_jogo(d, cfg, sel),
         };
@@ -258,10 +399,13 @@ fn activate_row(
     sec: &mut usize,
     sel: &mut usize,
     awaiting_key: &mut Option<usize>,
+    ra_editing: &mut Option<usize>,
     i: usize,
     core_status: &mut CoreStatus,
     core_worker: &mut Option<Receiver<CoreUpdateMsg>>,
     rename_status: &mut Option<String>,
+    login_status: &mut LoginStatus,
+    login_worker: &mut Option<Receiver<Result<String, String>>>,
 ) {
     match *sec {
         SEC_JOGO => match i {
@@ -294,9 +438,41 @@ fn activate_row(
             }
             _ => *rename_status = Some(run_rom_rename()),
         },
+        SEC_CONQUISTAS => match i {
+            RA_ROW_USER | RA_ROW_TOKEN => *ra_editing = Some(i),
+            2 => start_login_test(cfg, login_status, login_worker),
+            _ => {
+                cfg.ra_hardcore = !cfg.ra_hardcore;
+                let _ = cfg.save();
+            }
+        },
         SEC_CONTROLES => *awaiting_key = Some(*sel),
         _ => {}
     }
+}
+
+/// Kick off the login test on a worker thread (plan fase 1) — one small
+/// request, but network is network: the row shows "testando..." until the
+/// `mpsc` reply lands.
+fn start_login_test(
+    cfg: &Config,
+    status: &mut LoginStatus,
+    worker: &mut Option<Receiver<Result<String, String>>>,
+) {
+    if matches!(status, LoginStatus::Checking) {
+        return;
+    }
+    if cfg.ra_user.is_empty() || cfg.ra_token.is_empty() {
+        *status = LoginStatus::Failed("preencha usuário e token antes".to_string());
+        return;
+    }
+    let (tx, rx) = mpsc::channel();
+    let (user, token) = (cfg.ra_user.clone(), cfg.ra_token.clone());
+    std::thread::spawn(move || {
+        let _ = tx.send(crate::ra::test_login(&user, &token));
+    });
+    *worker = Some(rx);
+    *status = LoginStatus::Checking;
 }
 
 /// The left/right adjustments — run-ahead steps, fullscreen/check-updates
@@ -323,6 +499,10 @@ fn adjust_row(cfg: &mut Config, sec: usize, sel: usize, cab: &mut Cabinet, right
         }
         (SEC_SISTEMA, 1) => {
             cfg.check_updates_on_start = !cfg.check_updates_on_start;
+            let _ = cfg.save();
+        }
+        (SEC_CONQUISTAS, 3) => {
+            cfg.ra_hardcore = !cfg.ra_hardcore;
             let _ = cfg.save();
         }
         _ => {}
@@ -508,6 +688,74 @@ fn draw_sistema(
     draw_hint(d, "clique numa opção pra executar ou alternar");
 }
 
+fn draw_conquistas(
+    d: &mut Screen,
+    cfg: &Config,
+    sel: usize,
+    login: &LoginStatus,
+    editing: Option<usize>,
+    draft: &str,
+) {
+    let x = MARGIN;
+    d.text(x, MARGIN, 2, TEXT, "conquistas");
+    let field = |row: usize, label: &str, value: &str| {
+        if editing == Some(row) {
+            format!("{label}: {draft}_")
+        } else if value.is_empty() {
+            format!("{label}: (vazio)")
+        } else {
+            // The token is a secret that outlives the screen — never echo
+            // it back, not even masked, beyond "it's there".
+            if row == RA_ROW_TOKEN {
+                format!("{label}: (configurado)")
+            } else {
+                format!("{label}: {value}")
+            }
+        }
+    };
+    let login_label = match login {
+        LoginStatus::Idle => {
+            if cfg.ra_user.is_empty() && cfg.ra_token.is_empty() {
+                "Testar login".to_string()
+            } else {
+                "Testar login (não testado)".to_string()
+            }
+        }
+        LoginStatus::Checking => "Testar login: testando...".to_string(),
+        LoginStatus::Ok(l) => format!("Testar login: ok — {l}"),
+        LoginStatus::Failed(e) => format!("Testar login: {e}"),
+    };
+    let rows = [
+        field(RA_ROW_USER, "Usuário", &cfg.ra_user),
+        field(RA_ROW_TOKEN, "Token da web API", &cfg.ra_token),
+        login_label,
+        format!(
+            "Modo hardcore: {}",
+            if cfg.ra_hardcore {
+                "ligado (sem cheats/savestates)"
+            } else {
+                "desligado"
+            }
+        ),
+    ];
+    let mut y = LIST_TOP;
+    for (i, row) in rows.iter().enumerate() {
+        draw_row(d, x, y, row, i == sel);
+        y += ROW_H;
+    }
+    d.text(
+        x,
+        y + 8,
+        1,
+        DIM,
+        "token: retroachievements.org -> settings -> web api",
+    );
+    draw_hint(
+        d,
+        "clique edita, botão direito cola, cmd+c copia -- enter confirma, esc cancela",
+    );
+}
+
 fn draw_controls(d: &mut Screen, cfg: &Config, sel: usize, top: usize, awaiting: Option<usize>) {
     let x = MARGIN;
     d.text(x, MARGIN, 2, TEXT, "controles");
@@ -550,6 +798,7 @@ pub fn capture_preview(
     let sec = match screen {
         "video" => SEC_VIDEO,
         "sistema" => SEC_SISTEMA,
+        "conquistas" => SEC_CONQUISTAS,
         "controls" => SEC_CONTROLES,
         _ => SEC_JOGO,
     };
@@ -561,6 +810,7 @@ pub fn capture_preview(
     let render = |d: &mut Screen| match sec {
         SEC_VIDEO => draw_video(d, cfg, 0),
         SEC_SISTEMA => draw_sistema(d, cfg, 0, &CoreStatus::Idle, None),
+        SEC_CONQUISTAS => draw_conquistas(d, cfg, 0, &LoginStatus::Idle, None, ""),
         SEC_CONTROLES => draw_controls(d, cfg, 0, 0, None),
         _ => draw_jogo(d, cfg, 0),
     };

@@ -9,6 +9,31 @@ aviso — só o incremento de _minor_ marca um conjunto de mudanças.
 
 ## [Não lançado]
 
+## [0.17.0] - 2026-09-22
+
+### Adicionado
+- RetroAchievements (plano em `docs/plano-retroachievements.md`):
+  - conta na configuração (usuário + token de web API, teste de login,
+    modo hardcore);
+  - identificação do jogo pelo hash oficial do rcheevos (MD5 com skip de
+    header copier), cache de conquistas/badges em `saves/ra-cache/`;
+  - runtime de avaliação (rcheevos vendido, `crates/ra`) rodando por frame
+    contra a WRAM do snes9x, com envio de unlocks e progresso por jogo;
+  - notificação "CONQUISTA DESBLOQUEADA" com badge no queixo da TV (fila
+    com tempo), som de reset por power e trava de cheats/savestates/
+    run-ahead no hardcore;
+  - lista "Conquistas" no painel da estante e modal no jogo, com estado de
+    cada conquista;
+  - sincronização com o servidor (unlocks hardcore+softcore) para refletir
+    conquistas ganhas em qualquer lugar.
+- Tamanho do cartucho em megas no painel da estante (abaixo do arquivo),
+  com header copier descontado e arredondado às máscaras reais; a linha de
+  tamanho em KB/MB saiu.
+
+### Mudado
+- Marcador de update no nameplate virou uma seta verde pra cima (pixel
+  art com sombra), no lugar do ponto quadrado.
+
 ## [0.16.0] - 2026-09-22
 
 ### Adicionado

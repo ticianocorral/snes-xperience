@@ -52,6 +52,7 @@ fn main() -> Result<()> {
         shot,
         fade_in: None,
         preset_filter,
+        ra: None,
     };
     match shelf::run(&mut plat, &mut cab, &catalog, &opts)? {
         Pick::Play { rom, .. } => {

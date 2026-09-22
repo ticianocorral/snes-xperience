@@ -11,7 +11,8 @@ use anyhow::{anyhow, Context, Result};
 use xperience_emulation::{Button, Core, Frame as EmuFrame, PixelFormat as EmuFormat};
 use xperience_ntsc::{NtscFilter, Preset};
 use xperience_platform::{
-    Cabinet, FrameRef, PanelButton, PixelFormat as PlatFormat, Platform, UiEvent, MAX_PORTS,
+    Cabinet, FrameRef, PanelButton, PixelFormat as PlatFormat, Platform, RaStatus, UiEvent,
+    MAX_PORTS,
 };
 
 use crate::config::Config;
@@ -29,7 +30,22 @@ const NOTE_CHAR_LIMIT: usize = 240;
 pub(crate) const OFF_STATIC_LEVEL: f32 = 0.12;
 
 /// Why the run-loop returned.
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// How long an unlock notification stays up (plan fase 4).
+const OSD_UNLOCK_TTL: Duration = Duration::from_secs(6);
+
+/// Stable image id for a badge name — distinct namespace from the art
+/// hashes (their ids are sha1-derived u64s; this flips a high bit).
+fn osd_badge_id(badge: &str) -> u64 {
+    // FNV-1a: stable, dependency-free, distinct namespace from the art ids
+    // (which are sha1-derived; this flips the top bit).
+    let mut v: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in badge.as_bytes() {
+        v ^= *b as u64;
+        v = v.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    v | 0x8000_0000_0000_0000
+}
+
 pub enum GameExit {
     /// Ejected — the caller should show the idle/root screen again (not the
     /// shelf directly). Carries the signal-off static level the screen
@@ -300,6 +316,7 @@ fn reset_pressed(flash: &HashMap<PanelButton, Instant>) -> bool {
 fn command_rows(
     flash: &HashMap<PanelButton, Instant>,
     has_cheats: bool,
+    has_achievements: bool,
     all_slots_pinned: bool,
 ) -> Vec<(PanelButton, String)> {
     let label = |b: PanelButton, base: &str| -> String {
@@ -310,6 +327,9 @@ fn command_rows(
         }
     };
     let mut rows = vec![(PanelButton::Notebook, "Anotações".to_string())];
+    if has_achievements {
+        rows.push((PanelButton::Achievements, "Conquistas".to_string()));
+    }
     if has_cheats {
         rows.push((PanelButton::Cheats, "Cheats".to_string()));
     }
@@ -741,6 +761,9 @@ enum Modal {
     /// (`ModalPick`) toggles a row in place and leaves the modal open
     /// instead of closing it.
     Cheats,
+    /// The achievements list (plan: `docs/plano-retroachievements.md`,
+    /// fase 4) — read-only rows with the earned state; a pick just closes.
+    Achievements,
 }
 
 /// One note slot's protection/caption (plan revision) — everything defaults
@@ -1125,6 +1148,13 @@ pub fn run_game(
     let cheat_defs = xperience_domain::cheats_for_title(&title);
     let cheat_path = cheat_state_path(&spec.save_dir, &title);
     let mut cheat_state = load_cheat_state(&cheat_path, cheat_defs.len());
+    // RetroAchievements hardcore (plan fase 3): cheats stay off entirely.
+    let ra_on = !cfg.ra_user.is_empty() && !cfg.ra_token.is_empty();
+    let ra_hardcore_active = ra_on && cfg.ra_hardcore;
+    if ra_hardcore_active && !cheat_defs.is_empty() {
+        log::info!("ra hardcore: cheats disabled for this session");
+        cheat_state = vec![false; cheat_defs.len()];
+    }
     if !cheat_defs.is_empty() {
         core.cheat_reset();
         for (i, (def, &on)) in cheat_defs.iter().zip(&cheat_state).enumerate() {
@@ -1134,15 +1164,47 @@ pub fn run_game(
     // --- side panel: logo, cartridge art, command legend, session timer
     // (plan §3.2) — cartridge art is new (plan revision): a second, optional
     // image alongside the logo, same local-file convention.
+    // RetroAchievements session (plan: `docs/plano-retroachievements.md`,
+    // fase 3) — armed only when the account is configured; identification
+    // and cache reads happen here, on cart insert.
+    let mut ra_session = if ra_on {
+        match crate::ra::Active::start(&spec.rom, &cfg.ra_user, &cfg.ra_token, cfg.ra_hardcore) {
+            Ok(Some(a)) => {
+                log::info!(
+                    "ra: {} — {} conquista(s), hardcore {}",
+                    a.game_title,
+                    a.achievements().len(),
+                    if a.hardcore { "on" } else { "off" }
+                );
+                Some(a)
+            }
+            Ok(None) => None,
+            Err(e) => {
+                log::info!("ra: {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let ra_hardcore_active = ra_session.as_ref().is_some_and(|a| a.hardcore);
+    // Server unlock sync (the plan's "fase futura"): earned elsewhere shows
+    // earned here, and never gets re-submitted by this session.
+    let mut ra_sync: Option<std::sync::mpsc::Receiver<Result<usize, String>>> = ra_session
+        .as_ref()
+        .map(|a| crate::ra::sync_unlocks(&spec.rom, &a.user, &a.token));
+
     // "Done!" flash for otherwise-silent actions (Nota/Salvar/Carregar) —
     // see `flashed`/`FLASH_DURATION`.
     let mut flash: HashMap<PanelButton, Instant> = HashMap::new();
     // The command legend's last drawn signature (a "(feito!)" flash active?
     // all print slots pinned?) — `None` forces the first frame to draw it.
     let mut prev_sig: Option<(bool, bool)> = None;
+    let _ = &prev_sig;
     let commands = command_rows(
         &flash,
         !cheat_defs.is_empty(),
+        ra_session.is_some(),
         all_slots_pinned(&notes_meta),
     );
     let decode_panel_art = |path: &Option<PathBuf>, kind: &str| {
@@ -1173,6 +1235,13 @@ pub fn run_game(
     // all turn it on) — see `Cabinet::show_close`'s own doc comment for why
     // gameplay doesn't get one.
     cab.set_close_button(false);
+    // The persistent RetroAchievements chin badge, armed with this session's
+    // mode — it yields the chin corner to each unlock notification and comes
+    // back when the notification expires. `None` (account off, or a game
+    // that isn't on RA) leaves the chin without the badge at all.
+    cab.set_ra_status(ra_session.as_ref().map(|a| RaStatus {
+        hardcore: a.hardcore,
+    }));
     // `set_cheats` has to come *after* `set_panel` — `set_panel` replaces
     // the whole `PanelInfo` (fresh `cheats: Vec::new()` included), so
     // calling this first, as an earlier revision did when the cheats-
@@ -1310,8 +1379,13 @@ pub fn run_game(
     // Don't let the audio queue run more than ~0.15 s ahead (latency creep).
     let audio_cap = (av.sample_rate / 6.0) as usize;
 
-    // Run-ahead: only if the core actually serializes.
+    // Run-ahead: only if the core actually serializes; hardcore also rules
+    // it out (a speculative frame would validate a hit the rewind undoes).
     let mut runahead = runahead_cfg;
+    if ra_hardcore_active && runahead > 0 {
+        log::info!("ra hardcore: run-ahead disabled");
+        runahead = 0;
+    }
     if runahead > 0 && core.save_state().is_none() {
         log::warn!("core has no save state — run-ahead disabled");
         runahead = 0;
@@ -1380,7 +1454,19 @@ pub fn run_game(
                     note_draft.push(c);
                 }
             }
-            if !te.typed.is_empty() || te.backspace {
+            // ⌘V/⌘C (Ctrl no resto) — o mesmo esquema de clipboard de todo
+            // campo de texto; o colado redesenha o rascunho como a digitação.
+            if let Some(paste) = &te.paste {
+                for c in paste.chars() {
+                    if note_draft.chars().count() < note_edit.limit() {
+                        note_draft.push(c);
+                    }
+                }
+            }
+            if te.copy {
+                plat.set_clipboard_text(&note_draft);
+            }
+            if !te.typed.is_empty() || te.backspace || te.paste.is_some() {
                 if in_modal {
                     cab.set_modal_draft(Some(&note_draft), note_edit.limit(), note_edit.heading());
                 } else {
@@ -1545,6 +1631,9 @@ pub fn run_game(
                             PanelButton::Reset => Some(UiEvent::Reset),
                             PanelButton::Notebook => Some(UiEvent::TogglePause),
                             PanelButton::Cheats => Some(UiEvent::OpenCheatsModal),
+                            PanelButton::Achievements => Some(UiEvent::OpenAchievementsModal),
+                            // The shelf's own list button is shelf-side.
+                            PanelButton::ShelfAchievements => None,
                             PanelButton::PrintScreen => Some(UiEvent::OpenPrintModal),
                             PanelButton::SaveState => Some(UiEvent::OpenSaveModal),
                             PanelButton::LoadState => Some(UiEvent::OpenLoadModal),
@@ -1608,6 +1697,12 @@ pub fn run_game(
                         powered_since = Some(Instant::now());
                         cab.set_powered(true);
                         cab.flash_ch3(CH3_FLASH);
+                        // Console power-on re-arms the RA hit counts (plan
+                        // fase 5) — earned stays authoritative locally, and
+                        // the server deduplicates.
+                        if let Some(ra) = &mut ra_session {
+                            ra.reset();
+                        }
                         log::info!("power on — resuming");
                     }
                 }
@@ -1615,6 +1710,9 @@ pub fn run_game(
                     if powered {
                         eject_clunk(plat); // lock resists while it's still on
                     } else {
+                        if let Some(ra) = &mut ra_session {
+                            ra.save_progress();
+                        }
                         if has_cartridge_art {
                             cartridge_eject_animation(plat, cab);
                         }
@@ -1732,14 +1830,54 @@ pub fn run_game(
                     log::info!("text slot {text_slot}: deleted");
                 }
                 UiEvent::OpenSaveModal if powered => {
+                    if ra_hardcore_active {
+                        cab.push_osd(
+                            &["MODO HARDCORE", "savestates bloqueados"],
+                            None,
+                            Duration::from_secs(3),
+                        );
+                        continue;
+                    }
                     modal = Modal::SaveSlot;
                     cab.set_modal("Salvar estado", &save_slot_rows(&spec.save_dir, &title));
                 }
                 UiEvent::OpenLoadModal if powered => {
+                    if ra_hardcore_active {
+                        cab.push_osd(
+                            &["MODO HARDCORE", "loadstates bloqueados"],
+                            None,
+                            Duration::from_secs(3),
+                        );
+                        continue;
+                    }
                     modal = Modal::LoadSlot;
                     cab.set_modal("Carregar estado", &load_slot_rows(&spec.save_dir, &title));
                 }
+                UiEvent::OpenAchievementsModal if powered => {
+                    let Some(ra) = &ra_session else { continue };
+                    let (total, earned) = ra.earned_snapshot();
+                    let rows: Vec<(String, bool)> = ra
+                        .achievements()
+                        .iter()
+                        .map(|a| {
+                            (
+                                format!("{} ({} pts)", a.title, a.points),
+                                earned.contains(&a.id),
+                            )
+                        })
+                        .collect();
+                    modal = Modal::Achievements;
+                    cab.set_modal(&format!("Conquistas {}/{}", earned.len(), total), &rows);
+                }
                 UiEvent::OpenCheatsModal if powered && !cheat_defs.is_empty() => {
+                    if ra_hardcore_active {
+                        cab.push_osd(
+                            &["MODO HARDCORE", "cheats bloqueados"],
+                            None,
+                            Duration::from_secs(3),
+                        );
+                        continue;
+                    }
                     modal = Modal::Cheats;
                     cab.set_modal(
                         "Cheats",
@@ -1804,6 +1942,12 @@ pub fn run_game(
                             plat.start_text_input(cab);
                         }
                     }
+                    // Read-only list (plan fase 4): a pick closes, nothing
+                    // toggles.
+                    Modal::Achievements => {
+                        modal = Modal::None;
+                        cab.clear_modal();
+                    }
                     Modal::Cheats => {
                         let idx = i as usize;
                         if idx < cheat_defs.len() {
@@ -1864,6 +2008,7 @@ pub fn run_game(
                 UiEvent::TogglePause
                 | UiEvent::OpenSaveModal
                 | UiEvent::OpenLoadModal
+                | UiEvent::OpenAchievementsModal
                 | UiEvent::OpenCheatsModal
                 | UiEvent::OpenPrintModal
                 | UiEvent::ModalScrollUp
@@ -1891,7 +2036,12 @@ pub fn run_game(
         let all_pinned = all_slots_pinned(&notes_meta);
         let sig = (flashing_now, all_pinned);
         if Some(sig) != prev_sig {
-            cab.set_commands(&command_rows(&flash, !cheat_defs.is_empty(), all_pinned));
+            cab.set_commands(&command_rows(
+                &flash,
+                !cheat_defs.is_empty(),
+                ra_session.is_some(),
+                all_pinned,
+            ));
             prev_sig = Some(sig);
         }
         cab.set_reset_pressed(reset_pressed(&flash));
@@ -1916,6 +2066,73 @@ pub fn run_game(
             }
             if audio.queued_frames() < audio_cap {
                 audio.queue(core.audio());
+            }
+
+            if let Some(rx) = &ra_sync {
+                match rx.try_recv() {
+                    Ok(Ok(n)) => {
+                        log::info!("ra sync: {n} conquista(s) do servidor");
+                        if let Some(ra) = &mut ra_session {
+                            ra.refresh_earned();
+                        }
+                        ra_sync = None;
+                    }
+                    Ok(Err(e)) => {
+                        log::info!("ra sync: {e}");
+                        ra_sync = None;
+                    }
+                    Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => ra_sync = None,
+                }
+            }
+
+            // RA evaluation (plan fase 3) — the real frame's RAM, before any
+            // speculative run-ahead frames mutate the state further.
+            if let (true, Some(ra)) = (powered, &mut ra_session) {
+                let mut unlocks = Vec::new();
+                core.with_memory(xperience_emulation::MEMORY_SYSTEM_RAM, |ram| {
+                    unlocks = ra.tick(ram);
+                });
+                for unlock in unlocks {
+                    log::info!(
+                        "ra: CONQUISTA DESBLOQUEADA — {} (+{} pts)",
+                        unlock.title,
+                        unlock.points
+                    );
+                    ra_session
+                        .as_ref()
+                        .expect("checked above")
+                        .submit_unlock(&unlock);
+                    // Badge: fetched/decoded once, cached to disk with the
+                    // other RA caches. One blocking fetch per unlock is
+                    // acceptable (a few hundred ms, once ever per game).
+                    let badge_img = unlock.badge.clone();
+                    if !badge_img.is_empty() {
+                        match crate::ra::badge_path(&badge_img) {
+                            Some(path) => {
+                                if let Ok((w, h, rgba)) = decode_art(&path, 512) {
+                                    cab.set_image(osd_badge_id(&unlock.badge), w, h, &rgba);
+                                }
+                            }
+                            None => {
+                                if let Some(path) = crate::ra::download_badge(&badge_img) {
+                                    if let Ok((w, h, rgba)) = decode_art(&path, 512) {
+                                        cab.set_image(osd_badge_id(&unlock.badge), w, h, &rgba);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    cab.push_osd(
+                        &[
+                            "CONQUISTA DESBLOQUEADA",
+                            &unlock.title,
+                            &format!("+{} pontos", unlock.points),
+                        ],
+                        Some(osd_badge_id(&unlock.badge)),
+                        OSD_UNLOCK_TTL,
+                    );
+                }
             }
 
             // Speculative frames past the shown one; their audio is discarded.
@@ -2036,7 +2253,13 @@ pub fn run_game(
     }
     add_playtime(&spec.save_dir, &title, powered_elapsed.as_secs());
 
-    log::info!("game loop done: {exit:?}");
+    if let Some(ra) = &mut ra_session {
+        ra.save_progress();
+    }
+    // The chin badge belongs to the cartridge, not to the app — it leaves
+    // with it (the idle screens don't draw the chin OSD anyway).
+    cab.set_ra_status(None);
+    log::info!("game loop done");
     Ok(exit)
 }
 

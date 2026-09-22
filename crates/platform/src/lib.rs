@@ -7,8 +7,8 @@ mod input;
 
 pub use audio::AudioOut;
 pub use cabinet::{
-    Cabinet, FrameRef, PanelButton, PixelFormat, Screen, SettingsButton, SettingsPanelInfo,
-    ShelfButton, ShelfPanelInfo, BRAND, DEMO_BADGE_IMG,
+    Cabinet, FrameRef, PanelButton, PixelFormat, RaStatus, Screen, SettingsButton,
+    SettingsPanelInfo, ShelfButton, ShelfPanelInfo, BRAND, DEMO_BADGE_IMG,
 };
 pub use input::{Input, KeyMap, PadButton, UiEvent, MAX_PORTS};
 
@@ -24,6 +24,20 @@ fn left_click_at(event: &Event) -> Option<(i32, i32)> {
     match event {
         Event::MouseButtonDown {
             mouse_btn: MouseButton::Left,
+            x,
+            y,
+            ..
+        } => Some((*x as i32, *y as i32)),
+        _ => None,
+    }
+}
+
+/// Right-button-down position, in window coordinates — the text fields'
+/// "colar aqui" gesture, mirroring `left_click_at`.
+fn right_click_at(event: &Event) -> Option<(i32, i32)> {
+    match event {
+        Event::MouseButtonDown {
+            mouse_btn: MouseButton::Right,
             x,
             y,
             ..
@@ -75,6 +89,9 @@ pub struct MenuInput {
     pub capture_cancelled: bool,
     /// Left click this frame, in window coordinates (see `UiEvent::Click`).
     pub click: Option<(i32, i32)>,
+    /// Right click this frame, in window coordinates — the screens use it
+    /// only where right-click means something (the text fields' "colar").
+    pub right_click: Option<(i32, i32)>,
 }
 
 /// One frame's worth of input while writing a free-text note (`Platform::
@@ -88,12 +105,35 @@ pub struct TextEntryInput {
     /// more (IME, paste-like input methods), sometimes empty.
     pub typed: String,
     pub backspace: bool,
+    /// Cmd/Ctrl+V this frame: the clipboard's text, sanitized for a
+    /// single-line field (control characters dropped), or `None` when no
+    /// paste happened / the clipboard couldn't be read.
+    pub paste: Option<String>,
+    /// Cmd/Ctrl+C this frame — the caller copies the field's whole content
+    /// (these drafts have no selection to honor).
+    pub copy: bool,
     /// Return/Enter — commit the draft.
     pub commit: bool,
     /// Escape — discard the draft.
     pub cancel: bool,
     /// Left click this frame, in window coordinates.
     pub click: Option<(i32, i32)>,
+}
+
+/// Drops control characters from pasted text. Every text field in the app
+/// is single-line, and a token copied with a trailing newline (the usual
+/// way to get one) would otherwise smuggle it into the draft.
+fn sanitize_paste(text: &str) -> String {
+    text.chars().filter(|c| !c.is_control()).collect()
+}
+
+/// The clipboard's text, sanitized for a single-line field. `None` when the
+/// clipboard can't be read or has nothing left worth pasting. Free function
+/// because it's called mid-`poll_iter`, with `event_pump` still borrowed.
+fn clipboard_paste(video: &sdl3::VideoSubsystem) -> Option<String> {
+    let text = video.clipboard().clipboard_text().ok()?;
+    let clean = sanitize_paste(&text);
+    (!clean.is_empty()).then_some(clean)
 }
 
 #[derive(Debug, Error)]
@@ -240,6 +280,10 @@ impl Platform {
                 out.click = Some(pos);
                 continue;
             }
+            if let Some(pos) = right_click_at(&event) {
+                out.right_click = Some(pos);
+                continue;
+            }
             match event {
                 Event::Quit { .. } => out.quit = true,
                 Event::GamepadAdded { .. } | Event::GamepadRemoved { .. } => devices_changed = true,
@@ -299,14 +343,29 @@ impl Platform {
     /// Drain events while writing free text: composed text (`Event::
     /// TextInput`, which handles layout/IME properly — no hand-rolled
     /// shift/keycode mapping), Backspace, Return (commit), Escape (cancel),
-    /// and a click (to hit "Salvar"/"Cancelar" or click away). Nothing else
-    /// is read — gameplay input stays untouched while a note is open.
+    /// a click (to hit "Salvar"/"Cancelar" or click away) and the field
+    /// copy/paste shortcuts (⌘C/⌘V on macOS, Ctrl elsewhere — the one
+    /// thing TextInput events don't carry, and what makes the RA token
+    /// pasteable straight from the browser). Nothing else is read —
+    /// gameplay input stays untouched while a note is open.
     pub fn poll_text_entry(&mut self) -> TextEntryInput {
-        use sdl3::keyboard::Keycode;
+        use sdl3::keyboard::{Keycode, Mod};
         let mut out = TextEntryInput::default();
         for event in self.event_pump.poll_iter() {
             if let Some(pos) = left_click_at(&event) {
                 out.click = Some(pos);
+                continue;
+            }
+            // Botão direito enquanto digita: colar — o mesmo `paste` do
+            // atalho de teclado, sem tirar a mão do mouse.
+            if matches!(
+                event,
+                Event::MouseButtonDown {
+                    mouse_btn: MouseButton::Right,
+                    ..
+                }
+            ) {
+                out.paste = clipboard_paste(&self.video_subsystem);
                 continue;
             }
             match event {
@@ -314,18 +373,51 @@ impl Platform {
                 Event::TextInput { text, .. } => out.typed.push_str(&text),
                 Event::KeyDown {
                     keycode: Some(k),
-                    repeat,
+                    keymod,
+                    repeat: false,
                     ..
-                } => match k {
-                    Keycode::Backspace => out.backspace = true,
-                    Keycode::Return | Keycode::KpEnter if !repeat => out.commit = true,
-                    Keycode::Escape if !repeat => out.cancel = true,
-                    _ => {}
-                },
+                } => {
+                    let shortcut = keymod.intersects(
+                        Mod::LCTRLMOD | Mod::RCTRLMOD | Mod::LGUIMOD | Mod::RGUIMOD,
+                    );
+                    if shortcut {
+                        match k {
+                            Keycode::C => out.copy = true,
+                            Keycode::V => {
+                                out.paste = clipboard_paste(&self.video_subsystem)
+                            }
+                            _ => {}
+                        }
+                    }
+                    match k {
+                        Keycode::Backspace => out.backspace = true,
+                        Keycode::Return | Keycode::KpEnter => out.commit = true,
+                        Keycode::Escape => out.cancel = true,
+                        _ => {}
+                    }
+                }
                 _ => {}
             }
         }
         out
+    }
+
+    /// Copy `text` to the OS clipboard — the text fields' Cmd/Ctrl+C. The
+    /// drafts have no selection, so it's always the whole field. `false`
+    /// when the OS refuses; there's nothing better to do than ignore it.
+    pub fn set_clipboard_text(&self, text: &str) -> bool {
+        self.video_subsystem
+            .clipboard()
+            .set_clipboard_text(text)
+            .is_ok()
+    }
+
+    /// The clipboard's text, sanitized for a single-line field — what a
+    /// text field pastes (right-clicking a closed field opens it already
+    /// pasting). `None` when the clipboard can't be read or has nothing
+    /// left worth pasting.
+    pub fn paste_from_clipboard(&self) -> Option<String> {
+        clipboard_paste(&self.video_subsystem)
     }
 
     pub fn open_audio(&self, sample_rate: u32) -> Result<AudioOut, PlatformError> {
@@ -404,3 +496,18 @@ const GAMEPAD_MAP: [(PadBtn, PadButton); 12] = [
     (PadBtn::Back, PadButton::Select),
     (PadBtn::Start, PadButton::Start),
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::sanitize_paste;
+
+    #[test]
+    fn sanitize_paste_drops_control_chars_and_keeps_the_rest() {
+        assert_eq!(sanitize_paste("abc123-_."), "abc123-_.");
+        // A token copied from the browser usually comes with a newline.
+        assert_eq!(sanitize_paste("tok3n\n"), "tok3n");
+        assert_eq!(sanitize_paste("li\nne\rtab\there"), "linetabhere");
+        assert_eq!(sanitize_paste("são çedilha ✨"), "são çedilha ✨");
+        assert_eq!(sanitize_paste("\n\r\t"), "");
+    }
+}

@@ -124,3 +124,19 @@ corte) e convertidos para WAV mono 22 050 Hz; nenhum outro ajuste.
 
 "Super Nintendo", "Super Famicom", "SNES" e o trade dress do console são marcas
 da Nintendo. O console na cena é "inspirado em", não uma réplica (plano §7).
+
+## rcheevos (runtime de conquistas)
+
+`crates/ra/vendor/rcheevos/` embute um snapshot do
+[rcheevos](https://github.com/RetroAchievements/rcheevos) (develop), licenciado
+sob **zlib** — só o avaliador de condições (`rcheevos/`) e utilitários
+(`rc_compat`, `rc_util`, `md5`); sem cliente completo, sem hashing de disco.
+Compilado por `crates/ra/build.rs` com `RC_DISABLE_LUA` e `RC_HASH_NO_DISC`.
+O texto integral da licença acompanha o repositório vendido.
+
+## RetroAchievements (serviço)
+
+Conquistas, badges e dados de jogos são © [RetroAchievements](https://retroachievements.org)
+e seus usuários; o app só faz cache local (`saves/ra-cache/`) do que a conta
+do próprio jogador acessa, identifica-se via User-Agent próprio e usa o token
+de Web API gerado pelo próprio usuário.
