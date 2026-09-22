@@ -19,7 +19,7 @@
 //! a `.exe` anywhere the user put it is already writable and exactly where
 //! they'd look for `roms/` next to it.
 
-#[cfg(target_os = "macos")]
+#[cfg(not(target_os = "linux"))]
 use std::path::Path;
 use std::path::PathBuf;
 
