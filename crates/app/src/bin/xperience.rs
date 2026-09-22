@@ -36,7 +36,6 @@ use xperience_app::settings;
 use xperience_app::shelf::{self, Pick, ShelfOpts};
 use xperience_app::update_check::{self, UpdateNotice};
 use xperience_domain::{Catalog, NoIntroDat, Order};
-use xperience_emulation::Core;
 use xperience_platform::{Cabinet, MenuMode, MenuNav, Platform, Screen};
 
 struct Args {
@@ -53,38 +52,15 @@ struct Args {
     /// Headless: render one settings screen ("main"|"controls") to `--shot`
     /// and exit, instead of starting the shelf (dev/testing).
     debug_settings: Option<String>,
-    /// Headless: render the idle screen to `--shot` and exit (dev/testing).
+    /// Headless: render the idle screen to `--shot` and exit (dev/testing) —
+    /// shows the first-run setup screen when the core or the DAT is missing.
     debug_idle: bool,
-    /// Headless: render the update notice ("app"|"core"|"both") to `--shot`
-    /// and exit (dev/testing) — the live path only shows it once a real
-    /// background check finds something.
-    debug_notice: Option<String>,
     shot: Option<PathBuf>,
 }
 
 fn default_core_path() -> Option<PathBuf> {
     let p = xperience_app::dirs::core_dir().join(core_update::core_file_name());
     p.is_file().then_some(p)
-}
-
-/// The cabinet's nameplate text (plan revision: "mostrar versao do app e
-/// versao do snes9x, onde esta o nome do app na tv"; later revision: "no
-/// nameplate colocar a versão do snes9x abaixo do snes xperience") — the
-/// app's own version on the first line and, if a core is installed, the
-/// core's version on a second line below it (`draw_brand` splits on '\n').
-/// `Core::load` only resolves symbols and reads that info (no `retro_
-/// init`), so peeking at it here and dropping the `Core` right after is
-/// cheap and side-effect-free.
-fn nameplate_text(core_path: Option<&Path>) -> String {
-    let app_version = env!("CARGO_PKG_VERSION");
-    let core_version = core_path
-        .and_then(|p| Core::load(p).ok())
-        .map(|c| c.system_version().to_string())
-        .filter(|v| !v.is_empty());
-    match core_version {
-        Some(v) => format!("{} v{app_version}\nsnes9x {v}", xperience_platform::BRAND),
-        None => format!("{} v{app_version}", xperience_platform::BRAND),
-    }
 }
 
 fn parse_args() -> Result<Args> {
@@ -97,7 +73,6 @@ fn parse_args() -> Result<Args> {
     let mut runahead = None;
     let mut debug_settings = None;
     let mut debug_idle = false;
-    let mut debug_notice = None;
     let mut shot = None;
 
     let mut it = std::env::args().skip(1);
@@ -111,7 +86,6 @@ fn parse_args() -> Result<Args> {
             "--notes-dir" => notes_dir = Some(val()?.into()),
             "--debug-settings" => debug_settings = Some(val()?),
             "--debug-idle-shot" => debug_idle = true,
-            "--debug-notice-shot" => debug_notice = Some(val()?),
             "--shot" => shot = Some(val()?.into()),
             "--order" => {
                 order = match val()?.as_str() {
@@ -148,7 +122,6 @@ fn parse_args() -> Result<Args> {
         runahead,
         debug_settings,
         debug_idle,
-        debug_notice,
         shot,
     })
 }
@@ -171,9 +144,11 @@ game window, ends the app — no ceremony there.\n\
 \n\
 The cabinet's nameplate shows the app's own version and, once a core is\n\
 loaded, snes9x's. Unless turned off in settings, startup also checks\n\
-GitHub for a newer release and the buildbot for a fresher snes9x core,\n\
-showing a one-time notice on the idle screen if either found something —\n\
-silently skipped on any network hiccup, never a hard failure.\n\
+GitHub for a newer release and the buildbot for a fresher snes9x core —\n\
+when either finds something, a green dot lights up in the nameplate next\n\
+to that version (silently skipped on any network hiccup, never a hard\n\
+failure). First run without the snes9x core or nointro.dat? The idle\n\
+screen opens on a setup page inside the TV, one download button each.\n\
 \n\
 Portable: roms/, core/, assets/ (cover/logo art, matched by ROM file name),\n\
 saves/, notes/, xperience.cfg, library.json all live in one root — next to\n\
@@ -207,21 +182,19 @@ fn main() -> Result<()> {
         log::info!("config: {}", p.display());
     }
 
-    let dat = match NoIntroDat::load(&xperience_app::dirs::nointro_dat_path()) {
-        Ok(dat) => Some(dat),
-        Err(e) => {
-            log::info!("no-intro DAT not loaded ({e}) — using internal/file names");
-            None
-        }
-    };
     // Re-run whenever the player hits "Atualizar" on the shelf (plan
     // revision) — a fresh scan of roms/ merged with the same persisted
-    // sidecar, no app restart needed.
+    // sidecar, no app restart needed. The DAT is re-read each time too, so
+    // a first-run download (setup screen) counts without restarting.
     let open_catalog = || {
+        let dat = NoIntroDat::load(&xperience_app::dirs::nointro_dat_path());
+        if let Err(e) = &dat {
+            log::info!("no-intro DAT not loaded ({e}) — using internal/file names");
+        }
         Catalog::open(
             &xperience_app::dirs::roms_dir(),
             &xperience_app::dirs::library_path(),
-            dat.as_ref(),
+            dat.ok().as_ref(),
         )
     };
     let mut catalog = open_catalog().with_context(|| "opening the catalog")?;
@@ -244,23 +217,15 @@ fn main() -> Result<()> {
     }
     if let (true, Some(path)) = (args.debug_idle, &args.shot) {
         let core_path = args.core.clone().or_else(default_core_path);
-        cab.set_nameplate(&nameplate_text(core_path.as_deref()));
+        cab.set_nameplate(&core_update::nameplate_text(core_path.as_deref()));
         idle::capture_preview(
             &mut cab,
             idle::RESTING_STATIC,
             core_path.is_some(),
+            xperience_app::dat_update::dat_installed(),
             path,
         )?;
         log::info!("wrote {} (idle preview)", path.display());
-        return Ok(());
-    }
-    if let (Some(kind), Some(path)) = (&args.debug_notice, &args.shot) {
-        let notice = UpdateNotice {
-            app_update: (kind != "core").then(|| "v9.9.9".to_string()),
-            core_stale: kind != "app",
-        };
-        idle::capture_notice_preview(&mut cab, &notice, path)?;
-        log::info!("wrote {} (update notice preview: {kind})", path.display());
         return Ok(());
     }
 
@@ -273,12 +238,13 @@ fn main() -> Result<()> {
     };
     let mut idle_static = idle::RESTING_STATIC;
     let mut core_path = args.core.clone().or_else(default_core_path);
-    cab.set_nameplate(&nameplate_text(core_path.as_deref()));
+    cab.set_nameplate(&core_update::nameplate_text(core_path.as_deref()));
 
     // Startup update checks (plan revision: "verificar se tem update... e se
-    // o snes9x esta atualizado"), opt-out in settings — network calls, so
-    // they run on their own thread; `idle::run` drains the result whenever
-    // it's ready, showing a one-time notice if there's anything to report.
+    // o snes9x esta atualizado" — later revision: not a modal anymore, the
+    // result lights the green dots in the nameplate), opt-out in settings —
+    // network calls, so they run on their own thread; `idle::run` drains
+    // the result whenever it's ready.
     let mut update_rx: Option<Receiver<UpdateNotice>> = None;
     if cfg.check_updates_on_start {
         let (tx, rx) = mpsc::channel();
@@ -295,12 +261,13 @@ fn main() -> Result<()> {
             idle_static,
             &mut update_rx,
             core_path.is_some(),
+            xperience_app::dat_update::dat_installed(),
         )?;
         // The idle screen's own "Baixar núcleo" button may have just
         // installed one — re-resolve (cheap when core/ is unchanged) and
         // refresh the nameplate either way.
         core_path = args.core.clone().or_else(default_core_path);
-        cab.set_nameplate(&nameplate_text(core_path.as_deref()));
+        cab.set_nameplate(&core_update::nameplate_text(core_path.as_deref()));
         match exit {
             IdleExit::Quit => break 'app,
             IdleExit::OpenShelf => shelf_opts.fade_in = Some(idle_static),
@@ -310,7 +277,7 @@ fn main() -> Result<()> {
                 }
                 // A core download may have just finished.
                 core_path = args.core.clone().or_else(default_core_path);
-                cab.set_nameplate(&nameplate_text(core_path.as_deref()));
+                cab.set_nameplate(&core_update::nameplate_text(core_path.as_deref()));
                 continue 'app;
             }
         }
@@ -330,7 +297,7 @@ fn main() -> Result<()> {
                         }
                         // A core download may have just finished.
                         core_path = args.core.clone().or_else(default_core_path);
-                        cab.set_nameplate(&nameplate_text(core_path.as_deref()));
+                        cab.set_nameplate(&core_update::nameplate_text(core_path.as_deref()));
                         continue;
                     }
                     // "Histórico" (plan revision) — a `Pick::Back` from in
@@ -349,7 +316,7 @@ fn main() -> Result<()> {
                                 break 'app;
                             }
                             core_path = args.core.clone().or_else(default_core_path);
-                            cab.set_nameplate(&nameplate_text(core_path.as_deref()));
+                            cab.set_nameplate(&core_update::nameplate_text(core_path.as_deref()));
                             continue;
                         }
                         Pick::Quit => break 'app,

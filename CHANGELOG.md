@@ -9,6 +9,31 @@ aviso — só o incremento de _minor_ marca um conjunto de mudanças.
 
 ## [Não lançado]
 
+## [0.15.0] - 2026-09-21
+
+### Adicionado
+- Tela de primeira configuração dentro da TV no padrão da casa (tubo com
+  proporção normal + painel lateral): quando faltar o núcleo snes9x ou o
+  `nointro.dat`, um botão de download para cada, com progresso ao vivo,
+  retry em caso de falha e "continuar" pra entrar no console.
+- Download automático do `nointro.dat` do mirror `libretro-database`
+  (mesma fonte e licença CC BY-SA dos cheats embutidos) — não depende mais
+  de o usuário conseguir o arquivo por conta própria.
+- Parser de DAT aceita o formato clrmamepro (o do mirror) além do XML
+  Logiqx de um export do DAT-o-MATIC.
+- Ponto verde de "tem update" no nameplate, ao lado da versão do app e da
+  do snes9x — substitui a modal de atualização em tela cheia.
+
+### Mudado
+- Sem o núcleo snes9x, "Inserir cartucho" e "Configurações" ficam inertes
+  até o download terminar.
+- O nameplate recarrega a linha do snes9x na hora em que um download de
+  núcleo termina, sem precisar sair da tela.
+- O catálogo relê o DAT a cada "Atualizar" da estante — o DAT baixado na
+  primeira execução vale sem reiniciar o app.
+- `scripts/install-macos.sh`: build release + instalação em /Applications
+  para testes locais.
+
 ## [0.14.0] - 2026-09-19
 
 ### Adicionado

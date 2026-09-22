@@ -15,6 +15,7 @@
 pub mod config;
 pub mod console_art;
 pub mod core_update;
+pub mod dat_update;
 pub mod dirs;
 pub mod idle;
 pub mod rom_rename;
