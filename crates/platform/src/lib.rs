@@ -377,15 +377,12 @@ impl Platform {
                     repeat: false,
                     ..
                 } => {
-                    let shortcut = keymod.intersects(
-                        Mod::LCTRLMOD | Mod::RCTRLMOD | Mod::LGUIMOD | Mod::RGUIMOD,
-                    );
+                    let shortcut = keymod
+                        .intersects(Mod::LCTRLMOD | Mod::RCTRLMOD | Mod::LGUIMOD | Mod::RGUIMOD);
                     if shortcut {
                         match k {
                             Keycode::C => out.copy = true,
-                            Keycode::V => {
-                                out.paste = clipboard_paste(&self.video_subsystem)
-                            }
+                            Keycode::V => out.paste = clipboard_paste(&self.video_subsystem),
                             _ => {}
                         }
                     }

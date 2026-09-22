@@ -364,7 +364,9 @@ enum ChinOsd {
         lines: Vec<String>,
         badge: Option<u64>,
     },
-    Ra { hardcore: bool },
+    Ra {
+        hardcore: bool,
+    },
     None,
 }
 
@@ -3056,7 +3058,11 @@ fn ra_badge_rows(hardcore: bool) -> [(&'static str, (u8, u8, u8)); 2] {
         ("RA ATIVADO", OSD_GREEN),
         (
             if hardcore { "HARDCORE" } else { "SOFTCORE" },
-            if hardcore { (240, 180, 60) } else { (235, 235, 225) },
+            if hardcore {
+                (240, 180, 60)
+            } else {
+                (235, 235, 225)
+            },
         ),
     ]
 }
