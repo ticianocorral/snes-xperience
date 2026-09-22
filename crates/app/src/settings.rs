@@ -161,8 +161,15 @@ pub fn run(plat: &mut Platform, cab: &mut Cabinet, cfg: &mut Config) -> Result<b
                             if let Some(i) = row_at(ly, row_count(sec, cfg)) {
                                 sel = i;
                                 activate_row(
-                                    cab, cfg, &mut sec, &mut sel, &mut awaiting_key, i,
-                                    &mut core_status, &mut core_worker, &mut rename_status,
+                                    cab,
+                                    cfg,
+                                    &mut sec,
+                                    &mut sel,
+                                    &mut awaiting_key,
+                                    i,
+                                    &mut core_status,
+                                    &mut core_worker,
+                                    &mut rename_status,
                                 );
                             }
                         }
@@ -189,8 +196,15 @@ pub fn run(plat: &mut Platform, cab: &mut Cabinet, cfg: &mut Config) -> Result<b
                     MenuNav::Confirm => {
                         let cur = sel;
                         activate_row(
-                            cab, cfg, &mut sec, &mut sel, &mut awaiting_key, cur,
-                            &mut core_status, &mut core_worker, &mut rename_status,
+                            cab,
+                            cfg,
+                            &mut sec,
+                            &mut sel,
+                            &mut awaiting_key,
+                            cur,
+                            &mut core_status,
+                            &mut core_worker,
+                            &mut rename_status,
                         );
                     }
                     // The toggle/slider rows keep their old left/right
@@ -421,7 +435,10 @@ fn draw_jogo(d: &mut Screen, cfg: &Config, sel: usize) {
         draw_row(d, x, y, row, i == sel);
         y += ROW_H;
     }
-    draw_hint(d, "clique numa opção pra mudar -- setas do gamepad ajustam, A confirma");
+    draw_hint(
+        d,
+        "clique numa opção pra mudar -- setas do gamepad ajustam, A confirma",
+    );
 }
 
 fn draw_video(d: &mut Screen, cfg: &Config, sel: usize) {
@@ -431,18 +448,29 @@ fn draw_video(d: &mut Screen, cfg: &Config, sel: usize) {
     let rows = [
         format!(
             "Tela cheia: {}",
-            if cfg.fullscreen { "ligada" } else { "desligada" }
+            if cfg.fullscreen {
+                "ligada"
+            } else {
+                "desligada"
+            }
         ),
         format!(
             "Chiado da TV fora do ar: {}",
-            if cfg.hiss_on_static { "ligado" } else { "desligado" }
+            if cfg.hiss_on_static {
+                "ligado"
+            } else {
+                "desligado"
+            }
         ),
     ];
     for (i, row) in rows.iter().enumerate() {
         draw_row(d, x, y, row, i == sel);
         y += ROW_H;
     }
-    draw_hint(d, "clique numa opção pra alternar (o chiado toca na TV desligada)");
+    draw_hint(
+        d,
+        "clique numa opção pra alternar (o chiado toca na TV desligada)",
+    );
 }
 
 fn draw_sistema(
@@ -494,7 +522,10 @@ fn draw_controls(d: &mut Screen, cfg: &Config, sel: usize, top: usize, awaiting:
         y += ROW_H;
     }
 
-    draw_hint(d, "clique numa ação pra trocar a tecla -- esc volta pro jogo");
+    draw_hint(
+        d,
+        "clique numa ação pra trocar a tecla -- esc volta pro jogo",
+    );
 }
 
 /// The one-line help at the bottom of the tube, inside it like the shelf's

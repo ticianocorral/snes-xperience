@@ -8,7 +8,7 @@ mod input;
 pub use audio::AudioOut;
 pub use cabinet::{
     Cabinet, FrameRef, PanelButton, PixelFormat, Screen, SettingsButton, SettingsPanelInfo,
-    ShelfButton, ShelfPanelInfo, BRAND,
+    ShelfButton, ShelfPanelInfo, BRAND, DEMO_BADGE_IMG,
 };
 pub use input::{Input, KeyMap, PadButton, UiEvent, MAX_PORTS};
 

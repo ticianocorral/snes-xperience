@@ -53,6 +53,36 @@ pub enum CoreUpdateMsg {
     Failed(String),
 }
 
+/// The cabinet's nameplate text (plan revision: "mostrar versao do app e
+/// versao do snes9x, onde esta o nome do app na tv") — the app's own
+/// version on the first line and, if a core is installed, the core's
+/// version on a second line below it (`draw_brand` splits on '\n'). Lives
+/// here rather than in `xperience` so the idle screen can rebuild it the
+/// moment a setup-screen download finishes — the nameplate used to stay
+/// without the snes9x line until the player left the screen.
+/// `Core::load` only resolves symbols and reads that info (no `retro_
+/// init`), so peeking at it here and dropping the `Core` right after is
+/// cheap and side-effect-free.
+pub fn nameplate_text(core_path: Option<&std::path::Path>) -> String {
+    let app_version = env!("CARGO_PKG_VERSION");
+    let core_version = core_path
+        .and_then(|p| xperience_emulation::Core::load(p).ok())
+        .map(|c| c.system_version().to_string())
+        .filter(|v| !v.is_empty());
+    match core_version {
+        Some(v) => format!("{} v{app_version}\nsnes9x {v}", xperience_platform::BRAND),
+        None => format!("{} v{app_version}", xperience_platform::BRAND),
+    }
+}
+
+/// The default core location, resolved the same way `xperience` does at
+/// startup (`--core`/`$XPERIENCE_CORE` aside) — used to refresh the
+/// nameplate after an in-screen download.
+pub fn default_core_path() -> Option<std::path::PathBuf> {
+    let p = crate::dirs::core_dir().join(core_file_name());
+    p.is_file().then_some(p)
+}
+
 /// Download `url` and unzip the core into `dest_dir/core_file_name()`,
 /// reporting progress on `tx`. Meant to run on a background thread (the app's
 /// standard spawn + `mpsc` + per-frame `try_recv()` pattern) — a

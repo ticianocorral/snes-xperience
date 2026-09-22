@@ -16,9 +16,9 @@ use sdl3::rect::Rect;
 use sdl3::render::{
     BlendMode, ClippingRect, ScaleMode as SdlScaleMode, Texture, Vertex, WindowCanvas,
 };
-use sdl3::{{AudioSubsystem, VideoSubsystem}};
+use sdl3::{AudioSubsystem, VideoSubsystem};
 
-use crate::{{audio::AudioOut, PlatformError}};
+use crate::{audio::AudioOut, PlatformError};
 
 /// CRT tube shape. `WARP` is how hard the edges bow (0 = flat); `VIGNETTE` is
 /// how much the corners darken; `GRID` is the mesh resolution.
@@ -299,6 +299,22 @@ pub struct Cabinet {
     /// it once at startup (and again after a core swap) to also carry the
     /// app/core version, via `set_nameplate`.
     nameplate: String,
+    /// MOCK (design preview for the achievements notification — RetroAchievements
+    /// plan): lines drawn right-aligned in the chin, mirroring `set_nameplate`'s
+    /// block on the left. Throwaway scaffolding for `examples/ra_osd_mock.rs`;
+    /// the real feature (phase 4) replaces it with a timed OSD queue.
+    /// Per-nameplate-line "tem update" flags (plan revision: "quando tiver
+    /// update do app ou do snes9x não mostrar mais a tela cheia e sim um
+    /// icone verde no nameplate do lado de cada um") — `(app, core)`. When
+    /// set, `draw_brand` prints a small green dot right after that line
+    /// (line 0 = app version, line 1 = snes9x version); the app flips them
+    /// via `set_nameplate_updates` once its startup check reports something.
+    nameplate_updates: (bool, bool),
+    /// MOCK (design preview for the achievements notification — RetroAchievements
+    /// plan): lines drawn right-aligned in the chin, mirroring `set_nameplate`'s
+    /// block on the left. Throwaway scaffolding for `examples/ra_osd_mock.rs`;
+    /// the real feature (phase 4) replaces it with a timed OSD queue.
+    demo_osd: Option<Vec<String>>,
     /// Whether the top-left "fechar app" button is drawn/clickable this
     /// screen (plan revision: "criar botao de fechar app no canto superior
     /// esquerdo") — the idle/shelf/settings/history screens turn it on;
@@ -755,6 +771,8 @@ impl Cabinet {
             ch3_until: None,
             canvas_rect,
             nameplate: BRAND.to_string(),
+            nameplate_updates: (false, false),
+            demo_osd: None,
             close_button: Rect::new(0, 0, 0, 0),
             minimize_button: Rect::new(0, 0, 0, 0),
         })
@@ -765,6 +783,20 @@ impl Cabinet {
     /// installed snes9x core changes (a download/update via settings).
     pub fn set_nameplate(&mut self, text: &str) {
         self.nameplate = text.to_string();
+    }
+
+    /// Which nameplate lines get the green "tem update" dot — `(app, core)`,
+    /// matching the block `set_nameplate` stacked (`draw_brand` draws the dot
+    /// right after line 0 / line 1, respectively). `false, false` clears both.
+    pub fn set_nameplate_updates(&mut self, app: bool, core: bool) {
+        self.nameplate_updates = (app, core);
+    }
+
+    /// MOCK (design preview for the achievements notification — see
+    /// `demo_osd`): shows a line block in the chin's right side; an empty
+    /// slice clears it.
+    pub fn set_demo_chin_osd(&mut self, lines: &[&str]) {
+        self.demo_osd = (!lines.is_empty()).then(|| lines.iter().map(|l| l.to_string()).collect());
     }
 
     /// The idle panel's core prompt (plan revision: "avisar que para jogar é
@@ -802,6 +834,16 @@ impl Cabinet {
         let sy = oh as f32 / wh.max(1) as f32;
         let (ox, oy) = ((x as f32 * sx) as i32, (y as f32 * sy) as i32);
         (ox - self.canvas_rect.x(), oy - self.canvas_rect.y())
+    }
+
+    /// Like [`Cabinet::window_to_output`], but in the 2D screen buffer's own
+    /// coordinate space (what `frame_2d`'s `draw` closure paints in — the
+    /// screen is inset by the bezel inside the cabinet canvas). A screen
+    /// drawn with hand-laid buttons hit-tests clicks by pairing this with
+    /// its `Screen::size` layout.
+    pub fn window_to_screen(&self, x: i32, y: i32) -> (i32, i32) {
+        let (ox, oy) = self.window_to_output(x, y);
+        (ox - self.screen.x(), oy - self.screen.y())
     }
 
     /// Show/hide the top-left "fechar app" button (plan revision) — call
@@ -1432,7 +1474,19 @@ impl Cabinet {
             self.screen,
             out_h,
             &self.nameplate,
+            self.nameplate_updates,
         );
+        if let Some(lines) = &self.demo_osd {
+            draw_demo_chin_osd(
+                &mut self.canvas,
+                &mut self.font,
+                &self.images,
+                self.screen,
+                out_h,
+                &self.nameplate,
+                lines,
+            );
+        }
         // The timed "CH 3" flash (plan revision): power-on shows the channel
         // banner over the picture for a few seconds, then it's gone. Expired
         // deadlines clear here so the banner truly disappears from the frame
@@ -1506,6 +1560,8 @@ impl Cabinet {
         let font = &mut self.font;
         let images = &self.images;
         let nameplate = self.nameplate.as_str();
+        let nameplate_updates = self.nameplate_updates;
+        let demo_osd = self.demo_osd.as_deref();
         let mut saved: Result<(), PlatformError> = Ok(());
         let outcome = self.canvas.with_texture_canvas(&mut target, |c| {
             c.set_draw_color(Color::RGB(RECESS.0, RECESS.1, RECESS.2));
@@ -1513,7 +1569,10 @@ impl Cabinet {
             c.set_viewport(Some(canvas_rect));
             let _ = c.render_geometry(&mesh.verts, Some(&src.tex), &mesh.indices[..]);
             let _ = c.render_geometry(&bezel.verts, None, &bezel.indices[..]);
-            draw_brand(c, font, screen, out_h, nameplate);
+            draw_brand(c, font, screen, out_h, nameplate, nameplate_updates);
+            if let Some(lines) = demo_osd {
+                draw_demo_chin_osd(c, font, images, screen, out_h, nameplate, lines);
+            }
             draw_panel(
                 c,
                 font,
@@ -1647,6 +1706,7 @@ impl Cabinet {
         let bezel = self.bezel.take().unwrap();
         let font = &mut self.font;
         let nameplate = self.nameplate.as_str();
+        let nameplate_updates = self.nameplate_updates;
         let mut close_button = self.close_button;
         let mut minimize_button = self.minimize_button;
         let mut saved: Result<(), PlatformError> = Ok(());
@@ -1656,7 +1716,14 @@ impl Cabinet {
             c.set_viewport(Some(canvas_rect));
             let _ = c.render_geometry(&mesh.verts, Some(&st.tex), &mesh.indices[..]);
             let _ = c.render_geometry(&bezel.verts, None, &bezel.indices[..]);
-            draw_brand(c, font, screen, canvas_rect.height(), nameplate);
+            draw_brand(
+                c,
+                font,
+                screen,
+                canvas_rect.height(),
+                nameplate,
+                nameplate_updates,
+            );
             close_button = draw_close_button(c, font);
             minimize_button = draw_minimize_button(c, font);
             c.set_viewport(None);
@@ -1700,6 +1767,7 @@ impl Cabinet {
         let images = &self.images;
         let shelf_panel = self.shelf_panel.as_ref();
         let nameplate = self.nameplate.as_str();
+        let nameplate_updates = self.nameplate_updates;
         let mut close_button = self.close_button;
         let mut minimize_button = self.minimize_button;
         let mut saved: Result<(), PlatformError> = Ok(());
@@ -1709,7 +1777,14 @@ impl Cabinet {
             c.set_viewport(Some(canvas_rect));
             let _ = c.render_geometry(&mesh.verts, Some(&st.tex), &mesh.indices[..]);
             let _ = c.render_geometry(&bezel.verts, None, &bezel.indices[..]);
-            draw_brand(c, font, screen, canvas_rect.height(), nameplate);
+            draw_brand(
+                c,
+                font,
+                screen,
+                canvas_rect.height(),
+                nameplate,
+                nameplate_updates,
+            );
             let _ = draw_shelf_panel(c, font, images, shelf_panel, panel);
             close_button = draw_close_button(c, font);
             minimize_button = draw_minimize_button(c, font);
@@ -1848,6 +1923,7 @@ impl Cabinet {
             self.screen,
             wh,
             &self.nameplate,
+            self.nameplate_updates,
         );
         // Sem sinal (plan revision): the channel banner stays up the whole
         // time the TV is showing snow — game inserted but powered off, the
@@ -1908,6 +1984,7 @@ impl Cabinet {
         let font = &mut self.font;
         let images = &self.images;
         let nameplate = self.nameplate.as_str();
+        let nameplate_updates = self.nameplate_updates;
         let mut close_button = self.close_button;
         let mut minimize_button = self.minimize_button;
         let mut saved: Result<(), PlatformError> = Ok(());
@@ -1917,7 +1994,7 @@ impl Cabinet {
             c.set_viewport(Some(canvas_rect));
             let _ = c.render_geometry(&mesh.verts, Some(&nt.tex), &mesh.indices[..]);
             let _ = c.render_geometry(&bezel.verts, None, &bezel.indices[..]);
-            draw_brand(c, font, screen, wh, nameplate);
+            draw_brand(c, font, screen, wh, nameplate, nameplate_updates);
             draw_ch3_osd(c, font, screen);
             draw_panel(
                 c,
@@ -2008,6 +2085,7 @@ impl Cabinet {
             self.screen,
             canvas_rect.height(),
             &self.nameplate,
+            self.nameplate_updates,
         );
 
         self.canvas.set_viewport(None);
@@ -2064,6 +2142,7 @@ impl Cabinet {
             self.screen,
             canvas_rect.height(),
             &self.nameplate,
+            self.nameplate_updates,
         );
         self.shelf_buttons = draw_shelf_panel(
             &mut self.canvas,
@@ -2245,6 +2324,7 @@ impl Cabinet {
             self.screen,
             self.canvas_rect.height(),
             &self.nameplate,
+            self.nameplate_updates,
         );
         self.close_button = draw_close_button(&mut self.canvas, &mut self.font);
         self.minimize_button = draw_minimize_button(&mut self.canvas, &mut self.font);
@@ -2279,6 +2359,31 @@ impl Cabinet {
         self.canvas.present();
     }
 
+    /// Like [`Cabinet::frame_2d`], but in the idle screen's own layout (plan
+    /// revision: "na tela de download fazer igual o padrão das outras telas,
+    /// não esticar a tv e mostrar o painel lateral") — the screen buffer
+    /// only spans the cabinet column (same split as the shelf/settings), so
+    /// the TV keeps its normal proportions, and the idle side panel draws
+    /// and stays clickable around it. Hit-testing inside `draw` pairs with
+    /// `window_to_screen`.
+    pub fn frame_idle_2d<F: FnOnce(&mut Screen)>(&mut self, bg: (u8, u8, u8), draw: F) {
+        self.paint_shelf(bg, draw);
+        self.composite_screen();
+        let panel = panel_rect(self.canvas_rect.width(), self.canvas_rect.height());
+        self.canvas.set_viewport(Some(self.canvas_rect));
+        self.panel_buttons = draw_panel(
+            &mut self.canvas,
+            &mut self.font,
+            &self.images,
+            self.panel.as_ref(),
+            panel,
+            self.session,
+            self.idle_core_prompt.as_deref(),
+        );
+        self.canvas.set_viewport(None);
+        self.canvas.present();
+    }
+
     /// Like [`Cabinet::capture_shelf`], but drawing the settings panel
     /// (headless preview — the BMP matches what a real window would show).
     pub fn capture_settings<F: FnOnce(&mut Screen)>(
@@ -2303,6 +2408,7 @@ impl Cabinet {
         let font = &mut self.font;
         let settings_panel = self.settings_panel.as_ref();
         let nameplate = self.nameplate.as_str();
+        let nameplate_updates = self.nameplate_updates;
         let mut close_button = self.close_button;
         let mut minimize_button = self.minimize_button;
         let mut saved: Result<(), PlatformError> = Ok(());
@@ -2312,8 +2418,86 @@ impl Cabinet {
             c.set_viewport(Some(canvas_rect));
             let _ = c.render_geometry(&mesh.verts, Some(&st.tex), &mesh.indices[..]);
             let _ = c.render_geometry(&bezel.verts, None, &bezel.indices[..]);
-            draw_brand(c, font, screen, canvas_rect.height(), nameplate);
+            draw_brand(
+                c,
+                font,
+                screen,
+                canvas_rect.height(),
+                nameplate,
+                nameplate_updates,
+            );
             let _ = draw_settings_panel(c, font, settings_panel, panel);
+            close_button = draw_close_button(c, font);
+            minimize_button = draw_minimize_button(c, font);
+            c.set_viewport(None);
+            saved = c
+                .read_pixels(None::<Rect>)
+                .and_then(|s| s.save_bmp(path))
+                .map_err(|e| PlatformError::Sdl(e.to_string()));
+        });
+        self.close_button = close_button;
+        self.minimize_button = minimize_button;
+        self.screen_tex = Some(st);
+        self.bezel = Some(bezel);
+        outcome.map_err(|e| PlatformError::Sdl(e.to_string()))?;
+        saved
+    }
+
+    /// Like [`Cabinet::frame_idle_2d`], but composited into an offscreen
+    /// target and saved as a BMP (headless preview — the BMP matches what a
+    /// real window would show, idle panel included).
+    pub fn capture_idle_2d<F: FnOnce(&mut Screen)>(
+        &mut self,
+        bg: (u8, u8, u8),
+        draw: F,
+        path: &std::path::Path,
+    ) -> Result<(), PlatformError> {
+        self.paint_shelf(bg, draw);
+
+        let (ww, wh) = self.canvas.output_size().unwrap_or((1280, 720));
+        let canvas_rect = self.canvas_rect;
+        let panel = panel_rect(canvas_rect.width(), canvas_rect.height());
+        let screen = self.screen;
+        let mesh = build_crt_mesh(screen, 1.0);
+        let mut target = self
+            .canvas
+            .create_texture_target(SdlFormat::RGBA32, ww, wh)
+            .map_err(|e| PlatformError::Sdl(e.to_string()))?;
+        let st = self.screen_tex.take().unwrap();
+        let bezel = self.bezel.take().unwrap();
+        let font = &mut self.font;
+        let images = &self.images;
+        let panel_info = self.panel.as_ref();
+        let session = self.session;
+        let idle_core_prompt = self.idle_core_prompt.as_deref();
+        let nameplate = self.nameplate.as_str();
+        let nameplate_updates = self.nameplate_updates;
+        let mut close_button = self.close_button;
+        let mut minimize_button = self.minimize_button;
+        let mut saved: Result<(), PlatformError> = Ok(());
+        let outcome = self.canvas.with_texture_canvas(&mut target, |c| {
+            c.set_draw_color(Color::RGB(RECESS.0, RECESS.1, RECESS.2));
+            c.clear();
+            c.set_viewport(Some(canvas_rect));
+            let _ = c.render_geometry(&mesh.verts, Some(&st.tex), &mesh.indices[..]);
+            let _ = c.render_geometry(&bezel.verts, None, &bezel.indices[..]);
+            draw_brand(
+                c,
+                font,
+                screen,
+                canvas_rect.height(),
+                nameplate,
+                nameplate_updates,
+            );
+            let _ = draw_panel(
+                c,
+                font,
+                images,
+                panel_info,
+                panel,
+                session,
+                idle_core_prompt,
+            );
             close_button = draw_close_button(c, font);
             minimize_button = draw_minimize_button(c, font);
             c.set_viewport(None);
@@ -2682,12 +2866,123 @@ fn draw_ch3_osd(canvas: &mut WindowCanvas, font: &mut Texture, screen: Rect) {
     );
 }
 
+/// MOCK: image id under which the demo OSD's achievement badge is drawn
+/// (`Cabinet::set_image` with this id, then `set_demo_chin_osd` as usual).
+/// When present, the badge sits left of the text block, the way the real
+/// feature will show each achievement's 64×64 badge.
+pub const DEMO_BADGE_IMG: u64 = u64::MAX;
+
+/// MOCK (design preview for the achievements notification — RetroAchievements
+/// plan, phase 4): a right-aligned block in the chin, mirroring `draw_brand`
+/// on the left. First line in the OSD green (the "CONQUISTA DESBLOQUEADA"
+/// header), the achievement name in near-white, the trailing line (points) in
+/// the nameplate's own grey — all flat on the glass with the same 2px dark
+/// shadow as the CH 3 banner. Lines longer than the space between the
+/// nameplate and the right margin are truncated with "..." so the two blocks
+/// never touch. Throwaway scaffolding for `examples/ra_osd_mock.rs`; the real
+/// feature replaces it with a timed OSD queue.
+fn draw_demo_chin_osd(
+    canvas: &mut WindowCanvas,
+    font: &mut Texture,
+    images: &HashMap<u64, ImgTex>,
+    screen: Rect,
+    out_h: u32,
+    nameplate: &str,
+    lines: &[String],
+) {
+    const MARGIN: i32 = 24;
+    const LIGHT: (u8, u8, u8) = (235, 235, 225);
+    const BADGE: u32 = 56;
+    let chin_top = screen.bottom();
+    let chin_h = out_h as i32 - chin_top;
+    if chin_h < 24 || lines.is_empty() {
+        return;
+    }
+    let cell = GLYPH_W as i32;
+    let row = GLYPH_H as i32;
+    let gap = 4i32;
+    let has_badge = images.contains_key(&DEMO_BADGE_IMG);
+    let badge_room = if has_badge { BADGE as i32 + 12 } else { 0 };
+    // The nameplate's widest line sets this block's left limit, so a long
+    // achievement name truncates instead of colliding with it.
+    let nameplate_w = nameplate
+        .lines()
+        .map(|l| l.chars().count() as i32 * cell)
+        .max()
+        .unwrap_or(0);
+    let right = screen.right() - MARGIN;
+    let left_limit = screen.left() + nameplate_w + MARGIN * 2 + badge_room;
+    let max_cols = ((right - left_limit).max(cell) / cell) as usize;
+    let shown: Vec<String> = lines
+        .iter()
+        .map(|l| truncate_to_cols(l, max_cols))
+        .collect();
+    let block_h = shown.len() as i32 * row + (shown.len() as i32 - 1) * gap;
+    let mut y = chin_top + (chin_h - block_h) / 2;
+    let text_w = shown
+        .iter()
+        .map(|l| l.chars().count() as i32 * cell)
+        .max()
+        .unwrap_or(0);
+    if has_badge {
+        // Vertically centred in the chin, the same line as the text block's.
+        draw_image_absolute(
+            canvas,
+            images,
+            DEMO_BADGE_IMG,
+            right - text_w - badge_room,
+            chin_top + (chin_h - BADGE as i32) / 2,
+            BADGE,
+            BADGE,
+        );
+    }
+    for (i, line) in shown.iter().enumerate() {
+        let color = if i == 0 {
+            OSD_GREEN
+        } else if i + 1 == shown.len() {
+            BRAND_TEXT
+        } else {
+            LIGHT
+        };
+        let x = right - line.chars().count() as i32 * cell;
+        draw_text_absolute(
+            canvas,
+            font,
+            x + 2,
+            y + 2,
+            TextStyle::new(1, (12, 14, 12)),
+            line,
+            usize::MAX,
+        );
+        draw_text_absolute(
+            canvas,
+            font,
+            x,
+            y,
+            TextStyle::new(1, color),
+            line,
+            usize::MAX,
+        );
+        y += row + gap;
+    }
+}
+
+fn truncate_to_cols(s: &str, max_cols: usize) -> String {
+    if s.chars().count() <= max_cols {
+        return s.to_string();
+    }
+    let mut out: String = s.chars().take(max_cols.saturating_sub(3)).collect();
+    out.push_str("...");
+    out
+}
+
 fn draw_brand(
     canvas: &mut WindowCanvas,
     font: &mut Texture,
     screen: Rect,
     out_h: u32,
     label: &str,
+    updates: (bool, bool),
 ) {
     let chin_top = screen.bottom();
     let chin_h = out_h as i32 - chin_top;
@@ -2702,14 +2997,10 @@ fn draw_brand(
     let row = GLYPH_H as i32;
     let gap = 4i32;
     let fits = chin_h >= (lines.len() as i32 * row + (lines.len() as i32 - 1) * gap).max(row);
-    let shown = if fits {
-        &lines[..]
-    } else {
-        &lines[..1]
-    };
+    let shown = if fits { &lines[..] } else { &lines[..1] };
     let block_h = shown.len() as i32 * row + (shown.len() as i32 - 1) * gap;
     let mut y = chin_top + (chin_h - block_h) / 2;
-    for line in shown {
+    for (i, line) in shown.iter().enumerate() {
         draw_text_absolute(
             canvas,
             font,
@@ -2719,8 +3010,29 @@ fn draw_brand(
             line,
             usize::MAX,
         );
+        // The "tem update" dot (plan revision: "um icone verde no nameplate
+        // do lado de cada um") — right after the line's own text, vertically
+        // centred on it. Line 0 is the app's version, line 1 the core's.
+        let wants_dot = i == 0 && updates.0 || i == 1 && updates.1;
+        if wants_dot {
+            draw_update_dot(
+                canvas,
+                screen.left() + line.chars().count() as i32 * GLYPH_W as i32 + 10,
+                y + row / 2,
+            );
+        }
         y += row + gap;
     }
+}
+
+/// A small filled green square with a 1px dark shadow — the nameplate's
+/// "tem update" marker (same green as the CH 3 banner / demo OSD header).
+fn draw_update_dot(canvas: &mut WindowCanvas, x: i32, y_center: i32) {
+    const DOT: u32 = 8;
+    canvas.set_draw_color(Color::RGB(12, 14, 12));
+    let _ = canvas.fill_rect(Rect::new(x + 1, y_center - DOT as i32 / 2 + 1, DOT, DOT));
+    canvas.set_draw_color(Color::RGB(OSD_GREEN.0, OSD_GREEN.1, OSD_GREEN.2));
+    let _ = canvas.fill_rect(Rect::new(x, y_center - DOT as i32 / 2, DOT, DOT));
 }
 
 /// Like `Screen::image_fit`, but at absolute window coordinates instead of
