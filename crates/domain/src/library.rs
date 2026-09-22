@@ -71,7 +71,11 @@ fn extract_rom_from_zip(bytes: &[u8], path: &Path) -> Result<Vec<u8>, String> {
     let entries = archive.len();
     let mut file = archive.by_index(i).map_err(|e| format!("{e}"))?;
     if entries > 1 {
-        log::info!("zip {}: usando {} de {entries} entradas", path.display(), name);
+        log::info!(
+            "zip {}: usando {} de {entries} entradas",
+            path.display(),
+            name
+        );
     }
     let mut out = Vec::with_capacity(file.size() as usize);
     file.read_to_end(&mut out)
