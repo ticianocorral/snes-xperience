@@ -235,6 +235,8 @@ fn main() -> Result<()> {
         shot: None,
         fade_in: None,
         preset_filter: None,
+        ra: (!cfg.ra_user.is_empty() && !cfg.ra_token.is_empty())
+            .then(|| (cfg.ra_user.clone(), cfg.ra_token.clone())),
     };
     let mut idle_static = idle::RESTING_STATIC;
     let mut core_path = args.core.clone().or_else(default_core_path);

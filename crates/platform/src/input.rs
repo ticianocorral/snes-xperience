@@ -147,6 +147,7 @@ pub enum UiEvent {
     /// hint to make sense of it). Toggling a row (`ModalPick`) flips it and
     /// keeps the modal open, unlike the other three modals' one-shot pick.
     OpenCheatsModal,
+    OpenAchievementsModal,
     /// Pause book: step the right page (the photo album) to an earlier/
     /// later print slot.
     NotePrev,

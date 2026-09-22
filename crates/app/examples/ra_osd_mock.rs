@@ -6,8 +6,7 @@
 //! Run: `cargo run -p xperience-app --example ra_osd_mock` — writes BMPs to
 //! docs/mocks/ (convert with `sips -s format png` or any image tool).
 //!
-//! Throwaway scaffolding: `Cabinet::set_demo_chin_osd` is mock-only API that
-//! the real feature (phase 4) replaces with a timed OSD queue.
+//! Now uses the real OSD queue (`Cabinet::push_osd`) that ships in-game.
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -86,7 +85,7 @@ fn main() -> anyhow::Result<()> {
         ),
     ];
     for (file, lines) in shots {
-        cab.set_demo_chin_osd(lines);
+        cab.push_osd(lines, Some(DEMO_BADGE_IMG), Duration::from_secs(6));
         cab.capture_bmp(&frame, 4.0 / 3.0, &out_dir.join(file))
             .map_err(|e| anyhow::anyhow!(e.to_string()))?;
         println!("wrote {}", out_dir.join(file).display());

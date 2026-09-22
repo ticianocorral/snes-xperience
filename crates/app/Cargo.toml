@@ -27,6 +27,8 @@ xperience-ntsc = { path = "../ntsc" }
 anyhow.workspace = true
 log.workspace = true
 env_logger.workspace = true
+md-5.workspace = true
+xperience-ra.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 ureq.workspace = true

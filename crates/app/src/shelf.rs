@@ -13,6 +13,7 @@
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
@@ -156,6 +157,11 @@ pub struct ShelfOpts {
     /// to simulate real typing in a headless run, so this is how `--shot`
     /// verifies the filtered view (plan revision).
     pub preset_filter: Option<String>,
+    /// RetroAchievements account (plan: `docs/plano-retroachievements.md`,
+    /// fase 2) — `Some((user, token))` enables the per-game identification
+    /// that shows "conquistas: N" in the panel; `None` keeps the shelf
+    /// entirely RA-free.
+    pub ra: Option<(String, String)>,
 }
 
 impl Default for ShelfOpts {
@@ -166,6 +172,7 @@ impl Default for ShelfOpts {
             shot: None,
             fade_in: None,
             preset_filter: None,
+            ra: None,
         }
     }
 }
@@ -227,6 +234,100 @@ fn draw_strip_arrows(d: &mut Screen, scr_w: u32, y0: i32, scroll: usize, len: us
             glyph,
         );
     }
+}
+
+/// The shelf's achievements view (plan revision: "mostrar a lista de
+/// conquistas e pontuação total dentro da tv com botão de voltar, parecido
+/// com o back cover") — title, "N/M — X de Y pontos", then the per-
+/// achievement rows (earned in green with a star-ish [x], locked dim),
+/// scrolled by `top`, with a flat "voltar" button bottom-centre. Returns
+/// that button's screen-local rect for the click hit-test.
+fn draw_achievements_view(
+    d: &mut Screen,
+    data: Option<&crate::ra::ShelfAchievements>,
+    top: usize,
+) -> (i32, i32, u32, u32) {
+    const ROW_H: i32 = 22;
+    let (w, h) = d.size();
+    let (w, h) = (w as i32, h as i32);
+    let x = MARGIN;
+    let green = (60, 230, 70);
+    let voltar = (w / 2 - 70, h - 64, 140u32, 34u32);
+
+    match data {
+        None => {
+            d.text(x, MARGIN, 2, DIM, "conquistas indisponíveis");
+        }
+        Some(list) => {
+            let (all_pts, got_pts) = list.points();
+            d.text_wrapped(x, MARGIN, (w - MARGIN * 2) as u32, 2, TEXT, &list.title);
+            d.text(
+                x,
+                MARGIN + 56,
+                1,
+                DIM,
+                &format!(
+                    "conquistas {}/{} — {} de {} pontos",
+                    list.earned.len(),
+                    list.achievements.len(),
+                    got_pts,
+                    all_pts
+                ),
+            );
+            let rows = (h - MARGIN * 2 - 130) / ROW_H;
+            let visible = rows.max(1) as usize;
+            for (i, a) in list.achievements.iter().enumerate().skip(top).take(visible) {
+                let y = MARGIN + 84 + (i - top) as i32 * ROW_H;
+                let earned = list.earned.contains(&a.id);
+                let (mark, color) = if earned { ("[x]", green) } else { ("[ ]", DIM) };
+                let label = format!("{mark} {} ({} pts)", a.title, a.points);
+                // Truncate to the tube's width so nothing wraps.
+                let max_chars = ((w - MARGIN * 2) / 9).max(8) as usize;
+                let label: String = if label.chars().count() > max_chars {
+                    format!(
+                        "{}...",
+                        label.chars().take(max_chars - 3).collect::<String>()
+                    )
+                } else {
+                    label
+                };
+                d.text(x, y, 1, color, &label);
+            }
+            if list.achievements.len() > visible {
+                let note = if top + visible < list.achievements.len() {
+                    "v para rolar"
+                } else {
+                    "^ v"
+                };
+                d.text(w - MARGIN - 90, MARGIN + 56, 1, DIM, note);
+            }
+        }
+    }
+
+    // "voltar" — same flat style the back-cover zoom uses.
+    d.outline(
+        voltar.0,
+        voltar.1,
+        voltar.2,
+        voltar.3,
+        1,
+        (150, 150, 158, 255),
+    );
+    d.fill(
+        voltar.0 + 1,
+        voltar.1 + 1,
+        voltar.2 - 2,
+        voltar.3 - 2,
+        (34, 34, 40, 255),
+    );
+    d.text(
+        voltar.0 + (voltar.2 as i32 - 9 * 6) / 2,
+        voltar.1 + (voltar.3 as i32 - 20) / 2,
+        1,
+        TEXT,
+        "voltar",
+    );
+    voltar
 }
 
 fn backcover_id(sha1: &str) -> u64 {
@@ -291,7 +392,7 @@ fn pick_play(
 /// No-Intro extras.
 fn game_info_lines(entry: &CatalogEntry, playtime_secs: u64) -> Vec<(String, String)> {
     vec![
-        ("tamanho".to_string(), human_size(entry.rom.size)),
+        ("cartucho".to_string(), cart_size(entry.rom.size)),
         (
             "jogado".to_string(),
             entry
@@ -304,12 +405,29 @@ fn game_info_lines(entry: &CatalogEntry, playtime_secs: u64) -> Vec<(String, Str
     ]
 }
 
-fn human_size(bytes: u64) -> String {
-    let mb = bytes as f64 / 1_048_576.0;
-    if mb >= 1.0 {
-        format!("{mb:.1} MB")
+/// The cartridge size the box used to print, in megabits (plan revision:
+/// "abaixo do tamanho do jogo ... o tamanho do cartucho (ex: SF Alpha 2 é
+/// 32 mega)") — the ROM's size with a 512-byte copier header stripped,
+/// rounded up to the mask sizes SNES carts actually came in (a 512 KB game
+/// is "4 megas", a 4 MB one "32 megas").
+fn cart_size(bytes: u64) -> String {
+    const MIB: u64 = 1024 * 1024;
+    const MASK_SIZES: [u64; 12] = [2, 4, 8, 12, 16, 20, 24, 28, 32, 40, 48, 64];
+    let eff = if bytes % 0x2000 == 512 {
+        bytes - 512
     } else {
-        format!("{:.0} KB", bytes as f64 / 1024.0)
+        bytes
+    };
+    let mbit = (eff * 8).div_ceil(MIB); // round up to whole megabits
+    let snapped = MASK_SIZES
+        .iter()
+        .copied()
+        .find(|&s| mbit <= s)
+        .unwrap_or(mbit);
+    if snapped == 1 {
+        "1 mega".to_string()
+    } else {
+        format!("{snapped} megas")
     }
 }
 
@@ -526,6 +644,7 @@ fn empty_roms_screen(plat: &mut Platform, cab: &mut Cabinet) -> Result<Pick> {
                 | Some(ShelfButton::Backcover)
                 | Some(ShelfButton::ToggleFavorite)
                 | Some(ShelfButton::Refresh)
+                | Some(ShelfButton::ShelfAchievements)
                 | None => {}
             }
         }
@@ -618,6 +737,28 @@ pub fn run(
     let mut view: Vec<CatalogEntry> = Vec::new();
     let mut recent: Vec<CatalogEntry> = Vec::new();
     let mut favorites: Vec<CatalogEntry> = Vec::new();
+    // RA identification (plan fase 2): one result per game (None = the
+    // server doesn't know it / no set), one hash+fetch in flight at a
+    // time, each game tried at most once per visit — the disk cache makes
+    // later visits instant.
+    let mut ra_games: std::collections::HashMap<String, Option<crate::ra::RaGame>> =
+        std::collections::HashMap::new();
+    let mut ra_tried: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut ra_worker: Option<Receiver<Result<Option<crate::ra::RaGame>, String>>> = None;
+    let mut ra_pending: String = String::new();
+    // Server unlock sync (the plan's "fase futura"): one background merge
+    // per identified game per visit — earned lists earned elsewhere show
+    // as unlocked in the achievements view.
+    let mut ra_synced: HashSet<String> = HashSet::new();
+    let mut ra_sync: Option<Receiver<Result<usize, String>>> = None;
+    // The achievements view (plan revision: "mostrar a lista de conquistas
+    // e pontuação total dentro da tv com botão de voltar, parecido com o
+    // back cover") — open/closed, its scroll, its data (loaded once per
+    // open), and the voltar button's screen-local rect.
+    let mut ach_view = false;
+    let mut ach_top: usize = 0;
+    let mut ach_data: Option<crate::ra::ShelfAchievements> = None;
+    let mut ach_voltar: (i32, i32, u32, u32) = (0, 0, 0, 0);
     cab.set_close_button(true);
 
     // Frames left in the "entering over the static" ease-in (§3.3), if any.
@@ -744,6 +885,18 @@ pub fn run(
                     filter_draft.push(c);
                 }
             }
+            // ⌘V/⌘C (Ctrl no resto) — mesmo esquema de clipboard dos outros
+            // campos de texto.
+            if let Some(paste) = &te.paste {
+                for c in paste.chars() {
+                    if filter_draft.chars().count() < FILTER_LIMIT {
+                        filter_draft.push(c);
+                    }
+                }
+            }
+            if te.copy {
+                plat.set_clipboard_text(&filter_draft);
+            }
             if te.commit {
                 filter_query = filter_draft.trim().to_string();
                 editing_filter = false;
@@ -777,6 +930,42 @@ pub fn run(
                             .is_some_and(|(lx, ly)| in_rect(lx, ly, close))
                         {
                             zoom_close = None;
+                        }
+                    }
+                }
+            } else if ach_view {
+                // The achievements list owns the tube while it's up: d-pad
+                // /wheel scroll, Back or "voltar" closes.
+                let (_, sh) = cab.shelf_screen_size();
+                let row_h = 22;
+                let visible = ((sh as i32 - MARGIN * 2 - HEADER_H - 60) / row_h).max(1) as usize;
+                let len = ach_data.as_ref().map_or(0, |d| d.achievements.len());
+                for nav in &m.nav {
+                    match nav {
+                        MenuNav::Up | MenuNav::PageUp => ach_top = ach_top.saturating_sub(1),
+                        MenuNav::Down | MenuNav::PageDown => {
+                            if ach_top + visible < len {
+                                ach_top += 1;
+                            }
+                        }
+                        MenuNav::Home => ach_top = 0,
+                        MenuNav::End => ach_top = len.saturating_sub(visible),
+                        MenuNav::Back => ach_view = false,
+                        _ => {}
+                    }
+                }
+                if let Some((x, y)) = m.click {
+                    let (ox, oy) = cab.window_to_output(x, y);
+                    if cab.hit_close_button(ox, oy) {
+                        return Ok(Pick::Quit);
+                    }
+                    if cab.hit_minimize_button(ox, oy) {
+                        cab.minimize();
+                        continue;
+                    }
+                    if let Some((lx, ly)) = cab.hit_screen_point(ox, oy) {
+                        if in_rect(lx, ly, ach_voltar) {
+                            ach_view = false;
                         }
                     }
                 }
@@ -877,6 +1066,26 @@ pub fn run(
                     }
                 }
 
+                // Botão direito na caixa do filtro: abre já colando — o
+                // mesmo caminho curto do token nas configurações.
+                if let Some((x, y)) = m.right_click {
+                    let (ox, oy) = cab.window_to_output(x, y);
+                    if let Some((lx, ly)) = cab.hit_screen_point(ox, oy) {
+                        if in_rect(lx, ly, filter_rect) {
+                            editing_filter = true;
+                            filter_draft = filter_query.clone();
+                            if let Some(paste) = plat.paste_from_clipboard() {
+                                for c in paste.chars() {
+                                    if filter_draft.chars().count() < FILTER_LIMIT {
+                                        filter_draft.push(c);
+                                    }
+                                }
+                            }
+                            plat.start_text_input(cab);
+                        }
+                    }
+                }
+
                 // Mouse: click a tile to select it, click the already-selected one
                 // to launch — the same two-step a controller does (move, then A).
                 // The flat panel's "Configurações"/"Voltar" buttons (plan
@@ -894,6 +1103,24 @@ pub fn run(
                         match hit {
                             ShelfButton::Back => return Ok(Pick::Back),
                             ShelfButton::Settings => return Ok(Pick::Settings),
+                            ShelfButton::ShelfAchievements => {
+                                let picked = if in_fav {
+                                    favorites.get(fav_idx)
+                                } else if in_recent {
+                                    recent.get(recent_idx)
+                                } else {
+                                    view.get(sel)
+                                };
+                                if let Some(e) = picked {
+                                    ach_data = crate::ra::shelf_achievements(std::path::Path::new(
+                                        &e.rom.path,
+                                    ));
+                                    if ach_data.is_some() {
+                                        ach_view = true;
+                                        ach_top = 0;
+                                    }
+                                }
+                            }
                             ShelfButton::Refresh => {}
                             // "Atualizar" moved to the header row (plan
                             // revision: "colocar botão de atualizar estante
@@ -1196,6 +1423,79 @@ pub fn run(
             }
         }
 
+        // RA identification (plan fase 2): drain the in-flight reply, and
+        // kick the next one for the focused game when the account is on.
+        if let Some(rx) = &ra_worker {
+            match rx.try_recv() {
+                Ok(Ok(g)) => {
+                    ra_games.insert(ra_pending.clone(), g);
+                    ra_worker = None;
+                }
+                Ok(Err(e)) => {
+                    log::info!("ra identify {}: {e}", ra_pending);
+                    ra_games.insert(ra_pending.clone(), None);
+                    ra_worker = None;
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => ra_worker = None,
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            }
+        }
+        if let Some(rx) = &ra_sync {
+            match rx.try_recv() {
+                Ok(Ok(n)) if n > 0 => {
+                    log::info!("ra sync: {n} conquista(s) trazidas do servidor");
+                }
+                Ok(Ok(_)) => {}
+                Ok(Err(e)) => log::info!("ra sync: {e}"),
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => ra_sync = None,
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            }
+        }
+        // Kick the server sync for the focused game once it's identified.
+        if ra_sync.is_none() {
+            if let (Some((user, token)), Some(e)) = (&opts.ra, focused.as_ref()) {
+                if ra_games.get(&e.rom.sha1).is_some_and(|g| g.is_some())
+                    && !ra_synced.contains(&e.rom.sha1)
+                {
+                    ra_synced.insert(e.rom.sha1.clone());
+                    ra_sync = Some(crate::ra::sync_unlocks(
+                        std::path::Path::new(&e.rom.path),
+                        user,
+                        token,
+                    ));
+                }
+            }
+        }
+        if ra_worker.is_none() {
+            if let (Some((user, token)), Some(e)) = (&opts.ra, focused.as_ref()) {
+                let sha1 = e.rom.sha1.clone();
+                if !ra_tried.contains(&sha1) {
+                    ra_tried.insert(sha1.clone());
+                    match crate::ra::hash_rom(std::path::Path::new(&e.rom.path)) {
+                        Err(err) => {
+                            log::info!("ra hash {}: {err}", e.rom.path);
+                            ra_games.insert(sha1, None);
+                        }
+                        Ok(hash) => {
+                            if let Some(g) = crate::ra::cached_game(&hash) {
+                                ra_games.insert(sha1, Some(g));
+                            } else if crate::ra::is_cached_unknown(&hash) {
+                                ra_games.insert(sha1, None);
+                            } else {
+                                let (tx, rx) = mpsc::channel();
+                                let (user, token) = (user.clone(), token.clone());
+                                std::thread::spawn(move || {
+                                    let _ = tx.send(crate::ra::fetch_game(&user, &token, &hash));
+                                });
+                                ra_worker = Some(rx);
+                                ra_pending = sha1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // The flat side panel (plan revision — drawn by `Cabinet` itself,
         // outside the tube): whatever's focused right now, DAT extras and
         // all when the DAT had any ("se o DAT tiver informacoes do jogo,
@@ -1217,6 +1517,12 @@ pub fn run(
                     .position(|(k, _)| k == "ano")
                     .map(|i| nointro.remove(i).1);
                 let mut info = nointro;
+                if let Some(Some(g)) = ra_games.get(&e.rom.sha1) {
+                    info.push((
+                        "conquistas".to_string(),
+                        format!("{} no retroachievements", g.achievements),
+                    ));
+                }
                 info.extend(game_info_lines(e, playtime));
                 ShelfPanelInfo {
                     title: e.title().into_owned(),
@@ -1227,6 +1533,7 @@ pub fn run(
                     info,
                     scroll: panel_scroll,
                     favorite: Some(e.rom.favorite),
+                    achievements: ra_games.get(&e.rom.sha1).is_some_and(|g| g.is_some()),
                 }
             }
             None => ShelfPanelInfo {
@@ -1238,12 +1545,21 @@ pub fn run(
                 info: Vec::new(),
                 scroll: 0,
                 favorite: None,
+                achievements: false,
             },
         };
         cab.set_shelf_panel(shelf_panel);
 
         // --- draw (into a screen-sized buffer, then warped through the tube) --
         let render = |d: &mut Screen| {
+            if ach_view {
+                // The list owns the tube (plan revision: "mostrar a lista de
+                // conquistas e pontuação total dentro da tv com botão de
+                // voltar, parecido com o back cover"); the button rect comes
+                // back for the click hit-test.
+                ach_voltar = draw_achievements_view(d, ach_data.as_ref(), ach_top);
+                return;
+            }
             let count_label = if filter_query.is_empty() {
                 format!("{} games", view.len())
             } else {
@@ -1519,6 +1835,7 @@ pub fn run_history(plat: &mut Platform, cab: &mut Cabinet, catalog: &Catalog) ->
                     // cover to enlarge).
                     ShelfButton::Backcover => {}
                     ShelfButton::ToggleFavorite => {}
+                    ShelfButton::ShelfAchievements => {}
                     ShelfButton::PanelScrollUp | ShelfButton::PanelScrollDown => {}
                 }
             } else if let Some((lx, ly)) = cab.hit_screen_point(ox, oy) {
@@ -1585,6 +1902,7 @@ fn empty_shelf_panel() -> ShelfPanelInfo {
         info: Vec::new(),
         scroll: 0,
         favorite: None,
+        achievements: false,
     }
 }
 
@@ -1765,5 +2083,24 @@ mod tests {
         std::fs::write(dir.join("Game (USA).jpg"), b"x").unwrap();
         assert_eq!(find_local_art(&dir, "/x/Gam.sfc"), None);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod cart_tests {
+    use super::*;
+
+    #[test]
+    fn cart_size_matches_the_box_labels() {
+        let mib = 1024 * 1024;
+        assert_eq!(cart_size(4 * mib), "32 megas"); // SF Alpha 2
+        assert_eq!(cart_size(512 * 1024), "4 megas"); // Super Mario World
+        assert_eq!(cart_size(3 * mib), "24 megas"); // e.g. Mortal Kombat II? no — 24 Mbit carts exist
+        assert_eq!(cart_size(6 * mib), "48 megas"); // Tales of Phantasia
+                                                    // Copier headers don't inflate the cartridge.
+        assert_eq!(cart_size(512 * 1024 + 512), "4 megas");
+        assert_eq!(cart_size(4 * mib + 512), "32 megas");
+        // Below the smallest mask: rounds up to it.
+        assert_eq!(cart_size(8 * 1024), "2 megas");
     }
 }

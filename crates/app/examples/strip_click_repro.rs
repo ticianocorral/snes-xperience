@@ -43,6 +43,7 @@ fn main() -> anyhow::Result<()> {
         shot: Some("/tmp/repro_before.bmp".into()),
         fade_in: None,
         preset_filter: None,
+        ra: None,
     };
     let pick = shelf::run(&mut plat, &mut cab, &catalog, &opts)?;
     println!("first run pick ok (quit by frame cap)");

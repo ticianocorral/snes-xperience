@@ -466,6 +466,26 @@ impl Core {
         Some(unsafe { std::slice::from_raw_parts(ptr as *const u8, size) }.to_vec())
     }
 
+    /// Run `f` against the live contents of a core memory region — no copy
+    /// (the RetroAchievements runtime reads this every frame). `false` when
+    /// the region isn't available.
+    pub fn with_memory(&mut self, id: c_uint, f: impl FnOnce(&[u8])) -> bool {
+        let (ptr, size) = self.enter(|api| unsafe {
+            (
+                (api.retro_get_memory_data)(id),
+                (api.retro_get_memory_size)(id),
+            )
+        });
+        if ptr.is_null() || size == 0 {
+            return false;
+        }
+        // Safety: the core owns this buffer for the life of the loaded game;
+        // `f` must not retain the slice past the call (enforced by lifetime).
+        let live = unsafe { std::slice::from_raw_parts(ptr as *const u8, size) };
+        f(live);
+        true
+    }
+
     /// Copy `bytes` back into a core memory region (e.g. restore battery SRAM
     /// after `load_game`). Extra bytes are ignored; a short slice leaves the
     /// tail untouched. Returns the number of bytes written.
