@@ -9,6 +9,28 @@ aviso — só o incremento de _minor_ marca um conjunto de mudanças.
 
 ## [Não lançado]
 
+## [0.16.0] - 2026-09-22
+
+### Adicionado
+- Favoritos: botão "Favoritar"/"Remover favorito" no painel, estrela
+  vermelha no tile, faixa "favoritos" acima de "jogados recentemente"
+  (ordem alfabética) e marcador persistido no library.json.
+- Rolagem horizontal nas faixas de favoritos e de jogados recentemente
+  (máximo 8 na de recentes), com botões "<"/">" no cabeçalho de cada uma.
+- Botão "Atualizar" movido para o cabeçalho da TV, ao lado de "histórico".
+
+### Mudado
+- Cliques dentro da TV desfazem a curvatura do tubo CRT — antes um clique
+  perto das bordas caia alguns pixels fora (as setas das faixas é que
+  denunciaram).
+- Painel da estante: "Voltar" é sempre o último botão; acima dele
+  "Configurações" e depois "Favoritar".
+- Bordas do back cover em preto; botão da tela inicial renomeado para
+  "Estante de games".
+- O catálogo relê o DAT a cada "Atualizar" da estante.
+- CI: clippy limpo com a toolchain nova (as_chunks, is_multiple_of,
+  allow de aridade).
+
 ## [0.15.0] - 2026-09-21
 
 ### Adicionado
