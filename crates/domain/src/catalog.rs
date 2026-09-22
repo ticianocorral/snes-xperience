@@ -105,6 +105,11 @@ pub struct RomRow {
     pub added_at: i64,
     pub last_played_at: Option<i64>,
     pub play_count: u32,
+    /// The player's own "favorito" marker (plan revision: "adicionar
+    /// marcador de favorito nos jogos; mostrar em uma categoria acima dos
+    /// ultimos jogados") — persisted in the sidecar, shown as a strip above
+    /// the recent one and a small gold corner dot on the tiles.
+    pub favorite: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -156,6 +161,10 @@ struct Persisted {
     added_at: i64,
     last_played_at: Option<i64>,
     play_count: u32,
+    /// `#[serde(default)]` so sidecars written before favorites existed
+    /// load as "nothing is a favorite" instead of failing the whole store.
+    #[serde(default)]
+    favorite: bool,
 }
 
 pub struct Catalog {
@@ -192,6 +201,7 @@ impl Catalog {
                         .unwrap_or(now),
                     last_played_at: None,
                     play_count: 0,
+                    favorite: false,
                 });
                 let nointro_hit = dat.and_then(|d| d.lookup(&r.id.crc32));
                 let nointro_name = nointro_hit.map(|i| i.name.clone());
@@ -207,6 +217,7 @@ impl Catalog {
                     added_at: p.added_at,
                     last_played_at: p.last_played_at,
                     play_count: p.play_count,
+                    favorite: p.favorite,
                 }
             })
             .collect();
@@ -216,6 +227,18 @@ impl Catalog {
             store_path: store_path.to_path_buf(),
             entries: RefCell::new(entries),
         })
+    }
+
+    /// Flip a game's favorite marker (the shelf panel's
+    /// "favoritar"/"remover favorito" button) and persist.
+    pub fn set_favorite(&self, sha1: &str, favorite: bool) -> Result<()> {
+        {
+            let mut entries = self.entries.borrow_mut();
+            if let Some(row) = entries.iter_mut().find(|r| r.sha1 == sha1) {
+                row.favorite = favorite;
+            }
+        }
+        self.save()
     }
 
     pub fn mark_played(&self, sha1: &str) -> Result<()> {
@@ -260,6 +283,7 @@ impl Catalog {
                         added_at: r.added_at,
                         last_played_at: r.last_played_at,
                         play_count: r.play_count,
+                        favorite: r.favorite,
                     },
                 )
             })
@@ -305,6 +329,7 @@ mod tests {
             added_at,
             last_played_at: None,
             play_count: 0,
+            favorite: false,
         }
     }
 
@@ -420,6 +445,30 @@ mod tests {
         let entry = &reopened.list(Order::Name).unwrap()[0];
         assert_eq!(entry.rom.play_count, 1);
         assert!(entry.rom.last_played_at.is_some());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn favorite_persists_across_reopen() {
+        let dir =
+            std::env::temp_dir().join(format!("xperience-catalog-favorite-{}", std::process::id()));
+        let roms_dir = dir.join("roms");
+        std::fs::create_dir_all(&roms_dir).unwrap();
+        let rom_path = roms_dir.join("Test.sfc");
+        let mut bytes = vec![0u8; 0x8000];
+        bytes[0x7FC0..0x7FC0 + 4].copy_from_slice(b"TEST");
+        std::fs::write(&rom_path, &bytes).unwrap();
+        std::thread::sleep(Duration::from_millis(5));
+
+        let store_path = dir.join("library.json");
+        let cat = Catalog::open(&roms_dir, &store_path, None).unwrap();
+        let sha1 = cat.list(Order::Name).unwrap()[0].rom.sha1.clone();
+        assert!(!cat.list(Order::Name).unwrap()[0].rom.favorite);
+        cat.set_favorite(&sha1, true).unwrap();
+
+        let reopened = Catalog::open(&roms_dir, &store_path, None).unwrap();
+        assert!(reopened.list(Order::Name).unwrap()[0].rom.favorite);
 
         let _ = std::fs::remove_dir_all(&dir);
     }

@@ -197,6 +197,36 @@ impl Platform {
         )
     }
 
+    /// Testing hook (example harnesses): push a synthetic left-button
+    /// down+up at window coordinates into the event queue, indistinguishable
+    /// from a real click to `poll`/`poll_menu`.
+    pub fn push_synthetic_click(&self, x: i32, y: i32) {
+        for down in [true, false] {
+            let ev = if down {
+                Event::MouseButtonDown {
+                    timestamp: 0,
+                    window_id: 0,
+                    which: 0,
+                    mouse_btn: MouseButton::Left,
+                    clicks: 1,
+                    x: x as f32,
+                    y: y as f32,
+                }
+            } else {
+                Event::MouseButtonUp {
+                    timestamp: 0,
+                    window_id: 0,
+                    which: 0,
+                    mouse_btn: MouseButton::Left,
+                    clicks: 1,
+                    x: x as f32,
+                    y: y as f32,
+                }
+            };
+            let _ = self.sdl.event().expect("event subsystem").push_event(ev);
+        }
+    }
+
     /// Drain events for a menu screen: mouse click, mouse wheel (-> `Up`/
     /// `Down`), and gamepad d-pad/buttons (rising edge only, `MENU_PAD_MAP`)
     /// always feed `nav`. In `CaptureKey` mode only, a keydown is captured

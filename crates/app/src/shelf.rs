@@ -51,9 +51,8 @@ const LIST_ROW_H: u32 = 22;
 const LIST_GAP: u32 = 6;
 
 /// A "jogados recentemente" strip above the main grid/list (plan revision) —
-/// the last few played games, always in a single row (never more than
-/// `RECENT_MAX`, so it never needs its own scrolling).
-const RECENT_MAX: usize = 5;
+/// the last played games, always in a single row. Both strips scroll
+/// horizontally now (see `STRIP_CAP`), so no fixed five-item cap anymore.
 const RECENT_TILE_W: u32 = 160;
 const RECENT_TILE_H: u32 = 120;
 const RECENT_GAP: u32 = 14;
@@ -64,6 +63,23 @@ const RECENT_LABEL_H: i32 = 24;
 /// above the recent strip, so both sections read the same way.
 const ALL_GAMES_LABEL_H: i32 = 24;
 const ALL_GAMES_TITLE: &str = "todos os jogos";
+
+/// A "favoritos" strip above the recent one (plan revision: "adicionar
+/// marcador de favorito nos jogos; mostrar em uma categoria acima dos
+/// ultimos jogados") — same tile geometry as the recent strip, one row.
+/// Both strips scroll horizontally (plan revision: "inserir rolagem
+/// horizontal em favoritos e jogados recentemente"): more markers than fit
+/// stay one cursor-move away instead of being cut off by a hard cap. The
+/// label height mirrors the other two sections'.
+const FAV_LABEL_H: i32 = 24;
+const FAV_TITLE: &str = "favoritos";
+/// Hard caps well past what fits on screen at once — the strips scroll, but
+/// a run of thousands of played games shouldn't grow them without bound.
+const STRIP_CAP: usize = 60;
+/// The recent strip shows at most this many games (plan revision: "jogados
+/// recentemente mostrar apenas no maximo 8 jogos") — favorites keep the
+/// wider `STRIP_CAP`.
+const RECENT_CAP: usize = 8;
 
 /// The title filter box (plan revision: "colocar filtro para facilitar o
 /// encontro dos games na lista") — the shelf's own one deliberate keyboard
@@ -76,6 +92,11 @@ const FILTER_LIMIT: usize = 40;
 /// listando os jogos mais jogados") — drawn in the header, left of the
 /// filter box, same row/height.
 const HISTORY_BTN_W: u32 = 110;
+
+/// "Atualizar" button (plan revision: "colocar botão de atualizar estante
+/// do lado do histórico") — same header row, to the "histórico" button's
+/// left; re-scans roms/ without leaving the shelf.
+const REFRESH_BTN_W: u32 = 110;
 
 const BG: (u8, u8, u8) = (18, 18, 20);
 const TILE_BG: (u8, u8, u8, u8) = (34, 34, 40, 255);
@@ -173,6 +194,41 @@ fn cartridge_id(sha1: &str) -> u64 {
 /// logo... colocar o back cover tambem") — same derivation as
 /// `cartridge_id`, a different fixed salt so it can't collide with any of
 /// the other three.
+/// The strips' scroll affordance (plan revision: "inserir rolagem
+/// horizontal em favoritos e jogados recentemente"; depois "nao consigo
+/// clicar nas setas") — real buttons in the strip's header row, right
+/// side, same outline style as the header's "histórico" button: "<" slides
+/// the strip back a tile, ">" forward, each click one step. Drawn whenever
+/// the strip overflows (like the panel's own "Cima"/"Baixo" pair), dimmed
+/// at the end it can't move past.
+/// `(left, right)` header-button rects for one strip, screen-local.
+type StripArrows = ((i32, i32, u32, u32), (i32, i32, u32, u32));
+
+pub fn strip_arrow_rects(scr_w: u32, y0: i32) -> StripArrows {
+    let bw = 36u32;
+    let bh = 22u32;
+    let by = y0 - RECENT_LABEL_H + 1;
+    let right = (scr_w as i32 - MARGIN - bw as i32, by, bw, bh);
+    let left = (right.0 - 8 - bw as i32, by, bw, bh);
+    (left, right)
+}
+
+fn draw_strip_arrows(d: &mut Screen, scr_w: u32, y0: i32, scroll: usize, len: usize, vis: usize) {
+    let (left, right) = strip_arrow_rects(scr_w, y0);
+    for (rect, glyph, more) in [(left, "<", scroll > 0), (right, ">", scroll + vis < len)] {
+        let (bx, by, bw, bh) = rect;
+        d.outline(bx, by, bw, bh, 1, (150, 150, 158, 255));
+        d.fill(bx + 1, by + 1, bw - 2, bh - 2, (34, 34, 40, 255));
+        d.text(
+            bx + (bw as i32 - 9) / 2,
+            by + (bh as i32 - 20) / 2,
+            1,
+            if more { TEXT } else { DIM },
+            glyph,
+        );
+    }
+}
+
 fn backcover_id(sha1: &str) -> u64 {
     wheel_id(sha1) ^ 0xC2B2_AE3D_27D4_EB4F
 }
@@ -303,6 +359,11 @@ fn history_button_rect(scr_w: u32) -> (i32, i32, u32, u32) {
     (fx - 12 - HISTORY_BTN_W as i32, fy, HISTORY_BTN_W, fh)
 }
 
+fn refresh_button_rect(scr_w: u32) -> (i32, i32, u32, u32) {
+    let (hx, hy, _, fh) = history_button_rect(scr_w);
+    (hx - 8 - REFRESH_BTN_W as i32, hy, REFRESH_BTN_W, fh)
+}
+
 /// Geometry of the shelf's item grid — image tiles, or (no cover art loaded
 /// at all, plan §3.1) a single-column text list styled like a pirate NES
 /// multicart menu. One column of navigation math (`cols`/`vis_rows`) serves
@@ -387,8 +448,9 @@ impl GridLayout {
     }
 }
 
-/// Geometry of the "jogados recentemente" strip — always a single row, up to
-/// `RECENT_MAX` items, so unlike `GridLayout` it never scrolls.
+/// Geometry shared by the "favoritos" and "jogados recentemente" strips —
+/// always a single row, horizontally scrollable (unlike `GridLayout`): the
+/// caller windows it with its own scroll offset.
 struct RecentLayout {
     x0: i32,
     y0: i32,
@@ -429,6 +491,7 @@ fn empty_roms_screen(plat: &mut Platform, cab: &mut Cabinet) -> Result<Pick> {
     let frame = Duration::from_millis(16);
     cab.set_shelf_panel(empty_shelf_panel());
     cab.set_close_button(true);
+    let refresh_rect = refresh_button_rect(cab.shelf_screen_size().0);
     loop {
         let m = plat.poll_menu(MenuMode::Nav);
         if m.quit {
@@ -446,22 +509,29 @@ fn empty_roms_screen(plat: &mut Platform, cab: &mut Cabinet) -> Result<Pick> {
                 cab.minimize();
                 continue;
             }
+            if cab
+                .hit_screen_point(ox, oy)
+                .is_some_and(|(lx, ly)| in_rect(lx, ly, refresh_rect))
+            {
+                return Ok(Pick::Refresh);
+            }
             match cab.hit_shelf_button(ox, oy) {
                 Some(ShelfButton::Back) => return Ok(Pick::Back),
                 Some(ShelfButton::Settings) => return Ok(Pick::Settings),
                 // No game focused on this screen, so nothing to scroll (and
-                // no back cover to enlarge) — but "Atualizar" still matters
-                // here: it's how an empty roms/ folder gets noticed without
-                // restarting the app.
-                Some(ShelfButton::Refresh) => return Ok(Pick::Refresh),
+                // no back cover to enlarge) — "Atualizar" lives in the
+                // header now, handled above.
                 Some(ShelfButton::PanelScrollUp)
                 | Some(ShelfButton::PanelScrollDown)
                 | Some(ShelfButton::Backcover)
+                | Some(ShelfButton::ToggleFavorite)
+                | Some(ShelfButton::Refresh)
                 | None => {}
             }
         }
         let (scr_w, _) = cab.shelf_screen_size();
         let render = |d: &mut Screen| {
+            draw_refresh_button(d, refresh_rect);
             d.text(MARGIN, MARGIN, 2, TEXT, "nenhuma rom encontrada");
             d.text_wrapped(
                 MARGIN,
@@ -491,7 +561,7 @@ pub fn run(
     if all_scanned.is_empty() {
         return empty_roms_screen(plat, cab);
     }
-    let all = all_scanned;
+    let mut all = all_scanned;
 
     let cover_dir = crate::dirs::assets_dir().join("cover");
     let logo_dir = crate::dirs::assets_dir().join("logo");
@@ -515,13 +585,21 @@ pub fn run(
     // independent of `sel`, the main grid/list's own.
     let mut in_recent = false;
     let mut recent_idx: usize = 0;
+    // The "favoritos" strip above it has its own cursor too — same shape,
+    // one more zone the d-pad can land on.
+    let mut in_fav = false;
+    let mut fav_idx: usize = 0;
+    // Each strip's own horizontal scroll — the index of its first visible
+    // tile, kept clamped to the cursor by the per-frame pass below.
+    let mut fav_scroll: usize = 0;
+    let mut recent_scroll: usize = 0;
     // The panel's own scroll position (plan revision: "criar rolagem no
     // painel quando necessario") — reset whenever the focused game changes,
     // via `last_focus` below; `draw_shelf_panel` clamps it to whatever the
     // currently-focused game's content actually needs, so letting it run
     // free on repeated "v Baixo" clicks past the end is harmless.
     let mut panel_scroll: usize = 0;
-    let mut last_focus: Option<(bool, usize)> = None;
+    let mut last_focus: Option<(u8, usize)> = None;
     // The title filter (plan revision) — `filter_query` is what's actually
     // applied; `filter_draft`/`editing_filter` are live only while typing,
     // same split the pause book's free-text note uses.
@@ -537,8 +615,9 @@ pub fn run(
     // player is still TYPING, `filter_draft` moves but `filter_query` doesn't,
     // so typing doesn't rebuild either.
     let mut applied_filter: Option<String> = None;
-    let mut view: Vec<&CatalogEntry> = Vec::new();
-    let mut recent: Vec<&CatalogEntry> = Vec::new();
+    let mut view: Vec<CatalogEntry> = Vec::new();
+    let mut recent: Vec<CatalogEntry> = Vec::new();
+    let mut favorites: Vec<CatalogEntry> = Vec::new();
     cab.set_close_button(true);
 
     // Frames left in the "entering over the static" ease-in (§3.3), if any.
@@ -559,20 +638,38 @@ pub fn run(
             view = all
                 .iter()
                 .filter(|e| e.title().to_lowercase().contains(&query_lc))
+                .cloned()
                 .collect();
             view.sort_by_key(|e| e.title().to_lowercase());
             // The recent strip only makes sense browsing the unfiltered
             // shelf — once a search narrows things, the whole point is
             // finding a specific game, not re-surfacing what was just
             // played.
+            // Most recently played first, descending (plan revision:
+            // "organizar jogados recentemente pelo ordem de ultimo jogado
+            // decrescente") — already was, kept explicit.
             recent = if filter_query.is_empty() {
-                let mut r: Vec<&CatalogEntry> = all
+                let mut r: Vec<CatalogEntry> = all
                     .iter()
                     .filter(|e| e.rom.last_played_at.is_some())
+                    .cloned()
                     .collect();
                 r.sort_by_key(|e| std::cmp::Reverse(e.rom.last_played_at.unwrap_or(0)));
-                r.truncate(RECENT_MAX);
+                r.truncate(RECENT_CAP);
                 r
+            } else {
+                Vec::new()
+            };
+            // Favorites sit above the recent strip (plan revision) — same
+            // "only while browsing the unfiltered shelf" rule, alphabetical
+            // (plan revision: "organizar favoritos em ordem alfabetica"),
+            // so the row reads like a curated mini-shelf.
+            favorites = if filter_query.is_empty() {
+                let mut f: Vec<CatalogEntry> =
+                    all.iter().filter(|e| e.rom.favorite).cloned().collect();
+                f.sort_by_key(|e| e.title().to_lowercase());
+                f.truncate(STRIP_CAP);
+                f
             } else {
                 Vec::new()
             };
@@ -581,6 +678,12 @@ pub fn run(
         if sel >= view.len() {
             sel = view.len().saturating_sub(1);
         }
+        let (scr_w, scr_h) = cab.shelf_screen_size();
+        // How many strip tiles fit between the margins — the window the
+        // strips' scroll offsets keep the cursor inside.
+        let strip_vis = (((scr_w as i32 - MARGIN * 2) as u32)
+            .saturating_div(RECENT_TILE_W + RECENT_GAP))
+        .max(1) as usize;
         let show_recent = !recent.is_empty();
         if recent_idx >= recent.len() {
             recent_idx = recent.len().saturating_sub(1);
@@ -588,23 +691,44 @@ pub fn run(
         if !show_recent {
             in_recent = false;
         }
+        recent_scroll = recent_scroll.min(recent_idx);
+        if recent_idx >= recent_scroll + strip_vis {
+            recent_scroll = recent_idx + 1 - strip_vis;
+        }
+        let show_fav = !favorites.is_empty();
+        if fav_idx >= favorites.len() {
+            fav_idx = favorites.len().saturating_sub(1);
+        }
+        if !show_fav {
+            in_fav = false;
+        }
+        fav_scroll = fav_scroll.min(fav_idx);
+        if fav_idx >= fav_scroll + strip_vis {
+            fav_scroll = fav_idx + 1 - strip_vis;
+        }
 
-        let (scr_w, scr_h) = cab.shelf_screen_size();
         // No cover art loaded anywhere in view yet: a text list (multicart
         // menu) reads as deliberate, where a grid of empty tiles reads as
         // broken (plan §3.1).
         let list_mode = !view.iter().any(|e| cab.has_image(cover_id(&e.rom.sha1)));
+        let fav_block_h = if show_fav {
+            FAV_LABEL_H + RECENT_TILE_H as i32 + GAP as i32
+        } else {
+            0
+        };
         let recent_block_h = if show_recent {
             RECENT_LABEL_H + RECENT_TILE_H as i32 + GAP as i32
         } else {
             0
         };
-        let all_games_label_y = MARGIN + HEADER_H + recent_block_h;
+        let all_games_label_y = MARGIN + HEADER_H + fav_block_h + recent_block_h;
         let grid_top_y = all_games_label_y + ALL_GAMES_LABEL_H;
         let grid = GridLayout::new(scr_w, scr_h, list_mode, grid_top_y);
-        let recent_layout = RecentLayout::new(MARGIN + HEADER_H + RECENT_LABEL_H);
+        let recent_layout = RecentLayout::new(MARGIN + HEADER_H + fav_block_h + RECENT_LABEL_H);
+        let fav_layout = RecentLayout::new(MARGIN + HEADER_H + FAV_LABEL_H);
         let filter_rect = filter_box_rect(scr_w);
         let history_rect = history_button_rect(scr_w);
+        let refresh_rect = refresh_button_rect(scr_w);
 
         // Input.
         if editing_filter {
@@ -676,17 +800,34 @@ pub fn run(
                             }
                         }
                         MenuNav::Up => {
-                            if !in_recent {
-                                if show_recent && sel < grid.cols {
-                                    in_recent = true;
-                                    recent_idx = sel.min(recent.len().saturating_sub(1));
-                                } else {
-                                    sel = sel.saturating_sub(grid.cols);
+                            if in_fav {
+                                // Already on the topmost strip.
+                            } else if in_recent {
+                                if show_fav {
+                                    in_recent = false;
+                                    in_fav = true;
+                                    fav_idx = recent_idx.min(favorites.len().saturating_sub(1));
                                 }
+                            } else if show_fav && sel < grid.cols {
+                                in_fav = true;
+                                fav_idx = sel.min(favorites.len().saturating_sub(1));
+                            } else if show_recent && sel < grid.cols {
+                                in_recent = true;
+                                recent_idx = sel.min(recent.len().saturating_sub(1));
+                            } else {
+                                sel = sel.saturating_sub(grid.cols);
                             }
                         }
                         MenuNav::Down => {
-                            if in_recent {
+                            if in_fav {
+                                in_fav = false;
+                                if show_recent {
+                                    in_recent = true;
+                                    recent_idx = fav_idx.min(recent.len().saturating_sub(1));
+                                } else {
+                                    sel = fav_idx.min(view.len().saturating_sub(1));
+                                }
+                            } else if in_recent {
                                 in_recent = false;
                                 sel = recent_idx.min(view.len().saturating_sub(1));
                             } else if sel + grid.cols < view.len() {
@@ -705,7 +846,10 @@ pub fn run(
                             }
                         }
                         MenuNav::Home => {
-                            if show_recent {
+                            if show_fav {
+                                in_fav = true;
+                                fav_idx = 0;
+                            } else if show_recent {
                                 in_recent = true;
                                 recent_idx = 0;
                             } else {
@@ -714,11 +858,14 @@ pub fn run(
                         }
                         MenuNav::End => {
                             in_recent = false;
+                            in_fav = false;
                             sel = view.len().saturating_sub(1);
                         }
                         MenuNav::Back => return Ok(Pick::Back),
                         MenuNav::Confirm => {
-                            let picked = if in_recent {
+                            let picked = if in_fav {
+                                favorites.get(fav_idx)
+                            } else if in_recent {
                                 recent.get(recent_idx)
                             } else {
                                 view.get(sel)
@@ -747,16 +894,46 @@ pub fn run(
                         match hit {
                             ShelfButton::Back => return Ok(Pick::Back),
                             ShelfButton::Settings => return Ok(Pick::Settings),
-                            ShelfButton::Refresh => return Ok(Pick::Refresh),
+                            ShelfButton::Refresh => {}
+                            // "Atualizar" moved to the header row (plan
+                            // revision: "colocar botão de atualizar estante
+                            // do lado do histórico").
                             ShelfButton::PanelScrollUp => {
                                 panel_scroll = panel_scroll.saturating_sub(1)
                             }
                             ShelfButton::PanelScrollDown => panel_scroll += 1,
+                            ShelfButton::ToggleFavorite => {
+                                // Flip the focused game's marker in the
+                                // sidecar, then update this visit's own
+                                // copy of the catalog and rebuild the
+                                // strips — no re-scan involved.
+                                let picked = if in_fav {
+                                    favorites.get(fav_idx)
+                                } else if in_recent {
+                                    recent.get(recent_idx)
+                                } else {
+                                    view.get(sel)
+                                };
+                                if let Some(e) = picked {
+                                    let sha1 = e.rom.sha1.clone();
+                                    let fav = !e.rom.favorite;
+                                    if catalog.set_favorite(&sha1, fav).is_ok() {
+                                        if let Some(row) =
+                                            all.iter_mut().find(|e| e.rom.sha1 == sha1)
+                                        {
+                                            row.rom.favorite = fav;
+                                        }
+                                        applied_filter = None;
+                                    }
+                                }
+                            }
                             ShelfButton::Backcover => {
                                 // Open the enlarged view: re-decode the file at
                                 // full resolution for a crisp enlargement (the
                                 // panel texture is thumbnailed to 512).
-                                let picked = if in_recent {
+                                let picked = if in_fav {
+                                    favorites.get(fav_idx)
+                                } else if in_recent {
                                     recent.get(recent_idx)
                                 } else {
                                     view.get(sel)
@@ -784,8 +961,61 @@ pub fn run(
                             plat.start_text_input(cab);
                         } else if in_rect(lx, ly, history_rect) {
                             return Ok(Pick::History);
+                        } else if in_rect(lx, ly, refresh_rect) {
+                            return Ok(Pick::Refresh);
+                        } else if in_rect(lx, ly, strip_arrow_rects(scr_w, fav_layout.y0).0)
+                            && fav_scroll > 0
+                        {
+                            fav_scroll -= 1;
+                            if fav_idx > fav_scroll + strip_vis - 1 {
+                                fav_idx = fav_scroll + strip_vis - 1;
+                            }
+                        } else if in_rect(lx, ly, strip_arrow_rects(scr_w, fav_layout.y0).1)
+                            && fav_scroll + strip_vis < favorites.len()
+                        {
+                            fav_scroll += 1;
+                            if fav_idx < fav_scroll {
+                                fav_idx = fav_scroll;
+                            }
+                        } else if in_rect(lx, ly, strip_arrow_rects(scr_w, recent_layout.y0).0)
+                            && recent_scroll > 0
+                        {
+                            recent_scroll -= 1;
+                            if recent_idx > recent_scroll + strip_vis - 1 {
+                                recent_idx = recent_scroll + strip_vis - 1;
+                            }
+                        } else if in_rect(lx, ly, strip_arrow_rects(scr_w, recent_layout.y0).1)
+                            && recent_scroll + strip_vis < recent.len()
+                        {
+                            recent_scroll += 1;
+                            if recent_idx < recent_scroll {
+                                recent_idx = recent_scroll;
+                            }
+                        } else if let Some(i) = show_fav
+                            .then(|| {
+                                fav_layout
+                                    .hit(lx, ly, strip_vis)
+                                    .map(|i| i + fav_scroll)
+                                    .filter(|i| *i < favorites.len())
+                            })
+                            .flatten()
+                        {
+                            if in_fav && i == fav_idx {
+                                if let Some(e) = favorites.get(i) {
+                                    return Ok(pick_play(catalog, &logo_dir, &cartridge_dir, e));
+                                }
+                            } else {
+                                in_recent = false;
+                                in_fav = true;
+                                fav_idx = i;
+                            }
                         } else if let Some(i) = show_recent
-                            .then(|| recent_layout.hit(lx, ly, recent.len()))
+                            .then(|| {
+                                recent_layout
+                                    .hit(lx, ly, strip_vis)
+                                    .map(|i| i + recent_scroll)
+                                    .filter(|i| *i < recent.len())
+                            })
                             .flatten()
                         {
                             if in_recent && i == recent_idx {
@@ -793,6 +1023,7 @@ pub fn run(
                                     return Ok(pick_play(catalog, &logo_dir, &cartridge_dir, e));
                                 }
                             } else {
+                                in_fav = false;
                                 in_recent = true;
                                 recent_idx = i;
                             }
@@ -803,6 +1034,7 @@ pub fn run(
                                 }
                             } else {
                                 in_recent = false;
+                                in_fav = false;
                                 sel = i;
                             }
                         }
@@ -847,11 +1079,43 @@ pub fn run(
                 }
             }
         }
+        // The favorites strip is outside the scroll window too — its own
+        // pass, same one-decode-per-frame cap.
+        let mut fav_budget = 1usize;
+        for (i, entry) in favorites
+            .iter()
+            .enumerate()
+            .skip(fav_scroll)
+            .take(strip_vis)
+        {
+            if fav_budget == 0 {
+                break;
+            }
+            let id = cover_id(&entry.rom.sha1);
+            if cab.has_image(id) {
+                continue;
+            }
+            if !tried_cover.insert(entry.rom.sha1.clone()) {
+                continue;
+            }
+            if let Some(path) = find_local_art(&cover_dir, &entry.rom.path) {
+                if let Ok((w, h, rgba)) = decode_art(&path) {
+                    cab.set_image(id, w, h, &rgba);
+                    fav_budget -= 1;
+                }
+            }
+            let _ = i;
+        }
         // The recent strip sits outside the main grid's scroll window, so it
         // needs its own pass — a recently-played game might not be among the
         // rows currently visible below. Same one-decode-per-frame cap.
         let mut recent_budget = 1usize;
-        for entry in &recent {
+        for (i, entry) in recent
+            .iter()
+            .enumerate()
+            .skip(recent_scroll)
+            .take(strip_vis)
+        {
             if recent_budget == 0 {
                 break;
             }
@@ -868,20 +1132,39 @@ pub fn run(
                     recent_budget -= 1;
                 }
             }
+            let _ = i;
         }
 
-        let focused: Option<&CatalogEntry> = if in_recent {
-            recent.get(recent_idx).copied()
+        let focused: Option<&CatalogEntry> = if in_fav {
+            favorites.get(fav_idx)
+        } else if in_recent {
+            recent.get(recent_idx)
         } else {
-            view.get(sel).copied()
+            view.get(sel)
         };
         // A new game focused starts its panel scrolled to the top again —
         // otherwise switching from a long-content game to a short one could
         // leave the scroll position pointing past the end of the new one
         // until `draw_shelf_panel`'s own clamp kicks in.
-        let focus_key = focused
-            .is_some()
-            .then_some((in_recent, if in_recent { recent_idx } else { sel }));
+        let zone = |in_fav: bool, in_recent: bool| {
+            if in_fav {
+                0u8
+            } else if in_recent {
+                1
+            } else {
+                2
+            }
+        };
+        let focus_key = focused.is_some().then_some((
+            zone(in_fav, in_recent),
+            if in_fav {
+                fav_idx
+            } else if in_recent {
+                recent_idx
+            } else {
+                sel
+            },
+        ));
         if focus_key != last_focus {
             panel_scroll = 0;
             last_focus = focus_key;
@@ -943,6 +1226,7 @@ pub fn run(
                     release,
                     info,
                     scroll: panel_scroll,
+                    favorite: Some(e.rom.favorite),
                 }
             }
             None => ShelfPanelInfo {
@@ -953,6 +1237,7 @@ pub fn run(
                 release: None,
                 info: Vec::new(),
                 scroll: 0,
+                favorite: None,
             },
         };
         cab.set_shelf_panel(shelf_panel);
@@ -967,11 +1252,29 @@ pub fn run(
             d.text(MARGIN, MARGIN - 12, 2, DIM, &count_label);
             draw_filter_box(d, filter_rect, &filter_query, &filter_draft, editing_filter);
             draw_history_button(d, history_rect);
+            draw_refresh_button(d, refresh_rect);
 
-            if show_recent {
-                d.text(MARGIN, MARGIN + HEADER_H, 1, DIM, "jogados recentemente");
-                for (i, entry) in recent.iter().enumerate() {
-                    let (x, y) = recent_layout.item_pos(i);
+            // The marker itself (plan revision: "adicionar marcador de
+            // favorito nos jogos"; depois "o icone de favorito coloca uma
+            // estrela vermelha") — a red star in the tile's top-right
+            // corner, on every strip and the grid alike.
+            const FAV_RED: (u8, u8, u8) = (214, 40, 40);
+            let draw_fav_dot = |d: &mut Screen, x: i32, y: i32, tile_w: u32| {
+                d.star(x + tile_w as i32 - 16, y + 12, 9, FAV_RED);
+            };
+
+            if show_fav {
+                d.text(MARGIN, MARGIN + HEADER_H, 1, DIM, FAV_TITLE);
+                for (i, entry) in favorites
+                    .iter()
+                    .enumerate()
+                    .skip(fav_scroll)
+                    .take(strip_vis)
+                {
+                    // Window-relative position — the strip slides left as it
+                    // scrolls, not the absolute slot that would leave a
+                    // blank gap at the start.
+                    let (x, y) = fav_layout.item_pos(i - fav_scroll);
                     d.fill(x, y, RECENT_TILE_W, RECENT_TILE_H, TILE_BG);
                     let id = cover_id(&entry.rom.sha1);
                     if d.has_image(id) {
@@ -986,6 +1289,58 @@ pub fn run(
                             &entry.title().to_uppercase(),
                         );
                     }
+                    draw_fav_dot(d, x, y, RECENT_TILE_W);
+                    if in_fav && i == fav_idx {
+                        d.outline(
+                            x - 3,
+                            y - 3,
+                            RECENT_TILE_W + 6,
+                            RECENT_TILE_H + 6,
+                            3,
+                            HILITE,
+                        );
+                    }
+                }
+                draw_strip_arrows(
+                    d,
+                    scr_w,
+                    fav_layout.y0,
+                    fav_scroll,
+                    favorites.len(),
+                    strip_vis,
+                );
+            }
+
+            if show_recent {
+                d.text(
+                    MARGIN,
+                    MARGIN + HEADER_H + fav_block_h,
+                    1,
+                    DIM,
+                    "jogados recentemente",
+                );
+                for (i, entry) in recent
+                    .iter()
+                    .enumerate()
+                    .skip(recent_scroll)
+                    .take(strip_vis)
+                {
+                    let (x, y) = recent_layout.item_pos(i - recent_scroll);
+                    d.fill(x, y, RECENT_TILE_W, RECENT_TILE_H, TILE_BG);
+                    let id = cover_id(&entry.rom.sha1);
+                    if d.has_image(id) {
+                        d.image_fit(id, x + 4, y + 4, RECENT_TILE_W - 8, RECENT_TILE_H - 8);
+                    } else {
+                        d.text_wrapped(
+                            x + 6,
+                            y + 8,
+                            RECENT_TILE_W - 12,
+                            1,
+                            DIM,
+                            &entry.title().to_uppercase(),
+                        );
+                    }
+                    draw_fav_dot(d, x, y, RECENT_TILE_W);
                     if in_recent && i == recent_idx {
                         d.outline(
                             x - 3,
@@ -997,6 +1352,14 @@ pub fn run(
                         );
                     }
                 }
+                draw_strip_arrows(
+                    d,
+                    scr_w,
+                    recent_layout.y0,
+                    recent_scroll,
+                    recent.len(),
+                    strip_vis,
+                );
             }
 
             d.text(MARGIN, all_games_label_y, 1, DIM, ALL_GAMES_TITLE);
@@ -1036,7 +1399,10 @@ pub fn run(
                             &entry.title().to_uppercase(),
                         );
                     }
-                    if !in_recent && i == sel {
+                    if entry.rom.favorite {
+                        draw_fav_dot(d, x, y, TILE_W);
+                    }
+                    if !in_recent && !in_fav && i == sel {
                         d.outline(x - 3, y - 3, TILE_W + 6, TILE_H + 6, 3, HILITE);
                     }
                 }
@@ -1152,6 +1518,7 @@ pub fn run_history(plat: &mut Platform, cab: &mut Cabinet, catalog: &Catalog) ->
                     // content, so it never scrolls (and never has a back
                     // cover to enlarge).
                     ShelfButton::Backcover => {}
+                    ShelfButton::ToggleFavorite => {}
                     ShelfButton::PanelScrollUp | ShelfButton::PanelScrollDown => {}
                 }
             } else if let Some((lx, ly)) = cab.hit_screen_point(ox, oy) {
@@ -1217,6 +1584,7 @@ fn empty_shelf_panel() -> ShelfPanelInfo {
         release: None,
         info: Vec::new(),
         scroll: 0,
+        favorite: None,
     }
 }
 
@@ -1307,6 +1675,12 @@ fn draw_history_button(d: &mut Screen, (bx, by, bw, bh): (i32, i32, u32, u32)) {
     d.outline(bx, by, bw, bh, 1, (150, 150, 158, 255));
     d.fill(bx + 1, by + 1, bw - 2, bh - 2, (34, 34, 40, 255));
     d.text(bx + 8, by + (bh as i32 - 16) / 2, 1, TEXT, "histórico");
+}
+
+fn draw_refresh_button(d: &mut Screen, (bx, by, bw, bh): (i32, i32, u32, u32)) {
+    d.outline(bx, by, bw, bh, 1, (150, 150, 158, 255));
+    d.fill(bx + 1, by + 1, bw - 2, bh - 2, (34, 34, 40, 255));
+    d.text(bx + 8, by + (bh as i32 - 16) / 2, 1, TEXT, "atualizar");
 }
 
 /// A thin vertical scroll indicator at the grid's right edge (plan revision:

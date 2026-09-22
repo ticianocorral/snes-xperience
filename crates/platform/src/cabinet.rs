@@ -447,6 +447,10 @@ pub enum ShelfButton {
     /// the enlarged view (plan revision: "ao clicar no back cover
     /// possibilitar mostrar em tamanho maior, com botão de fechar").
     Backcover,
+    /// Toggle the focused game's favorite marker (plan revision: "adicionar
+    /// marcador de favorito nos jogos") — drawn by `draw_shelf_panel` when
+    /// `ShelfPanelInfo::favorite` is `Some`.
+    ToggleFavorite,
     /// "Atualizar" (plan revision: "adicionar opção de atualizar a estante
     /// para buscar jogos novos sem precisar abrir e fechar o app") —
     /// re-scan `roms/` and rebuild the shelf.
@@ -641,6 +645,12 @@ pub struct ShelfPanelInfo {
     /// changes. `draw_shelf_panel` clamps this itself, so an over-large
     /// value (scrolled past the end) is harmless.
     pub scroll: usize,
+    /// The focused game's favorite marker (plan revision: "adicionar
+    /// marcador de favorito nos jogos") — `Some(false)` draws a
+    /// "Favoritar" button, `Some(true)` a "Remover favorito" one (both
+    /// `ShelfButton::ToggleFavorite`), `None` no button at all (history /
+    /// empty panel).
+    pub favorite: Option<bool>,
 }
 
 struct SrcTexture {
@@ -941,7 +951,27 @@ impl Cabinet {
         {
             return None;
         }
-        Some((lx, ly))
+        let (sw, sh) = (self.screen.width() as f32, self.screen.height() as f32);
+        // Displaced grid coords the click arrived at (-1..1 per axis).
+        let dx = (lx as f32 / sw) * 2.0 - 1.0;
+        let dy = (ly as f32 / sh) * 2.0 - 1.0;
+        // Recover the undisplaced ones: forward is cx' = cx*(1-W*cy^2),
+        // cy' = cy*(1-W*cx^2) — divide out the partner axis' factor until it
+        // stops moving (sub-pixel after three rounds; eight for free).
+        let (mut cx, mut cy) = (dx, dy);
+        for _ in 0..8 {
+            cy = dy / (1.0 - CRT_WARP * cx * cx);
+            cx = dx / (1.0 - CRT_WARP * cy * cy);
+        }
+        if !(-1.0..=1.0).contains(&cx) || !(-1.0..=1.0).contains(&cy) {
+            // In the recess between the warped picture's corner and the
+            // bezel — nothing drawn there to click.
+            return None;
+        }
+        Some((
+            (((cx * 0.5 + 0.5) * sw) as i32).clamp(0, sw as i32 - 1),
+            (((cy * 0.5 + 0.5) * sh) as i32).clamp(0, sh as i32 - 1),
+        ))
     }
 
     /// Show the side panel during play: `logo` (width, height, RGBA) is the
@@ -2579,6 +2609,40 @@ impl Screen<'_> {
         let _ = self.canvas.fill_rect(Rect::new(x, y, w, h));
     }
 
+    /// A small filled five-point star centred on (cx, cy) — the favorite
+    /// marker (plan revision: "o icone de favorito coloca uma estrela
+    /// vermelha"). The font atlas has no star glyph, so it's a polygon: ten
+    /// points alternating outer/inner radius, filled as a fan.
+    pub fn star(&mut self, cx: i32, cy: i32, r: u32, c: (u8, u8, u8)) {
+        let (cxf, cyf, rf) = (cx as f32, cy as f32, r as f32);
+        let point = |k: usize| {
+            let radius = if k.is_multiple_of(2) { rf } else { rf * 0.45 };
+            let angle = -std::f32::consts::FRAC_PI_2 + k as f32 * std::f32::consts::PI / 5.0;
+            sdl3::render::FPoint::new(cxf + radius * angle.cos(), cyf + radius * angle.sin())
+        };
+        let vtx = |p: sdl3::render::FPoint| Vertex {
+            position: p,
+            color: FColor::RGBA(
+                c.0 as f32 / 255.0,
+                c.1 as f32 / 255.0,
+                c.2 as f32 / 255.0,
+                1.0,
+            ),
+            tex_coord: sdl3::render::FPoint::new(0.0, 0.0),
+        };
+        let mut verts = vec![vtx(sdl3::render::FPoint::new(cxf, cyf))];
+        for k in 0..10 {
+            verts.push(vtx(point(k)));
+        }
+        let mut indices = Vec::with_capacity(30);
+        for k in 1..=10 {
+            indices.extend_from_slice(&[0, k, k % 10 + 1]);
+        }
+        let _ = self
+            .canvas
+            .render_geometry(&verts, None::<&Texture>, &indices[..]);
+    }
+
     pub fn outline(&mut self, x: i32, y: i32, w: u32, h: u32, thick: u32, c: (u8, u8, u8, u8)) {
         let t = thick as i32;
         self.fill(x, y, w, thick, c);
@@ -3461,7 +3525,7 @@ fn draw_panel(
         // gameplay one.
         const INSERT_H: u32 = 230;
         let insert_block = Rect::new(x, cy, inner_w, INSERT_H);
-        let insert_drawn = draw_idle_slot(canvas, images, font, insert_block, "Inserir cartucho");
+        let insert_drawn = draw_idle_slot(canvas, images, font, insert_block, "Estante de games");
         cy += INSERT_H as i32;
 
         // The console's own controls, the same geometry the game panel
@@ -3910,20 +3974,18 @@ fn draw_shelf_panel(
     let inner_w = rect.width().saturating_sub(pad as u32 * 2);
     let x = rect.x() + pad;
     let y = rect.y() + pad;
+    let panel_favorite = panel.and_then(|p| p.favorite);
 
-    // Three stacked buttons at the bottom, "Atualizar" / "Voltar" /
-    // "Configurações" top to bottom — the shelf's only mouse path into any
-    // of them (plan revision: no keyboard shortcuts left to reach them by;
-    // "Atualizar" re-scans roms/ without leaving the shelf).
+    // Three stacked buttons at the bottom, "Favoritar" / "Configurações" /
+    // "Voltar" top to bottom — "Voltar" always the last one (plan revision:
+    // "botao voltar sempre o ultimo botao do painel, acima dele coloque
+    // configurações e depois acima o de favoritos"); "Atualizar" moved out
+    // of the panel into the header row beside "histórico".
     let btn_h = (GLYPH_H + 12) as i32;
-    let settings_rect = Rect::new(x, rect.bottom() - pad - btn_h, inner_w, btn_h as u32);
-    let back_rect = Rect::new(x, settings_rect.y() - 8 - btn_h, inner_w, btn_h as u32);
-    let refresh_rect = Rect::new(x, back_rect.y() - 8 - btn_h, inner_w, btn_h as u32);
+    let back_rect = Rect::new(x, rect.bottom() - pad - btn_h, inner_w, btn_h as u32);
+    let settings_rect = Rect::new(x, back_rect.y() - 8 - btn_h, inner_w, btn_h as u32);
+    let fav_rect = Rect::new(x, settings_rect.y() - 8 - btn_h, inner_w, btn_h as u32);
     let mut buttons = vec![
-        (
-            ShelfButton::Refresh,
-            draw_button(canvas, font, refresh_rect, "Atualizar", true),
-        ),
         (
             ShelfButton::Back,
             draw_button(canvas, font, back_rect, "Voltar", true),
@@ -3933,14 +3995,32 @@ fn draw_shelf_panel(
             draw_button(canvas, font, settings_rect, "Configurações", true),
         ),
     ];
+    // The favorite button sits above the trio, drawn before the early
+    // `None` return so it never depends on the panel having content.
+    if let Some(fav) = panel_favorite {
+        buttons.push((
+            ShelfButton::ToggleFavorite,
+            draw_button(
+                canvas,
+                font,
+                fav_rect,
+                if fav { "Remover favorito" } else { "Favoritar" },
+                true,
+            ),
+        ));
+    }
 
     let Some(panel) = panel else {
         return buttons;
     };
 
-    // Everything above the button trio — same cutoff rule `draw_panel` uses
+    // Everything above the buttons — same cutoff rule `draw_panel` uses
     // for its command rows: a clean stop beats spilling into the buttons.
-    let limit = refresh_rect.y() - 12;
+    let limit = if panel.favorite.is_some() {
+        fav_rect.y()
+    } else {
+        settings_rect.y()
+    } - 12;
 
     let cy = if let Some(id) = panel.logo_img {
         draw_image_absolute(canvas, images, id, x, y, inner_w, 110);
@@ -4022,7 +4102,9 @@ fn draw_shelf_panel(
         if let (PanelBlock::Image(id, _), Some(bc)) = (block, panel.backcover_img) {
             if *id == bc {
                 let hit = Rect::new(x, block_top, inner_w, h.max(1) as u32);
-                canvas.set_draw_color(Color::RGBA(240, 200, 80, 150));
+                // Borda preta (plan revision: "a borda do back cover coloque
+                // em preto") — discreta sobre o painel claro.
+                canvas.set_draw_color(Color::RGBA(0, 0, 0, 200));
                 let _ = canvas.draw_rect(hit);
                 buttons.push((ShelfButton::Backcover, hit));
             }

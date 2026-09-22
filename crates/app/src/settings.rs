@@ -248,6 +248,10 @@ pub fn run(plat: &mut Platform, cab: &mut Cabinet, cfg: &mut Config) -> Result<b
 
 /// Act on row `i` of the current section — the click path and the gamepad's
 /// Confirm both land here, so they can't drift apart.
+// One row action touches every screen knob at once; splitting it into
+// parameter structs just to appease the arity lint would obscure the
+// actual wiring.
+#[allow(clippy::too_many_arguments)]
 fn activate_row(
     cab: &mut Cabinet,
     cfg: &mut Config,
