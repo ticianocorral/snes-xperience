@@ -197,6 +197,20 @@ fn cartridge_id(sha1: &str) -> u64 {
     wheel_id(sha1) ^ 0x9E37_79B9_7F4A_7C15
 }
 
+/// Texture key for an achievement badge — hashed from the badge name with a
+/// fixed splitmix64-style mix (the name has no sha1 of its own to slice),
+/// ending in a high bit the game-art keys never set.
+fn badge_image_id(name: &str) -> u64 {
+    name.bytes()
+        .fold(0x9E37_79B9_7F4A_7C15u64, |mut acc, b| {
+            acc ^= b as u64;
+            acc = acc.wrapping_mul(0xFF51_AFD7_ED55_8CCD);
+            acc ^= acc >> 33;
+            acc
+        })
+        | (1 << 62)
+}
+
 /// Texture key for a game's back-cover art (plan revision: "abaixo da
 /// logo... colocar o back cover tambem") — same derivation as
 /// `cartridge_id`, a different fixed salt so it can't collide with any of
@@ -245,6 +259,7 @@ fn draw_strip_arrows(d: &mut Screen, scr_w: u32, y0: i32, scroll: usize, len: us
 fn draw_achievements_view(
     d: &mut Screen,
     data: Option<&crate::ra::ShelfAchievements>,
+    badges: &std::collections::HashMap<String, u64>,
     top: usize,
 ) -> (i32, i32, u32, u32) {
     const ROW_H: i32 = 22;
@@ -281,8 +296,15 @@ fn draw_achievements_view(
                 let earned = list.earned.contains(&a.id);
                 let (mark, color) = if earned { ("[x]", green) } else { ("[ ]", DIM) };
                 let label = format!("{mark} {} ({} pts)", a.title, a.points);
+                // Badge 18×18 à esquerda (quando a textura já baixou); o
+                // texto abre mão do espaço dele.
+                const BADGE: u32 = 18;
+                if let Some(id) = badges.get(&a.badge) {
+                    d.image_fit(*id, x, y, BADGE, BADGE);
+                }
+                let text_x = x + 24;
                 // Truncate to the tube's width so nothing wraps.
-                let max_chars = ((w - MARGIN * 2) / 9).max(8) as usize;
+                let max_chars = ((w - MARGIN * 2 - 26) / 9).max(8) as usize;
                 let label: String = if label.chars().count() > max_chars {
                     format!(
                         "{}...",
@@ -291,7 +313,7 @@ fn draw_achievements_view(
                 } else {
                     label
                 };
-                d.text(x, y, 1, color, &label);
+                d.text(text_x, y, 1, color, &label);
             }
             if list.achievements.len() > visible {
                 let note = if top + visible < list.achievements.len() {
@@ -384,23 +406,17 @@ fn pick_play(
 /// Whether `entry`'s title matches a filter query — empty matches everything,
 /// otherwise a case-insensitive substring test (plan revision: "colocar
 /// filtro para facilitar o encontro dos games na lista").
-/// The panel's own file/play facts (plan revision: "o painel... muito
-/// vazio") — always available straight from the scan (or, for `playtime_
-/// secs`, from the per-game sidecar `runner::total_playtime_secs` already
-/// writes), no DAT/local art needed, so a plain title-only game still gets a
-/// panel with something in it besides two buttons. Appended after any
-/// No-Intro extras.
+/// The panel's own file facts (plan revision: "o painel... muito vazio") —
+/// always available straight from the scan (or, for `playtime_secs`, from
+/// the per-game sidecar `runner::total_playtime_secs` already writes), no
+/// DAT/local art needed, so a plain title-only game still gets a panel with
+/// something in it besides two buttons. Appended after any No-Intro extras.
+/// (A "jogado" row lived here once — the last-played date is already the
+/// recent strip's whole job, and the row was what overflowed into the
+/// panel's buttons.)
 fn game_info_lines(entry: &CatalogEntry, playtime_secs: u64) -> Vec<(String, String)> {
     vec![
         ("cartucho".to_string(), cart_size(entry.rom.size)),
-        (
-            "jogado".to_string(),
-            entry
-                .rom
-                .last_played_at
-                .map(days_ago)
-                .unwrap_or_else(|| "nunca".to_string()),
-        ),
         ("tempo total".to_string(), format_playtime(playtime_secs)),
     ]
 }
@@ -444,22 +460,6 @@ fn format_playtime(secs: u64) -> String {
         (0, 0) => "menos de 1min".to_string(),
         (0, m) => format!("{m}min"),
         (h, m) => format!("{h}h {m}min"),
-    }
-}
-
-/// "hoje"/"há 1 dia"/"há N dias" — same coarse-days style
-/// `settings::core_installed_label` already uses, reused here so the whole
-/// app tells relative time the same way instead of two different phrasings.
-fn days_ago(unix_secs: i64) -> String {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
-    let days = (now - unix_secs).max(0) / 86_400;
-    match days {
-        0 => "hoje".to_string(),
-        1 => "há 1 dia".to_string(),
-        n => format!("há {n} dias"),
     }
 }
 
@@ -746,18 +746,55 @@ pub fn run(
     let mut ra_tried: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut ra_worker: Option<Receiver<Result<Option<crate::ra::RaGame>, String>>> = None;
     let mut ra_pending: String = String::new();
-    // Server unlock sync (the plan's "fase futura"): one background merge
-    // per identified game per visit — earned lists earned elsewhere show
-    // as unlocked in the achievements view.
-    let mut ra_synced: HashSet<String> = HashSet::new();
-    let mut ra_sync: Option<Receiver<Result<usize, String>>> = None;
+    // The panel's "X de Y (Z%)" line (plan revision) — the tally per game,
+    // cached per visit: it costs a full ROM hash, so it's computed once when
+    // the game first reaches the panel and refreshed when the completion
+    // progress lands.
+    let mut ra_tally: std::collections::HashMap<
+        String,
+        Option<(usize, usize, Option<crate::ra::Award>)>,
+    > = std::collections::HashMap::new();
+    // Lançamento/editora que o RA tem e o DAT/TOSEC não, mesmo cache de
+    // um-cálculo-por-foco (leitura do JSON da identificação).
+    let mut ra_meta: std::collections::HashMap<
+        String,
+        (Option<String>, Vec<(String, String)>),
+    > = std::collections::HashMap::new();
+    // sha1 → hash RA, guardado pela própria identificação para o painel não
+    // refazer o hash da ROM a cada frame.
+    let mut ra_hashes: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    // Completion progress (o substituto do GetUserUnlocks, morto na API
+    // atual): uma chamada por visita traz os counts de todo o perfil — a
+    // fonte das conquistas ganhas fora deste app.
+    let mut ra_completion: Option<std::collections::HashMap<u64, crate::ra::CompletionEntry>> =
+        None;
+    let mut ra_completion_tried = false;
+    let mut ra_completion_worker: Option<
+        Receiver<Result<std::collections::HashMap<u64, crate::ra::CompletionEntry>, String>>,
+    > = None;
+    // Badges das conquistas do jogo focado: o prefetch baixa os PNGs em
+    // background e o frame registra as texturas direto do disco (umas
+    // poucas por frame), então a lista preenche os badges conforme eles
+    // chegam — para qualquer jogo, não só o primeiro aberto.
+    let mut badge_ids: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+    let mut badge_tried: HashSet<String> = HashSet::new();
+    // Earned do servidor para os [x] da lista de conquistas (uma tentativa
+    // por jogo por visita — o disco cacheia por game id): o worker une no
+    // arquivo local `ra-earned/<hash>.json` e devolve o set resultante.
+    let mut ra_earned_worker: Option<Receiver<(String, Option<std::collections::HashSet<u32>>)>> =
+        None;
+    let mut ra_earned_tried: HashSet<String> = HashSet::new();
     // The achievements view (plan revision: "mostrar a lista de conquistas
     // e pontuação total dentro da tv com botão de voltar, parecido com o
     // back cover") — open/closed, its scroll, its data (loaded once per
-    // open), and the voltar button's screen-local rect.
+    // open), and the voltar button's screen-local rect. `ach_hash` guarda o
+    // hash RA do jogo aberto, para o earned do servidor (que chega
+    // identificado pelo mesmo hash) casar com a lista na tela.
     let mut ach_view = false;
     let mut ach_top: usize = 0;
     let mut ach_data: Option<crate::ra::ShelfAchievements> = None;
+    let mut ach_hash: Option<String> = None;
     let mut ach_voltar: (i32, i32, u32, u32) = (0, 0, 0, 0);
     cab.set_close_button(true);
 
@@ -1119,6 +1156,27 @@ pub fn run(
                                         ach_view = true;
                                         ach_top = 0;
                                     }
+                                    // A lista aberta é deste jogo: o earned do
+                                    // servidor (quando chegar) só vale para ela.
+                                    if let Some((user, token)) = &opts.ra {
+                                        let hash = match ra_hashes.get(&e.rom.sha1) {
+                                            Some(h) => Some(h.clone()),
+                                            None => crate::ra::hash_rom(std::path::Path::new(
+                                                &e.rom.path,
+                                            ))
+                                            .ok(),
+                                        };
+                                        if let Some(hash) = hash {
+                                            ach_hash = Some(hash.clone());
+                                            if ra_earned_tried.insert(hash.clone()) {
+                                                ra_earned_worker = Some(
+                                                    crate::ra::fetch_game_earned_worker(
+                                                        user, token, &hash,
+                                                    ),
+                                                );
+                                            }
+                                        }
+                                    }
                                 }
                             }
                             ShelfButton::Refresh => {}
@@ -1440,29 +1498,74 @@ pub fn run(
                 Err(std::sync::mpsc::TryRecvError::Empty) => {}
             }
         }
-        if let Some(rx) = &ra_sync {
+        if let Some(rx) = &ra_completion_worker {
             match rx.try_recv() {
-                Ok(Ok(n)) if n > 0 => {
-                    log::info!("ra sync: {n} conquista(s) trazidas do servidor");
+                Ok(Ok(map)) => {
+                    log::info!("ra: progresso do perfil carregado ({} jogos)", map.len());
+                    ra_completion = Some(map);
+                    // Tallys já montados nasceram sem o servidor — refazer.
+                    ra_tally.clear();
+                    ra_completion_worker = None;
                 }
-                Ok(Ok(_)) => {}
-                Ok(Err(e)) => log::info!("ra sync: {e}"),
-                Err(std::sync::mpsc::TryRecvError::Disconnected) => ra_sync = None,
+                Ok(Err(e)) => {
+                    log::info!("ra completion: {e}");
+                    ra_completion_worker = None;
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => ra_completion_worker = None,
                 Err(std::sync::mpsc::TryRecvError::Empty) => {}
             }
         }
-        // Kick the server sync for the focused game once it's identified.
-        if ra_sync.is_none() {
-            if let (Some((user, token)), Some(e)) = (&opts.ra, focused.as_ref()) {
-                if ra_games.get(&e.rom.sha1).is_some_and(|g| g.is_some())
-                    && !ra_synced.contains(&e.rom.sha1)
-                {
-                    ra_synced.insert(e.rom.sha1.clone());
-                    ra_sync = Some(crate::ra::sync_unlocks(
-                        std::path::Path::new(&e.rom.path),
-                        user,
-                        token,
-                    ));
+        if !ra_completion_tried && opts.ra.is_some() {
+            ra_completion_tried = true;
+            let (tx, rx) = mpsc::channel();
+            let (user, token) = opts.ra.clone().unwrap();
+            std::thread::spawn(move || {
+                let _ = tx.send(crate::ra::fetch_completion(&user, &token));
+            });
+            ra_completion_worker = Some(rx);
+        }
+        // Earned do servidor chegando: o set já foi unido no disco — a lista
+        // aberta deste jogo ganha os [x] (e o "X/Y" do cabeçalho) na hora.
+        if let Some(rx) = &ra_earned_worker {
+            match rx.try_recv() {
+                Ok((hash, Some(ids))) => {
+                    if ach_hash.as_deref() == Some(hash.as_str()) {
+                        if let Some(list) = ach_data.as_mut() {
+                            list.earned = ids;
+                        }
+                    }
+                    ra_earned_worker = None;
+                }
+                Ok((hash, None)) => {
+                    log::info!("ra earned {hash}: sem ids do servidor");
+                    ra_earned_worker = None;
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => ra_earned_worker = None,
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            }
+        }
+        // Badges do jogo aberto que já estão no disco viram texturas — umas
+        // poucas por frame para o primeiro carregamento não engasgar. O
+        // prefetch continua baixando em background: na medida que os PNGs
+        // aparecem, os badges entram na lista (de qualquer jogo aberto).
+        if ach_view {
+            if let Some(list) = ach_data.as_ref() {
+                let mut novos = 0;
+                for a in &list.achievements {
+                    if novos >= 4 {
+                        break;
+                    }
+                    if badge_ids.contains_key(&a.badge) {
+                        continue;
+                    }
+                    if let Some(path) = crate::ra::badge_path(&a.badge) {
+                        if let Ok(img) = image::open(&path).map(|i| i.to_rgba8()) {
+                            let id = badge_image_id(&a.badge);
+                            cab.set_image(id, img.width(), img.height(), img.as_raw());
+                            badge_ids.insert(a.badge.clone(), id);
+                            novos += 1;
+                        }
+                    }
                 }
             }
         }
@@ -1477,6 +1580,7 @@ pub fn run(
                             ra_games.insert(sha1, None);
                         }
                         Ok(hash) => {
+                            ra_hashes.insert(sha1.clone(), hash.clone());
                             if let Some(g) = crate::ra::cached_game(&hash) {
                                 ra_games.insert(sha1, Some(g));
                             } else if crate::ra::is_cached_unknown(&hash) {
@@ -1512,16 +1616,70 @@ pub fn run(
                 // slot (plan revision) instead of sitting in the generic
                 // info list alongside publisher/category/description.
                 let mut nointro = e.rom.nointro_extra.clone();
-                let release = nointro
+                let dat_release = nointro
                     .iter()
                     .position(|(k, _)| k == "ano")
                     .map(|i| nointro.remove(i).1);
                 let mut info = nointro;
-                if let Some(Some(g)) = ra_games.get(&e.rom.sha1) {
-                    info.push((
-                        "conquistas".to_string(),
-                        format!("{} no retroachievements", g.achievements),
-                    ));
+                let mut release = dat_release;
+                let mut award_img: Option<u64> = None;
+                if let Some(Some(_)) = ra_games.get(&e.rom.sha1) {
+                    // O RA completa o que o DAT/TOSEC não cobre — muitos jogos
+                    // ficavam sem lançamento e editora por não estarem na
+                    // tabela (uma leitura do JSON da identificação por foco).
+                    let ra_meta_entry = ra_meta
+                        .entry(e.rom.sha1.clone())
+                        .or_insert_with(|| {
+                            ra_hashes
+                                .get(&e.rom.sha1)
+                                .map(|h| crate::ra::release_and_extras(h))
+                                .unwrap_or((None, Vec::new()))
+                        })
+                        .clone();
+                    release = release.or(ra_meta_entry.0);
+                    if !info.iter().any(|(k, _)| k == "editora") {
+                        if let Some(editora) = ra_meta_entry.1.first() {
+                            info.push(editora.clone());
+                        }
+                    }
+                    // "30 de 58 (52%)" — o tally custa um hash de ROM inteiro,
+                    // então fica cacheado por visita (e refresco quando o
+                    // completion progress do servidor chega).
+                    let tally = ra_tally
+                        .entry(e.rom.sha1.clone())
+                        .or_insert_with(|| {
+                            ra_hashes.get(&e.rom.sha1).and_then(|h| {
+                                crate::ra::tally_from_cache(h, ra_completion.as_ref())
+                            })
+                        })
+                        .clone();
+                    // A medalha de prêmio do RA desenhada ao lado do número
+                    // da linha de conquistas (pixel-art gerada por
+                    // `medal_rgba`, uma textura por variante).
+                    if let Some((earned, total, award)) = tally {
+                        let pct = if total > 0 {
+                            (earned * 100 + total / 2) / total
+                        } else {
+                            0
+                        };
+                        info.push((
+                            "conquistas".to_string(),
+                            format!("{earned} de {total} ({pct}%)"),
+                        ));
+                        if let Some(medal) = award.map(|a| a.medal()) {
+                            let id = crate::ra::medal_image_id(medal);
+                            if !cab.has_image(id) {
+                                let (w, h, rgba) = crate::ra::medal_rgba(medal);
+                                cab.set_image(id, w, h, &rgba);
+                            }
+                            award_img = Some(id);
+                        }
+                    }
+                    // Os badges do set já baixando em background — a notificação
+                    // e a lista da estante os encontram em cache na hora.
+                    if badge_tried.insert(e.rom.sha1.clone()) {
+                        crate::ra::prefetch_badges(std::path::Path::new(&e.rom.path));
+                    }
                 }
                 info.extend(game_info_lines(e, playtime));
                 ShelfPanelInfo {
@@ -1534,6 +1692,7 @@ pub fn run(
                     scroll: panel_scroll,
                     favorite: Some(e.rom.favorite),
                     achievements: ra_games.get(&e.rom.sha1).is_some_and(|g| g.is_some()),
+                    award_img,
                 }
             }
             None => ShelfPanelInfo {
@@ -1546,6 +1705,7 @@ pub fn run(
                 scroll: 0,
                 favorite: None,
                 achievements: false,
+                award_img: None,
             },
         };
         cab.set_shelf_panel(shelf_panel);
@@ -1557,7 +1717,7 @@ pub fn run(
                 // conquistas e pontuação total dentro da tv com botão de
                 // voltar, parecido com o back cover"); the button rect comes
                 // back for the click hit-test.
-                ach_voltar = draw_achievements_view(d, ach_data.as_ref(), ach_top);
+                ach_voltar = draw_achievements_view(d, ach_data.as_ref(), &badge_ids, ach_top);
                 return;
             }
             let count_label = if filter_query.is_empty() {
@@ -1903,6 +2063,7 @@ fn empty_shelf_panel() -> ShelfPanelInfo {
         scroll: 0,
         favorite: None,
         achievements: false,
+        award_img: None,
     }
 }
 

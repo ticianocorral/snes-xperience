@@ -30,6 +30,19 @@ fn main() -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!(e.to_string()))?;
     cab.set_nameplate("SNES Xperience v0.16.0\nsnes9x 1.63");
 
+    // A logo oficial do RA (o favicon embutido no app) para o badge, e a
+    // conta "ativa" — como no app real, o badge acompanha todas as telas.
+    if let Ok(icon) = image::load_from_memory(xperience_app::RA_ICON_PNG) {
+        let icon = icon.to_rgba8();
+        cab.set_image(
+            xperience_platform::RA_LOGO_IMG,
+            icon.width(),
+            icon.height(),
+            icon.as_raw(),
+        );
+    }
+    cab.set_ra_status(Some(xperience_platform::RaStatus { hardcore: true }));
+
     let logo = logo_image();
     let label = label_image();
 

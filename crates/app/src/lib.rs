@@ -25,3 +25,9 @@ pub mod settings;
 pub mod sfx;
 pub mod shelf;
 pub mod update_check;
+
+/// A logo oficial do RetroAchievements (o favicon do site, embutida) — o
+/// runner/bin registra no `Cabinet` com [`xperience_platform::RA_LOGO_IMG`]
+/// para o badge do queixo. Vermelho/dourado/azul: a marca lida na própria
+/// TV.
+pub const RA_ICON_PNG: &[u8] = include_bytes!("../assets/ra-icon.png");
