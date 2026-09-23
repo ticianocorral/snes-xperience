@@ -11,10 +11,13 @@
 //! the User-Agent names the app and its version.
 
 use std::io::Read;
-use std::sync::mpsc::Receiver;
 use std::time::Duration;
 
 pub const API_BASE: &str = "https://retroachievements.org";
+
+/// Identifies the app to the RA server in every call (third-party clients
+/// are welcome as long as they name themselves).
+const USER_AGENT: &str = concat!("snes-xperience/", env!("CARGO_PKG_VERSION"));
 
 fn agent() -> ureq::Agent {
     ureq::AgentBuilder::new()
@@ -53,10 +56,7 @@ pub fn test_login(user: &str, token: &str) -> Result<String, String> {
             encode(user),
             encode(token)
         ))
-        .set(
-            "User-Agent",
-            concat!("snes-xperience/", env!("CARGO_PKG_VERSION")),
-        )
+        .set("User-Agent", USER_AGENT)
         .call()
         .map_err(|e| format!("rede: {e}"))?;
     let body: serde_json::Value = resp.into_json().map_err(|e| format!("resposta: {e}"))?;
@@ -158,24 +158,37 @@ fn game_from_json(body: &serde_json::Value) -> Option<RaGame> {
 /// file so it's never asked twice). Meant for a worker thread; the shelf
 /// calls it throttled to one in flight.
 pub fn fetch_game(user: &str, token: &str, hash: &str) -> Result<Option<RaGame>, String> {
+    // Hash → game id: the Extended endpoint only takes the numeric id, so
+    // the resolve goes through the older dorequest (r=gameid) — which wants
+    // the username in the query AND the app's own User-Agent; without both
+    // it answers 403 "unsupported_client".
     let resp = agent()
         .get(&format!(
-            "{API_BASE}/API/API_GetGameExtended.php?u={}&y={}&m={}",
-            encode(user),
-            encode(token),
-            hash
+            "{API_BASE}/dorequest.php?r=gameid&m={}&u={}",
+            encode(hash),
+            encode(user)
         ))
-        .set(
-            "User-Agent",
-            concat!("snes-xperience/", env!("CARGO_PKG_VERSION")),
-        )
+        .set("User-Agent", USER_AGENT)
+        .call()
+        .map_err(|e| format!("rede: {e}"))?;
+    let body: serde_json::Value = resp.into_json().map_err(|e| format!("resposta: {e}"))?;
+    let Some(game_id) = game_id_from_dorequest(&body) else {
+        // Not registered on RA — remember that so we don't re-ask.
+        let _ = write_cache(hash, "");
+        return Ok(None);
+    };
+    let resp = agent()
+        .get(&format!(
+            "{API_BASE}/API/API_GetGameExtended.php?i={game_id}&u={}&y={}",
+            encode(user),
+            encode(token)
+        ))
+        .set("User-Agent", USER_AGENT)
         .call()
         .map_err(|e| format!("rede: {e}"))?;
     let body: serde_json::Value = resp.into_json().map_err(|e| format!("resposta: {e}"))?;
     if body.get("Success").is_some_and(|s| s == false) {
-        // Not registered on RA — remember that so we don't re-ask.
-        let _ = write_cache(hash, "");
-        return Ok(None);
+        return Err("recusado".to_string());
     }
     let Some(game) = game_from_json(&body) else {
         return Err("resposta inesperada".to_string());
@@ -183,6 +196,17 @@ pub fn fetch_game(user: &str, token: &str, hash: &str) -> Result<Option<RaGame>,
     let text = serde_json::to_string(&body).unwrap_or_default();
     write_cache(hash, &text)?;
     Ok(Some(game))
+}
+
+/// The numeric game id out of the dorequest reply — `"GameID"` arrives as a
+/// number or a string, and 0/absent means the hash isn't registered. Pure,
+/// so the tests can pin the two shapes.
+fn game_id_from_dorequest(body: &serde_json::Value) -> Option<u64> {
+    match body.get("GameID") {
+        Some(serde_json::Value::Number(n)) => n.as_u64().filter(|id| *id > 0),
+        Some(serde_json::Value::String(s)) => s.parse::<u64>().ok().filter(|id| *id > 0),
+        _ => None,
+    }
 }
 
 fn write_cache(hash: &str, text: &str) -> Result<(), String> {
@@ -220,11 +244,7 @@ pub fn parse_achievements(body: &serde_json::Value) -> Vec<Achievement> {
                 .and_then(|v| v.as_str())
                 .unwrap_or_default()
                 .to_string(),
-            points: a
-                .get("Points")
-                .and_then(|v| v.as_str())
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(0),
+            points: points_from_json(a),
             badge: a
                 .get("BadgeName")
                 .and_then(|v| v.as_str())
@@ -234,6 +254,16 @@ pub fn parse_achievements(body: &serde_json::Value) -> Vec<Achievement> {
         });
     }
     out
+}
+
+/// O `Points` do cache chega como número JSON (`5`) — e como string na
+/// resposta do endpoint de progresso. Aceitar os dois; 0 quando não vier.
+fn points_from_json(a: &serde_json::Value) -> u32 {
+    match a.get("Points") {
+        Some(serde_json::Value::Number(n)) => n.as_u64().unwrap_or(0) as u32,
+        Some(serde_json::Value::String(s)) => s.parse().unwrap_or(0),
+        _ => 0,
+    }
 }
 
 /// Award one unlocked achievement. `hardcore` maps straight to the API's
@@ -254,10 +284,7 @@ pub fn award(
             if hardcore { "1" } else { "0" },
             hash
         ))
-        .set(
-            "User-Agent",
-            concat!("snes-xperience/", env!("CARGO_PKG_VERSION")),
-        )
+        .set("User-Agent", USER_AGENT)
         .call()
         .map_err(|e| format!("rede: {e}"))?;
     let body: serde_json::Value = resp.into_json().map_err(|e| format!("resposta: {e}"))?;
@@ -439,6 +466,18 @@ impl Active {
         self.earned = load_earned(&self.hash);
     }
 
+    /// Une os ids que o servidor tem (o worker da busca devolve o union
+    /// disco ∪ servidor) no set da sessão, em memória e no disco: a modal
+    /// in-game marca conquistas ganhas fora deste app sem depender de a
+    /// lista da estante já ter sincronizado.
+    pub fn absorb_earned(&mut self, ids: &std::collections::HashSet<u32>) {
+        let antes = self.earned.len();
+        self.earned.extend(ids.iter().copied());
+        if self.earned.len() != antes {
+            save_earned(&self.hash, &self.earned);
+        }
+    }
+
     /// Fire-and-forget submit of one unlock (worker thread, 2 retries).
     /// Persisted failures go to `pending` for a later manual retry.
     pub fn submit_unlock(&self, unlock: &Unlock) {
@@ -512,6 +551,17 @@ impl ShelfAchievements {
     }
 }
 
+/// The shelf panel's achievement tally for the ROM at `path` — (earned,
+/// total) straight from the local caches, `None` when the game isn't
+/// identified. Lighter than `shelf_achievements` on purpose: two small JSON
+/// reads, no achievement-list parsing — the panel rebuilds every frame.
+pub fn achievement_tally(rom_path: &std::path::Path) -> Option<(usize, usize)> {
+    let hash = hash_rom(rom_path).ok()?;
+    let game = cached_game(&hash)?;
+    let earned = load_earned(&hash).len();
+    Some((earned.min(game.achievements), game.achievements))
+}
+
 /// Load the list for the ROM at `path` from the local caches (no network).
 pub fn shelf_achievements(rom_path: &std::path::Path) -> Option<ShelfAchievements> {
     let hash = hash_rom(rom_path).ok()?;
@@ -536,7 +586,7 @@ pub fn shelf_achievements(rom_path: &std::path::Path) -> Option<ShelfAchievement
     })
 }
 
-// ---- server sync (a "fase futura" do plano) ---------------------------
+// ---- progresso do usuário (a fonte do "X de Y (Z%)" do painel) --------
 
 /// The game's numeric RA id from the cached `API_GetGameExtended` reply.
 fn cached_game_id(hash: &str) -> Option<u64> {
@@ -545,76 +595,351 @@ fn cached_game_id(hash: &str) -> Option<u64> {
     body.get("ID").and_then(|v| v.as_u64())
 }
 
-/// One list of earned achievement ids for `game_id` — `hardcore` picks the
-/// hardcore (1) or softcore (0) tally; the union of both is what the app
-/// treats as "earned".
-pub fn fetch_unlocks(
+/// O progresso do usuário num jogo, pelo completion progress: conquistadas,
+/// tamanho do set e o prêmio do jogo quando o servidor concedeu um
+/// (`HighestAwardKind`: `beaten-*` = zerado, `completed-*`/`mastered` =
+/// 100% — sempre com o modo `-softcore`/`-hardcore`, exceto `mastered`).
+#[derive(Debug, Clone, Copy)]
+pub struct CompletionEntry {
+    pub awarded: u32,
+    pub max: u32,
+    pub award: Option<Award>,
+}
+
+/// O prêmio que o RA dá a um jogo, decodificado do `HighestAwardKind`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Award {
+    /// Chegou ao fim do jogo (a condição "beaten" do set).
+    Beaten { hardcore: bool },
+    /// 100% das conquistas.
+    Completed { hardcore: bool },
+    /// 100% em hardcore — o "mastered" clássico, sem sufixo de modo.
+    Mastered,
+}
+
+/// A medalha do painel para um prêmio — pixel-art desenhada por
+/// [`medal_rgba`], no estilo do app.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Medal {
+    /// 100% em hardcore (ou o "mastered" clássico).
+    Gold,
+    /// 100% em softcore — disco em contorno.
+    GoldOutline,
+    /// Zerou o jogo em hardcore.
+    Silver,
+    /// Zerou o jogo em softcore — disco em contorno.
+    SilverOutline,
+}
+
+impl Award {
+    /// A medalha do painel: disco dourado para 100% (cheio em hardcore,
+    /// vazado em softcore) e prateado para "beaten"/zerou o jogo.
+    pub fn medal(&self) -> Medal {
+        match self {
+            Award::Mastered | Award::Completed { hardcore: true } => Medal::Gold,
+            Award::Completed { hardcore: false } => Medal::GoldOutline,
+            Award::Beaten { hardcore: true } => Medal::Silver,
+            Award::Beaten { hardcore: false } => Medal::SilverOutline,
+        }
+    }
+
+    /// Decodifica o `HighestAwardKind` do servidor — `None` para o que não
+    /// for dos formatos conhecidos (o painel simplesmente omite a medalha).
+    pub fn from_kind(kind: &str) -> Option<Award> {
+        let (base, mode) = match kind.split_once('-') {
+            Some((b, m)) => (b, Some(m)),
+            None => (kind, None),
+        };
+        let hardcore = mode != Some("softcore");
+        match base {
+            "beaten" => Some(Award::Beaten { hardcore }),
+            "completed" => Some(Award::Completed { hardcore }),
+            "mastered" => Some(Award::Mastered),
+            _ => None,
+        }
+    }
+}
+
+/// A medalha como RGBA (fita vermelha + disco; 11×14 px) — desenhada aqui
+/// em código para nascer com o visual pixel-art do app e não depender de
+/// asset nenhum. O disco do estilo `*Outline` é só o contorno (softcore).
+pub fn medal_rgba(medal: Medal) -> (u32, u32, Vec<u8>) {
+    const W: i32 = 11;
+    const H: i32 = 14;
+    let (base, hi, dark) = match medal {
+        Medal::Gold | Medal::GoldOutline => ((255u8, 200u8, 40), (255, 236, 130), (176, 130, 16)),
+        Medal::Silver | Medal::SilverOutline => {
+            ((205u8, 205u8, 212), (245, 245, 248), (148, 148, 158))
+        }
+    };
+    let outline = matches!(medal, Medal::GoldOutline | Medal::SilverOutline);
+    let mut px = vec![0u8; (W * H * 4) as usize];
+    let mut put = |x: i32, y: i32, c: (u8, u8, u8)| {
+        let i = ((y * W + x) * 4) as usize;
+        px[i..i + 4].copy_from_slice(&[c.0, c.1, c.2, 255]);
+    };
+    // A fita — três colunas com o friso central mais escuro.
+    for y in 0..=3 {
+        for x in 4..=6 {
+            put(x, y, if x == 5 { (140, 26, 26) } else { (190, 40, 40) });
+        }
+    }
+    // O disco, centrado logo abaixo: contorno escuro, brilho no quadrante
+    // de cima à esquerda, base no resto — medalha de verdade tem volume.
+    let (cx, cy, r) = (5.0f32, 8.6, 4.6);
+    for y in 4..H {
+        for x in 1..=9 {
+            let dx = x as f32 - cx;
+            let dy = y as f32 - cy;
+            let d2 = dx * dx + dy * dy;
+            if d2 > r * r {
+                continue;
+            }
+            let edge = d2 > (r - 1.2) * (r - 1.2);
+            let c = match (outline, edge) {
+                (true, false) => continue, // vazado: transparente no miolo
+                (true, true) => dark,
+                (false, true) => dark,
+                (false, false) if dy < -0.6 && dx < 0.6 => hi,
+                (false, false) => base,
+            };
+            put(x, y, c);
+        }
+    }
+    (W as u32, H as u32, px)
+}
+
+/// Texture key estável por variante — mesmo padrão dos badges da estante
+/// (`badge_image_id`), nunca colidindo com os ids derivados dos arquivos.
+pub fn medal_image_id(medal: Medal) -> u64 {
+    let name = match medal {
+        Medal::Gold => "ra-medal-gold",
+        Medal::GoldOutline => "ra-medal-gold-outline",
+        Medal::Silver => "ra-medal-silver",
+        Medal::SilverOutline => "ra-medal-silver-outline",
+    };
+    name.bytes()
+        .fold(0x9E37_79B9_7F4A_7C15u64, |mut acc, b| {
+            acc ^= b as u64;
+            acc = acc.wrapping_mul(0xFF51_AFD7_ED55_8CCD);
+            acc ^= acc >> 33;
+            acc
+        })
+        | (1 << 62)
+}
+
+/// O progresso do usuário em TODOS os jogos — uma chamada paginada. Este é
+/// o substituto do `API_GetUserUnlocks` (morto na API atual — 404): o painel
+/// só precisa de counts, e este endpoint entrega counts de todo o perfil de
+/// uma vez. Sem ids de conquista individuais; o earned-set local segue como
+/// estava (o servidor deduplica re-submissões de qualquer forma).
+pub fn fetch_completion(
+    user: &str,
+    token: &str,
+) -> Result<std::collections::HashMap<u64, CompletionEntry>, String> {
+    let mut out = std::collections::HashMap::new();
+    let mut offset = 0u32;
+    loop {
+        let resp = agent()
+            .get(&format!(
+                "{API_BASE}/API/API_GetUserCompletionProgress.php?u={}&y={}&c=500&o={offset}",
+                encode(user),
+                encode(token)
+            ))
+            .set("User-Agent", USER_AGENT)
+            .call()
+            .map_err(|e| format!("rede: {e}"))?;
+        let body: serde_json::Value = resp.into_json().map_err(|e| format!("resposta: {e}"))?;
+        let total = body.get("Total").and_then(|v| v.as_u64()).unwrap_or(0);
+        let results = body
+            .get("Results")
+            .and_then(|v| v.as_array())
+            .ok_or_else(|| "resposta inesperada".to_string())?;
+        for g in results {
+            let Some(id) = g.get("GameID").and_then(|v| v.as_u64()) else {
+                continue;
+            };
+            out.insert(
+                id,
+                CompletionEntry {
+                    awarded: g
+                        .get("NumAwarded")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0) as u32,
+                    max: g
+                        .get("MaxPossible")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0) as u32,
+                    award: g
+                        .get("HighestAwardKind")
+                        .and_then(|v| v.as_str())
+                        .filter(|s| !s.is_empty())
+                        .and_then(Award::from_kind),
+                },
+            );
+        }
+        offset += results.len() as u32;
+        if results.is_empty() || offset as u64 >= total {
+            break;
+        }
+    }
+    Ok(out)
+}
+
+/// O (conquistadas, total, prêmio) do jogo a partir dos caches locais — o
+/// earned e o prêmio vêm do completion do servidor quando disponível, senão
+/// só o arquivo local (e sem prêmio: ele só existe no servidor). `hash` é o
+/// hash RA da ROM, que o shelf já calculou na identificação.
+pub fn tally_from_cache(
+    hash: &str,
+    completion: Option<&std::collections::HashMap<u64, CompletionEntry>>,
+) -> Option<(usize, usize, Option<Award>)> {
+    let game = cached_game(hash)?;
+    let total = game.achievements;
+    let entry = completion.and_then(|c| cached_game_id(hash).and_then(|id| c.get(&id)));
+    let earned = entry
+        .map(|e| e.awarded as usize)
+        .unwrap_or_else(|| load_earned(hash).len());
+    Some((earned.min(total), total, entry.and_then(|e| e.award)))
+}
+
+/// Lançamento (ano) e editora do cache do RA — completa o painel para os
+/// jogos que o DAT No-Intro/TOSEC não cobre. `(None, vazio)` quando não há
+/// cache ou os campos vieram vazios.
+pub fn release_and_extras(hash: &str) -> (Option<String>, Vec<(String, String)>) {
+    let Some(text) = std::fs::read_to_string(cache_path(hash)).ok() else {
+        return (None, Vec::new());
+    };
+    let Ok(body) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return (None, Vec::new());
+    };
+    let release = body
+        .get("Released")
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.get(..4))
+        .map(|s| s.to_string())
+        .filter(|s| !s.is_empty());
+    let mut extras = Vec::new();
+    if let Some(publisher) = body
+        .get("Publisher")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+    {
+        extras.push(("editora".to_string(), publisher.to_string()));
+    }
+    (release, extras)
+}
+
+// ---- earned do servidor (os [x] da lista da estante) ------------------
+
+/// Onde os ids ganhos no servidor ficam — `saves/ra-cache/earned/<game_id>.json`.
+fn earned_ids_path(game_id: u64) -> std::path::PathBuf {
+    crate::dirs::saves_dir()
+        .join("ra-cache")
+        .join("earned")
+        .join(format!("{game_id}.json"))
+}
+
+/// Os ids de um fetch anterior que já estão no disco.
+fn cached_earned_ids(game_id: u64) -> Option<std::collections::HashSet<u32>> {
+    std::fs::read_to_string(earned_ids_path(game_id))
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+}
+
+/// Os ids com `DateEarned`/`DateEarnedHardcore` não vazios no mapa
+/// `Achievements` da resposta. Puro de propósito: o teste fixa o formato
+/// real do `API_GetGameInfoAndUserProgress`.
+fn earned_ids_from_json(body: &serde_json::Value) -> std::collections::HashSet<u32> {
+    let mut out = std::collections::HashSet::new();
+    if let Some(map) = body.get("Achievements").and_then(|a| a.as_object()) {
+        for (_k, a) in map {
+            let earned = ["DateEarned", "DateEarnedHardcore"]
+                .iter()
+                .any(|k| a.get(*k).and_then(|v| v.as_str()).is_some_and(|s| !s.is_empty()));
+            if let (true, Some(id)) = (earned, a.get("ID").and_then(|v| v.as_u64())) {
+                out.insert(id as u32);
+            }
+        }
+    }
+    out
+}
+
+/// O que o servidor diz que o usuário já tem num jogo —
+/// `API_GetGameInfoAndUserProgress`, o único endpoint vivo que devolve
+/// `DateEarned` por conquista (`GetUserUnlocks`/`GetUserProgress` estão
+/// mortos). Cacheado por game id: a estante nunca pergunta duas vezes.
+pub fn fetch_game_earned(
     user: &str,
     token: &str,
     game_id: u64,
-    hardcore: bool,
 ) -> Result<std::collections::HashSet<u32>, String> {
     let resp = agent()
         .get(&format!(
-            "{API_BASE}/API/API_GetUserUnlocks.php?u={}&y={}&g={}&h={}",
+            "{API_BASE}/API/API_GetGameInfoAndUserProgress.php?g={game_id}&u={}&y={}",
             encode(user),
-            encode(token),
-            game_id,
-            if hardcore { "1" } else { "0" }
+            encode(token)
         ))
-        .set(
-            "User-Agent",
-            concat!("snes-xperience/", env!("CARGO_PKG_VERSION")),
-        )
+        .set("User-Agent", USER_AGENT)
         .call()
         .map_err(|e| format!("rede: {e}"))?;
     let body: serde_json::Value = resp.into_json().map_err(|e| format!("resposta: {e}"))?;
-    let ids = body
-        .get("UserUnlocks")
-        .and_then(|v| v.as_array())
-        .ok_or_else(|| "resposta inesperada".to_string())?;
-    Ok(ids
-        .iter()
-        .filter_map(|v| v.as_u64().map(|n| n as u32))
-        .collect())
+    let earned = earned_ids_from_json(&body);
+    let path = earned_ids_path(game_id);
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    if let Ok(t) = serde_json::to_string(&earned) {
+        let _ = std::fs::write(path, t);
+    }
+    Ok(earned)
 }
 
-/// The whole background sync job for one ROM: hash it, read the cached
-/// game id, fetch the softcore + hardcore unlock lists, merge them into
-/// the local earned set (union — a local unlock is never un-earned) and
-/// persist. Runs on the caller's thread; the standard worker+mpsc shape
-/// wraps it.
-pub fn sync_unlocks_job(
-    rom_path: &std::path::Path,
-    user: &str,
-    token: &str,
-) -> Result<usize, String> {
-    let hash = hash_rom(rom_path)?;
-    let Some(game_id) = cached_game_id(&hash) else {
-        return Err("jogo sem id na cache".to_string());
-    };
-    let mut merged = load_earned(&hash);
-    let before = merged.len();
-    for hardcore in [true, false] {
-        merged.extend(fetch_unlocks(user, token, game_id, hardcore)?);
+/// Une os ids ganhos no servidor no arquivo local (`ra-earned/<hash>.json`):
+/// o que foi conquistado em outro lugar passa a valer aqui — aparece marcado
+/// na lista e a sessão nunca re-submete. Devolve o set resultante.
+fn merge_server_earned(
+    hash: &str,
+    server: &std::collections::HashSet<u32>,
+) -> std::collections::HashSet<u32> {
+    let mut all = load_earned(hash);
+    let antes = all.len();
+    all.extend(server.iter().copied());
+    if all.len() != antes {
+        save_earned(hash, &all);
     }
-    let added = merged.len() - before;
-    if added > 0 {
-        save_earned(&hash, &merged);
-    }
-    Ok(added)
+    all
 }
 
-/// Spawn the sync on a worker thread for the shelf / a starting session.
-pub fn sync_unlocks(
-    rom_path: &std::path::Path,
+/// Worker da estante: resolve o game id pelo cache da identificação (fase 2),
+/// busca os ids ganhos (uma rede só na primeira vez) e devolve
+/// `(hash, set já unido no arquivo local)`. `None` = jogo sem identificação
+/// ou a busca falhou.
+pub fn fetch_game_earned_worker(
     user: &str,
     token: &str,
-) -> Receiver<Result<usize, String>> {
+    hash: &str,
+) -> std::sync::mpsc::Receiver<(String, Option<std::collections::HashSet<u32>>)> {
     let (tx, rx) = std::sync::mpsc::channel();
-    let (rom, user, token) = (rom_path.to_path_buf(), user.to_string(), token.to_string());
+    let (user, token, hash) = (user.to_string(), token.to_string(), hash.to_string());
     std::thread::spawn(move || {
-        let _ = tx.send(sync_unlocks_job(&rom, &user, &token));
+        let Some(game_id) = cached_game_id(&hash) else {
+            let _ = tx.send((hash, None));
+            return;
+        };
+        let server = match cached_earned_ids(game_id) {
+            Some(ids) => ids,
+            None => match fetch_game_earned(&user, &token, game_id) {
+                Ok(ids) => ids,
+                Err(e) => {
+                    log::info!("ra earned {game_id}: {e}");
+                    let _ = tx.send((hash, None));
+                    return;
+                }
+            },
+        };
+        let merged = merge_server_earned(&hash, &server);
+        let _ = tx.send((hash, Some(merged)));
     });
     rx
 }
@@ -640,10 +965,7 @@ pub fn download_badge(name: &str) -> Option<std::path::PathBuf> {
     }
     let resp = agent()
         .get(&format!("{API_BASE}/Badge/{name}.png"))
-        .set(
-            "User-Agent",
-            concat!("snes-xperience/", env!("CARGO_PKG_VERSION")),
-        )
+        .set("User-Agent", USER_AGENT)
         .call()
         .ok()?;
     let mut bytes = Vec::new();
@@ -653,6 +975,39 @@ pub fn download_badge(name: &str) -> Option<std::path::PathBuf> {
     let path = dir.join(format!("{name}.png"));
     std::fs::write(&path, &bytes).ok()?;
     Some(path)
+}
+
+/// Baixa os badges de todas as conquistas do set (worker thread, fire and
+/// forget) — a notificação de desbloqueio e a lista da estante encontram
+/// tudo já em `saves/ra-cache/badges/` na hora, sem custo de rede no
+/// momento do uso. Chamado quando um jogo é identificado.
+pub fn prefetch_badges(rom_path: &std::path::Path) {
+    let rom_path = rom_path.to_path_buf();
+    let run = move || {
+        let Ok(hash) = hash_rom(&rom_path) else {
+            return;
+        };
+        let Ok(text) = std::fs::read_to_string(cache_path(&hash)) else {
+            return;
+        };
+        let Ok(body) = serde_json::from_str::<serde_json::Value>(&text) else {
+            return;
+        };
+        let names: Vec<String> = parse_achievements(&body)
+            .into_iter()
+            .map(|a| a.badge)
+            .filter(|n| !n.is_empty())
+            .collect();
+        let novos = names
+            .iter()
+            .filter(|n| badge_path(n).is_none())
+            .filter(|n| download_badge(n).is_some())
+            .count();
+        if novos > 0 {
+            log::info!("ra: {novos} badge(s) baixados");
+        }
+    };
+    std::thread::spawn(run);
 }
 
 #[cfg(test)]
@@ -689,6 +1044,132 @@ mod tests {
             snes_ra_hash(&vec![0u8; 0x8000]),
             "bb7df04e1b0a2570657527a7e108ae23"
         );
+    }
+
+    #[test]
+    fn game_id_out_of_dorequest_number_string_or_zero() {
+        // Resposta real do dorequest (r=gameid) para um hash registrado.
+        assert_eq!(
+            game_id_from_dorequest(&serde_json::json!({"Success": true, "GameID": 379})),
+            Some(379)
+        );
+        // O mesmo id pode chegar como string.
+        assert_eq!(
+            game_id_from_dorequest(&serde_json::json!({"GameID": "379"})),
+            Some(379)
+        );
+        // Hash desconhecido: 0 (e Success:false) — "não é jogo do RA".
+        assert_eq!(
+            game_id_from_dorequest(
+                &serde_json::json!({"Success": false, "Status": 403, "GameID": 0})
+            ),
+            None
+        );
+        assert_eq!(game_id_from_dorequest(&serde_json::json!({})), None);
+    }
+
+    #[test]
+    fn award_kinds_decode_and_map_to_medals() {
+        // Os formatos que o servidor manda no HighestAwardKind (verificado
+        // na conta real: null e "beaten-softcore" são os presentes hoje).
+        assert_eq!(
+            Award::from_kind("beaten-softcore"),
+            Some(Award::Beaten { hardcore: false })
+        );
+        assert_eq!(
+            Award::from_kind("beaten-hardcore"),
+            Some(Award::Beaten { hardcore: true })
+        );
+        assert_eq!(
+            Award::from_kind("completed-hardcore"),
+            Some(Award::Completed { hardcore: true })
+        );
+        assert_eq!(
+            Award::from_kind("completed-softcore"),
+            Some(Award::Completed { hardcore: false })
+        );
+        // O mastered clássico vem sem sufixo de modo.
+        assert_eq!(Award::from_kind("mastered"), Some(Award::Mastered));
+        // Desconhecido/nulo: sem medalha no painel.
+        assert_eq!(Award::from_kind("???"), None);
+        // E o mapeamento para a medalha: ouro = 100% (cheio no hardcore,
+        // vazado no softcore), prata = zerou.
+        assert_eq!(
+            Award::from_kind("mastered").map(|a| a.medal()),
+            Some(Medal::Gold)
+        );
+        assert_eq!(
+            Award::from_kind("completed-hardcore").map(|a| a.medal()),
+            Some(Medal::Gold)
+        );
+        assert_eq!(
+            Award::from_kind("completed-softcore").map(|a| a.medal()),
+            Some(Medal::GoldOutline)
+        );
+        assert_eq!(
+            Award::from_kind("beaten-hardcore").map(|a| a.medal()),
+            Some(Medal::Silver)
+        );
+        assert_eq!(
+            Award::from_kind("beaten-softcore").map(|a| a.medal()),
+            Some(Medal::SilverOutline)
+        );
+    }
+
+    #[test]
+    fn medal_is_an_11x14_sprite_with_ribbon_and_disc() {
+        let (w, h, px) = medal_rgba(Medal::Gold);
+        assert_eq!((w, h), (11, 14));
+        let at = |x: u32, y: u32| {
+            let i = ((y * w + x) * 4) as usize;
+            (px[i], px[i + 1], px[i + 2], px[i + 3])
+        };
+        // Canto fora de tudo: transparente.
+        assert_eq!(at(0, 13), (0, 0, 0, 0));
+        // Fita vermelha no topo.
+        assert_eq!(at(4, 1), (190, 40, 40, 255));
+        // Miolo do disco dourado, opaco.
+        assert_eq!(at(5, 9), (255, 200, 40, 255));
+        // A variante vazada deixa o miolo transparente e mantém o anel.
+        let (_, _, hollow) = medal_rgba(Medal::SilverOutline);
+        let center = (9 * 11 + 5) * 4;
+        assert_eq!(hollow[center + 3], 0);
+        let ring = (8 * 11 + 1) * 4; // borda esquerda do disco, meio da altura
+        assert_eq!(hollow[ring + 3], 255);
+        // Ids estáveis e distintos por variante.
+        assert_ne!(medal_image_id(Medal::Gold), medal_image_id(Medal::Silver));
+        assert_eq!(medal_image_id(Medal::Gold), medal_image_id(Medal::Gold));
+    }
+
+    #[test]
+    fn points_come_as_number_or_string() {
+        // O cache da identificação traz número JSON; o endpoint de progresso,
+        // string. Os dois têm de valer.
+        assert_eq!(points_from_json(&serde_json::json!({"Points": 5})), 5);
+        assert_eq!(points_from_json(&serde_json::json!({"Points": "10"})), 10);
+        assert_eq!(points_from_json(&serde_json::json!({})), 0);
+    }
+
+    #[test]
+    fn earned_ids_come_from_date_earned_fields() {
+        // Formato real do API_GetGameInfoAndUserProgress (Tekken 3, conta
+        // com 4 ganhas): DateEarned para softcore, DateEarnedHardcore para
+        // hardcore; quem não tem traz a chave nula ou nem traz.
+        let body = serde_json::json!({
+            "ID": 11259,
+            "Title": "Tekken 3",
+            "Achievements": {
+                "95922": {"ID": 95922, "Title": "Start of Something Greater",
+                          "DateEarned": "2024-01-01 00:00:00", "DateEarnedHardcore": null},
+                "95999": {"ID": 95999, "Title": "Seven Gold Letters",
+                          "DateEarnedHardcore": "2024-01-02 00:00:00"},
+                "96023": {"ID": 96023, "Title": "Legs of Steel", "DateEarned": null},
+                "96025": {"ID": 96025, "Title": "Combo Finish!", "DateEarned": null}
+            }
+        });
+        let ids = earned_ids_from_json(&body);
+        assert_eq!(ids, std::collections::HashSet::from([95922, 95999]));
+        assert_eq!(earned_ids_from_json(&serde_json::json!({})).len(), 0);
     }
 
     #[test]

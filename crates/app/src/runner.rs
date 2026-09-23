@@ -11,8 +11,7 @@ use anyhow::{anyhow, Context, Result};
 use xperience_emulation::{Button, Core, Frame as EmuFrame, PixelFormat as EmuFormat};
 use xperience_ntsc::{NtscFilter, Preset};
 use xperience_platform::{
-    Cabinet, FrameRef, PanelButton, PixelFormat as PlatFormat, Platform, RaStatus, UiEvent,
-    MAX_PORTS,
+    Cabinet, FrameRef, PanelButton, PixelFormat as PlatFormat, Platform, UiEvent, MAX_PORTS,
 };
 
 use crate::config::Config;
@@ -1188,11 +1187,22 @@ pub fn run_game(
         None
     };
     let ra_hardcore_active = ra_session.as_ref().is_some_and(|a| a.hardcore);
-    // Server unlock sync (the plan's "fase futura"): earned elsewhere shows
-    // earned here, and never gets re-submitted by this session.
-    let mut ra_sync: Option<std::sync::mpsc::Receiver<Result<usize, String>>> = ra_session
-        .as_ref()
-        .map(|a| crate::ra::sync_unlocks(&spec.rom, &a.user, &a.token));
+    // Earned do servidor para a sessão (uma rede só na primeira vez — o
+    // disco cacheia por game id): conquistas ganhas fora deste app entram
+    // no set da sessão quando o worker chega, e a modal in-game as marca.
+    let mut ra_earned_worker = match (&ra_session, ra_on) {
+        (Some(a), true) => Some(crate::ra::fetch_game_earned_worker(
+            &cfg.ra_user,
+            &cfg.ra_token,
+            &a.hash,
+        )),
+        _ => None,
+    };
+    // Os badges do set em cache antes da primeira notificação (worker) — o
+    // bloco "CONQUISTA DESBLOQUEADA" sai com a imagem de primeira.
+    if ra_session.is_some() {
+        crate::ra::prefetch_badges(&spec.rom);
+    }
 
     // "Done!" flash for otherwise-silent actions (Nota/Salvar/Carregar) —
     // see `flashed`/`FLASH_DURATION`.
@@ -1235,13 +1245,6 @@ pub fn run_game(
     // all turn it on) — see `Cabinet::show_close`'s own doc comment for why
     // gameplay doesn't get one.
     cab.set_close_button(false);
-    // The persistent RetroAchievements chin badge, armed with this session's
-    // mode — it yields the chin corner to each unlock notification and comes
-    // back when the notification expires. `None` (account off, or a game
-    // that isn't on RA) leaves the chin without the badge at all.
-    cab.set_ra_status(ra_session.as_ref().map(|a| RaStatus {
-        hardcore: a.hardcore,
-    }));
     // `set_cheats` has to come *after* `set_panel` — `set_panel` replaces
     // the whole `PanelInfo` (fresh `cheats: Vec::new()` included), so
     // calling this first, as an earlier revision did when the cheats-
@@ -2068,21 +2071,20 @@ pub fn run_game(
                 audio.queue(core.audio());
             }
 
-            if let Some(rx) = &ra_sync {
+            // Earned do servidor chegando: une no set da sessão (memória e
+            // disco) — a modal de conquistas passa a marcar o que foi
+            // ganho fora deste app, e nunca re-submete.
+            if let Some(rx) = &ra_earned_worker {
                 match rx.try_recv() {
-                    Ok(Ok(n)) => {
-                        log::info!("ra sync: {n} conquista(s) do servidor");
+                    Ok((_, Some(ids))) => {
                         if let Some(ra) = &mut ra_session {
-                            ra.refresh_earned();
+                            ra.absorb_earned(&ids);
                         }
-                        ra_sync = None;
+                        ra_earned_worker = None;
                     }
-                    Ok(Err(e)) => {
-                        log::info!("ra sync: {e}");
-                        ra_sync = None;
-                    }
+                    Ok((_, None)) => ra_earned_worker = None,
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => ra_earned_worker = None,
                     Err(std::sync::mpsc::TryRecvError::Empty) => {}
-                    Err(std::sync::mpsc::TryRecvError::Disconnected) => ra_sync = None,
                 }
             }
 
@@ -2256,9 +2258,6 @@ pub fn run_game(
     if let Some(ra) = &mut ra_session {
         ra.save_progress();
     }
-    // The chin badge belongs to the cartridge, not to the app — it leaves
-    // with it (the idle screens don't draw the chin OSD anyway).
-    cab.set_ra_status(None);
     log::info!("game loop done");
     Ok(exit)
 }

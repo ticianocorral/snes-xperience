@@ -36,7 +36,7 @@ use xperience_app::settings;
 use xperience_app::shelf::{self, Pick, ShelfOpts};
 use xperience_app::update_check::{self, UpdateNotice};
 use xperience_domain::{Catalog, NoIntroDat, Order};
-use xperience_platform::{Cabinet, MenuMode, MenuNav, Platform, Screen};
+use xperience_platform::{Cabinet, MenuMode, MenuNav, Platform, RaStatus, Screen};
 
 struct Args {
     /// Explicit override; `None` means "look in `core/` at launch, and again
@@ -208,6 +208,24 @@ fn main() -> Result<()> {
     // The ambient static hiss (opt-in, settings "vídeo") — gate applied once
     // here and live on every settings toggle after.
     cab.set_static_hiss(cfg.hiss_on_static);
+    // RetroAchievements, uma vez para todas as telas (início, estante, jogo):
+    // a logo oficial (favicon embutido) do badge e o badge em si — conta
+    // configurada = "RA ATIVADO" no queixo do que for que a tela esteja na TV.
+    if let Ok(icon) = image::load_from_memory(xperience_app::RA_ICON_PNG) {
+        let icon = icon.to_rgba8();
+        cab.set_image(
+            xperience_platform::RA_LOGO_IMG,
+            icon.width(),
+            icon.height(),
+            icon.as_raw(),
+        );
+    }
+    let ra_on = !cfg.ra_user.is_empty() && !cfg.ra_token.is_empty();
+    if ra_on {
+        cab.set_ra_status(Some(RaStatus {
+            hardcore: cfg.ra_hardcore,
+        }));
+    }
 
     // Headless self-check: render one settings screen and exit.
     if let (Some(screen), Some(path)) = (&args.debug_settings, &args.shot) {

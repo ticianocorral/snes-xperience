@@ -703,7 +703,17 @@ pub struct ShelfPanelInfo {
     /// draws a "Conquistas" button (`ShelfButton::ShelfAchievements`)
     /// between "Favoritar" and "Configurações".
     pub achievements: bool,
+    /// A medalha de prêmio do jogo (plan fase 4) — textura já registrada
+    /// pelo caller (`set_image`), desenhada à esquerda do número da linha
+    /// "conquistas".
+    pub award_img: Option<u64>,
 }
+
+/// Medalha + respiro antes do número — compartilhados pela medida da
+/// altura e pelo desenho de `PanelBlock::RaField`.
+const AWARD_MEDAL_W: i32 = 12;
+const AWARD_MEDAL_H: i32 = 15;
+const AWARD_MEDAL_GAP: i32 = 5;
 
 struct SrcTexture {
     tex: Texture,
@@ -1663,7 +1673,7 @@ impl Cabinet {
                     draw_chin_osd(c, font, images, screen, out_h, nameplate, lines, *badge);
                 }
                 ChinOsd::Ra { hardcore } => {
-                    draw_chin_ra(c, font, screen, out_h, nameplate, *hardcore);
+                    draw_chin_ra(c, font, images, screen, out_h, nameplate, *hardcore);
                 }
                 ChinOsd::None => {}
             }
@@ -2023,6 +2033,9 @@ impl Cabinet {
         // time the TV is showing snow — game inserted but powered off, the
         // idle screen, all of it — like a real set parked on channel 3.
         draw_ch3_osd(&mut self.canvas, &mut self.font, self.screen);
+        // A conta ativa marca presença até na estática: o badge do RA no
+        // queixo, do lado oposto ao nameplate.
+        self.draw_ra_badge();
         // The ambient hiss (opt-in via settings): follows the same level as
         // the visual snow, so a burst hisses loud and the resting hiss stays
         // a quiet background shhh.
@@ -2075,6 +2088,7 @@ impl Cabinet {
         let panel_info = self.panel.as_ref();
         let session = self.session;
         let idle_core_prompt = self.idle_core_prompt.as_deref();
+        let ra_status = self.ra_status;
         let font = &mut self.font;
         let images = &self.images;
         let nameplate = self.nameplate.as_str();
@@ -2090,6 +2104,9 @@ impl Cabinet {
             let _ = c.render_geometry(&bezel.verts, None, &bezel.indices[..]);
             draw_brand(c, font, screen, wh, nameplate, nameplate_updates);
             draw_ch3_osd(c, font, screen);
+            if let Some(status) = ra_status {
+                draw_chin_ra(c, font, images, screen, wh, nameplate, status.hardcore);
+            }
             draw_panel(
                 c,
                 font,
@@ -2420,6 +2437,7 @@ impl Cabinet {
             &self.nameplate,
             self.nameplate_updates,
         );
+        self.draw_ra_badge();
         self.close_button = draw_close_button(&mut self.canvas, &mut self.font);
         self.minimize_button = draw_minimize_button(&mut self.canvas, &mut self.font);
         self.canvas.set_viewport(None);
@@ -2997,6 +3015,11 @@ fn draw_ch3_osd(canvas: &mut WindowCanvas, font: &mut Texture, screen: Rect) {
 /// Image id the RA mock example registers its badge under.
 pub const DEMO_BADGE_IMG: u64 = u64::MAX;
 
+/// Image id for the RetroAchievements logo the app registers (the favicon,
+/// embedded in the app crate) — the persistent chin badge draws it instead
+/// of the pixel gamepad when it's there.
+pub const RA_LOGO_IMG: u64 = u64::MAX - 7;
+
 impl Cabinet {
     /// Drop expired fronts, then draw the front block — or, with the queue
     /// empty, the persistent RetroAchievements badge (when armed).
@@ -3011,6 +3034,7 @@ impl Cabinet {
                 draw_chin_ra(
                     &mut self.canvas,
                     &mut self.font,
+                    &self.images,
                     self.screen,
                     out_h,
                     &self.nameplate,
@@ -3048,6 +3072,25 @@ impl Cabinet {
             None => ChinOsd::None,
         }
     }
+
+    /// The persistent RA badge, for every chin that isn't the gameplay one
+    /// (`composite_screen` covers início/estante/configurações; the idle's
+    /// `present_static` and its capture call it directly).
+    fn draw_ra_badge(&mut self) {
+        let Some(status) = self.ra_status else {
+            return;
+        };
+        let (_, out_h) = self.canvas.output_size().unwrap_or((1280, 720));
+        draw_chin_ra(
+            &mut self.canvas,
+            &mut self.font,
+            &self.images,
+            self.screen,
+            out_h,
+            &self.nameplate,
+            status.hardcore,
+        );
+    }
 }
 
 /// The badge's two rows and their colors — pure so the tests can pin the
@@ -3068,13 +3111,15 @@ fn ra_badge_rows(hardcore: bool) -> [(&'static str, (u8, u8, u8)); 2] {
 }
 
 /// The persistent RetroAchievements badge — the same chin corner as the
-/// unlock block, shown whenever that block isn't on screen: a little
-/// gold-on-night-blue gamepad tile left of two rows, "RA ATIVADO" in the
-/// OSD green and the mode below (amber for hardcore, the nameplate grey
-/// for softcore). Same 2px dark shadow as everything else on the glass.
+/// unlock block, shown whenever that block isn't on screen: the RA logo
+/// (the registered favicon; falls back to the pixel gamepad tile) left of
+/// two rows, "RA ATIVADO" in the OSD green and the mode below (amber for
+/// hardcore, the nameplate grey for softcore). Same 2px dark shadow as
+/// everything else on the glass.
 fn draw_chin_ra(
     canvas: &mut WindowCanvas,
     font: &mut Texture,
+    images: &HashMap<u64, ImgTex>,
     screen: Rect,
     out_h: u32,
     nameplate: &str,
@@ -3117,41 +3162,46 @@ fn draw_chin_ra(
     let tile_x = right - text_w - gap - TILE;
     let tile_y = chin_top + (chin_h - TILE) / 2;
 
-    // The mark: an amber-framed night-blue tile with a tiny gold gamepad —
-    // the RA mark read through this cabinet's own glass.
-    canvas.set_draw_color(Color::RGB(TILE_EDGE.0, TILE_EDGE.1, TILE_EDGE.2));
-    let _ = canvas.fill_rect(Rect::new(tile_x, tile_y, TILE as u32, TILE as u32));
-    canvas.set_draw_color(Color::RGB(TILE_BG.0, TILE_BG.1, TILE_BG.2));
-    let _ = canvas.fill_rect(Rect::new(
-        tile_x + 2,
-        tile_y + 2,
-        (TILE - 4) as u32,
-        (TILE - 4) as u32,
-    ));
-    const PAD: [&str; 7] = [
-        "..............",
-        "##############",
-        "#..#......o.o#",
-        "#.###........#",
-        "#..#.........#",
-        "##############",
-        "..............",
-    ];
-    let s = 3;
-    let px = tile_x + (TILE - 14 * s) / 2;
-    let py = tile_y + (TILE - 7 * s) / 2;
-    canvas.set_draw_color(Color::RGB(GOLD.0, GOLD.1, GOLD.2));
-    for (gy, line) in PAD.iter().enumerate() {
-        for (gx, ch) in line.chars().enumerate() {
-            if ch == '.' {
-                continue;
+    // The mark: the official RA favicon (registered by the app) when it's
+    // there; the pixel gamepad tile is the fallback so the badge never
+    // depends on the image having been registered.
+    if images.contains_key(&RA_LOGO_IMG) {
+        draw_image_absolute(canvas, images, RA_LOGO_IMG, tile_x, tile_y, TILE as u32, TILE as u32);
+    } else {
+        canvas.set_draw_color(Color::RGB(TILE_EDGE.0, TILE_EDGE.1, TILE_EDGE.2));
+        let _ = canvas.fill_rect(Rect::new(tile_x, tile_y, TILE as u32, TILE as u32));
+        canvas.set_draw_color(Color::RGB(TILE_BG.0, TILE_BG.1, TILE_BG.2));
+        let _ = canvas.fill_rect(Rect::new(
+            tile_x + 2,
+            tile_y + 2,
+            (TILE - 4) as u32,
+            (TILE - 4) as u32,
+        ));
+        const PAD: [&str; 7] = [
+            "..............",
+            "##############",
+            "#..#......o.o#",
+            "#.###........#",
+            "#..#.........#",
+            "##############",
+            "..............",
+        ];
+        let s = 3;
+        let px = tile_x + (TILE - 14 * s) / 2;
+        let py = tile_y + (TILE - 7 * s) / 2;
+        canvas.set_draw_color(Color::RGB(GOLD.0, GOLD.1, GOLD.2));
+        for (gy, line) in PAD.iter().enumerate() {
+            for (gx, ch) in line.chars().enumerate() {
+                if ch == '.' {
+                    continue;
+                }
+                let _ = canvas.fill_rect(Rect::new(
+                    px + gx as i32 * s,
+                    py + gy as i32 * s,
+                    s as u32,
+                    s as u32,
+                ));
             }
-            let _ = canvas.fill_rect(Rect::new(
-                px + gx as i32 * s,
-                py + gy as i32 * s,
-                s as u32,
-                s as u32,
-            ));
         }
     }
     for (line, color) in &shown {
@@ -4289,12 +4339,17 @@ fn draw_shelf_panel(
 
     // Everything above the buttons — same cutoff rule `draw_panel` uses
     // for its command rows: a clean stop beats spilling into the buttons.
+    // The cutoff is the TOP OF THE FIRST BUTTON ACTUALLY DRAWN (the stack
+    // grows upward from "Voltar") — an earlier revision stopped one button
+    // short, which was harmless while that slot sat empty and became a real
+    // overflow the moment the RA's "Conquistas" button filled it (the info
+    // text ran straight over the button).
     let limit = if panel_favorite.is_some() {
-        ach_rect.y()
+        fav_rect.y()
     } else if panel_achievements {
-        settings_rect.y()
+        ach_rect.y()
     } else {
-        back_rect.y()
+        settings_rect.y()
     } - 12;
 
     let cy = if let Some(id) = panel.logo_img {
@@ -4330,7 +4385,12 @@ fn draw_shelf_panel(
         blocks.push(PanelBlock::Release(release));
     }
     for (label, value) in &panel.info {
-        blocks.push(PanelBlock::Field(label, value));
+        // A linha de conquistas ganha a medalha de prêmio do RA quando o
+        // servidor concedeu um.
+        match panel.award_img.filter(|_| label == "conquistas") {
+            Some(medal) => blocks.push(PanelBlock::RaField(label, value, medal)),
+            None => blocks.push(PanelBlock::Field(label, value)),
+        }
     }
 
     // Does everything fit without scrolling at all? Most games with little
@@ -4405,6 +4465,9 @@ fn draw_shelf_panel(
 enum PanelBlock<'a> {
     Image(u64, u32),
     Release(&'a str),
+    /// label/valor com a medalha de prêmio à esquerda do valor — a linha
+    /// "conquistas" quando o servidor concedeu um prêmio ao jogo.
+    RaField(&'a str, &'a str, u64),
     Field(&'a str, &'a str),
 }
 
@@ -4415,6 +4478,9 @@ fn panel_block_height(inner_w: u32, block: &PanelBlock) -> i32 {
     match block {
         PanelBlock::Image(_, h) => 8 + *h as i32,
         PanelBlock::Release(_) => 8 + GLYPH_H as i32,
+        PanelBlock::RaField(label, value, _) => 10
+            + wrapped_height(inner_w, 1, label)
+            + wrapped_height(inner_w, 1, value),
         PanelBlock::Field(label, value) => {
             10 + wrapped_height(inner_w, 1, label) + wrapped_height(inner_w, 1, value)
         }
@@ -4456,6 +4522,41 @@ fn draw_panel_block(
                 TextStyle::new(1, PANEL_TEXT),
                 value,
                 usize::MAX,
+            );
+            cy + GLYPH_H as i32
+        }
+        PanelBlock::RaField(label, value, medal) => {
+            let cy = cy + 10;
+            let cy = draw_text_wrapped_absolute(
+                canvas,
+                font,
+                x,
+                cy,
+                inner_w,
+                TextStyle::new(1, PANEL_DIM),
+                label,
+            );
+            // Número primeiro, medalha logo depois — a fonte é monoespaçada
+            // (GLYPH_W por caractere no size 1), então o fim do texto é
+            // conhecido sem medição.
+            draw_text_wrapped_absolute(
+                canvas,
+                font,
+                x,
+                cy,
+                inner_w,
+                TextStyle::new(1, PANEL_TEXT),
+                value,
+            );
+            let text_w = value.chars().count() as i32 * GLYPH_W as i32;
+            draw_image_absolute(
+                canvas,
+                images,
+                *medal,
+                x + text_w + AWARD_MEDAL_GAP,
+                cy + (GLYPH_H as i32 - AWARD_MEDAL_H) / 2,
+                AWARD_MEDAL_W as u32,
+                AWARD_MEDAL_H as u32,
             );
             cy + GLYPH_H as i32
         }
@@ -5513,7 +5614,6 @@ mod tests {
     use sdl3::rect::Rect;
 
     #[test]
-    #[test]
     fn ra_badge_rows_pin_the_ativado_contract() {
         let hardcore = ra_badge_rows(true);
         let softcore = ra_badge_rows(false);
@@ -5526,6 +5626,7 @@ mod tests {
         assert_ne!(hardcore[1].1, softcore[1].1);
     }
 
+    #[test]
     fn panel_slot_base_and_mouth_nest_in_the_block() {
         let block = Rect::new(40, 100, 320, 210);
         let base = panel_slot_base(block);

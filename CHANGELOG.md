@@ -9,6 +9,54 @@ aviso — só o incremento de _minor_ marca um conjunto de mudanças.
 
 ## [Não lançado]
 
+## [1.0.0-beta] - 2026-09-23
+
+Primeira versão beta: o RetroAchievements completo (conta, identificação,
+runtime, notificações, estante e sincronização com o servidor) e o app
+pronto para uso diário.
+
+### Adicionado
+- RetroAchievements:
+  - badge fixo "RA ATIVADO" no queixo da TV (logo oficial do RA), com o
+    modo hardcore/softcore — em todas as telas; a notificação de conquista
+    cede o lugar e o badge volta ao expirar;
+  - sincronização com o servidor pelo completion progress: o painel mostra
+    "X de Y (Z%)" com os counts do perfil, e os ids das conquistas ganhas
+    (`API_GetGameInfoAndUserProgress`) são unidos ao arquivo local — a
+    lista da estante e a modal no jogo marcam o que foi conquistado em
+    qualquer lugar, sem re-submeter nada;
+  - medalha de prêmio ao lado do número de conquistas no painel (pixel
+    art própria): dourada = 100% (cheia no hardcore, vazada no softcore),
+    prateada = zerou o jogo (cheia/vazada pelo modo);
+  - badges de todas as conquistas do set baixados em background e exibidos
+    na lista da estante;
+  - lançamento e editora que o RA tem e o DAT não, preenchendo o painel.
+- Copiar e colar nos inputs (⌘C/⌘V e botão direito do mouse) — pensado
+  para o token do RA.
+- Fixação da versão no `Cargo.toml` do workspace: 1.0.0-beta.
+
+### Corrigido
+- Badge do RA não aparecia com a conta configurada (gating pela sessão do
+  jogo em vez da conta).
+- Identificação de jogo no servidor: resolve em dois passos (dorequest
+  `r=gameid` + `API_GetGameExtended`), com User-Agent do app; hash
+  desconhecido fica em cache como "não é jogo do RA".
+- Pontos das conquistas saíam zerados na lista ("0 de 0") — o campo
+  `Points` do cache vem como número e o parser só aceitava string.
+- Lista de conquistas só marcava as ganhas no servidor na segunda
+  abertura do mesmo jogo (o resultado chegava casando com o jogo errado).
+- Painel da estante: texto das infos vazava sobre os botões quando o
+  botão "Conquistas" preenchia a pilha (corte no primeiro botão real).
+- "jogado" no painel saía e o "zero" de conquistas para quem já tinha
+  ganhas fora do app foi resolvido pelo completion progress.
+- xperience-ra: slot de contexto do `tick` era global — corrida entre
+  testes paralelos; agora é `thread_local`.
+
+### Removido
+- Sincronização via `API_GetUserUnlocks` (endpoint morto no servidor do
+  RA — 404), substituída pelo completion progress e pela busca de earned
+  por jogo.
+
 ## [0.17.0] - 2026-09-22
 
 ### Adicionado
