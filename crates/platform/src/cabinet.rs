@@ -3166,7 +3166,15 @@ fn draw_chin_ra(
     // there; the pixel gamepad tile is the fallback so the badge never
     // depends on the image having been registered.
     if images.contains_key(&RA_LOGO_IMG) {
-        draw_image_absolute(canvas, images, RA_LOGO_IMG, tile_x, tile_y, TILE as u32, TILE as u32);
+        draw_image_absolute(
+            canvas,
+            images,
+            RA_LOGO_IMG,
+            tile_x,
+            tile_y,
+            TILE as u32,
+            TILE as u32,
+        );
     } else {
         canvas.set_draw_color(Color::RGB(TILE_EDGE.0, TILE_EDGE.1, TILE_EDGE.2));
         let _ = canvas.fill_rect(Rect::new(tile_x, tile_y, TILE as u32, TILE as u32));
@@ -4478,9 +4486,9 @@ fn panel_block_height(inner_w: u32, block: &PanelBlock) -> i32 {
     match block {
         PanelBlock::Image(_, h) => 8 + *h as i32,
         PanelBlock::Release(_) => 8 + GLYPH_H as i32,
-        PanelBlock::RaField(label, value, _) => 10
-            + wrapped_height(inner_w, 1, label)
-            + wrapped_height(inner_w, 1, value),
+        PanelBlock::RaField(label, value, _) => {
+            10 + wrapped_height(inner_w, 1, label) + wrapped_height(inner_w, 1, value)
+        }
         PanelBlock::Field(label, value) => {
             10 + wrapped_height(inner_w, 1, label) + wrapped_height(inner_w, 1, value)
         }

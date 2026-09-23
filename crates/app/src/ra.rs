@@ -718,14 +718,12 @@ pub fn medal_image_id(medal: Medal) -> u64 {
         Medal::Silver => "ra-medal-silver",
         Medal::SilverOutline => "ra-medal-silver-outline",
     };
-    name.bytes()
-        .fold(0x9E37_79B9_7F4A_7C15u64, |mut acc, b| {
-            acc ^= b as u64;
-            acc = acc.wrapping_mul(0xFF51_AFD7_ED55_8CCD);
-            acc ^= acc >> 33;
-            acc
-        })
-        | (1 << 62)
+    name.bytes().fold(0x9E37_79B9_7F4A_7C15u64, |mut acc, b| {
+        acc ^= b as u64;
+        acc = acc.wrapping_mul(0xFF51_AFD7_ED55_8CCD);
+        acc ^= acc >> 33;
+        acc
+    }) | (1 << 62)
 }
 
 /// O progresso do usuário em TODOS os jogos — uma chamada paginada. Este é
@@ -762,14 +760,8 @@ pub fn fetch_completion(
             out.insert(
                 id,
                 CompletionEntry {
-                    awarded: g
-                        .get("NumAwarded")
-                        .and_then(|v| v.as_u64())
-                        .unwrap_or(0) as u32,
-                    max: g
-                        .get("MaxPossible")
-                        .and_then(|v| v.as_u64())
-                        .unwrap_or(0) as u32,
+                    awarded: g.get("NumAwarded").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                    max: g.get("MaxPossible").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
                     award: g
                         .get("HighestAwardKind")
                         .and_then(|v| v.as_str())
@@ -854,9 +846,11 @@ fn earned_ids_from_json(body: &serde_json::Value) -> std::collections::HashSet<u
     let mut out = std::collections::HashSet::new();
     if let Some(map) = body.get("Achievements").and_then(|a| a.as_object()) {
         for (_k, a) in map {
-            let earned = ["DateEarned", "DateEarnedHardcore"]
-                .iter()
-                .any(|k| a.get(*k).and_then(|v| v.as_str()).is_some_and(|s| !s.is_empty()));
+            let earned = ["DateEarned", "DateEarnedHardcore"].iter().any(|k| {
+                a.get(*k)
+                    .and_then(|v| v.as_str())
+                    .is_some_and(|s| !s.is_empty())
+            });
             if let (true, Some(id)) = (earned, a.get("ID").and_then(|v| v.as_u64())) {
                 out.insert(id as u32);
             }

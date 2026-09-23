@@ -201,14 +201,12 @@ fn cartridge_id(sha1: &str) -> u64 {
 /// fixed splitmix64-style mix (the name has no sha1 of its own to slice),
 /// ending in a high bit the game-art keys never set.
 fn badge_image_id(name: &str) -> u64 {
-    name.bytes()
-        .fold(0x9E37_79B9_7F4A_7C15u64, |mut acc, b| {
-            acc ^= b as u64;
-            acc = acc.wrapping_mul(0xFF51_AFD7_ED55_8CCD);
-            acc ^= acc >> 33;
-            acc
-        })
-        | (1 << 62)
+    name.bytes().fold(0x9E37_79B9_7F4A_7C15u64, |mut acc, b| {
+        acc ^= b as u64;
+        acc = acc.wrapping_mul(0xFF51_AFD7_ED55_8CCD);
+        acc ^= acc >> 33;
+        acc
+    }) | (1 << 62)
 }
 
 /// Texture key for a game's back-cover art (plan revision: "abaixo da
@@ -756,14 +754,11 @@ pub fn run(
     > = std::collections::HashMap::new();
     // Lançamento/editora que o RA tem e o DAT/TOSEC não, mesmo cache de
     // um-cálculo-por-foco (leitura do JSON da identificação).
-    let mut ra_meta: std::collections::HashMap<
-        String,
-        (Option<String>, Vec<(String, String)>),
-    > = std::collections::HashMap::new();
+    let mut ra_meta: std::collections::HashMap<String, (Option<String>, Vec<(String, String)>)> =
+        std::collections::HashMap::new();
     // sha1 → hash RA, guardado pela própria identificação para o painel não
     // refazer o hash da ROM a cada frame.
-    let mut ra_hashes: std::collections::HashMap<String, String> =
-        std::collections::HashMap::new();
+    let mut ra_hashes: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     // Completion progress (o substituto do GetUserUnlocks, morto na API
     // atual): uma chamada por visita traz os counts de todo o perfil — a
     // fonte das conquistas ganhas fora deste app.
@@ -1169,11 +1164,10 @@ pub fn run(
                                         if let Some(hash) = hash {
                                             ach_hash = Some(hash.clone());
                                             if ra_earned_tried.insert(hash.clone()) {
-                                                ra_earned_worker = Some(
-                                                    crate::ra::fetch_game_earned_worker(
+                                                ra_earned_worker =
+                                                    Some(crate::ra::fetch_game_earned_worker(
                                                         user, token, &hash,
-                                                    ),
-                                                );
+                                                    ));
                                             }
                                         }
                                     }

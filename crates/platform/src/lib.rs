@@ -7,8 +7,8 @@ mod input;
 
 pub use audio::AudioOut;
 pub use cabinet::{
-    Cabinet, FrameRef, PanelButton, PixelFormat, RA_LOGO_IMG, RaStatus, Screen, SettingsButton,
-    SettingsPanelInfo, ShelfButton, ShelfPanelInfo, BRAND, DEMO_BADGE_IMG,
+    Cabinet, FrameRef, PanelButton, PixelFormat, RaStatus, Screen, SettingsButton,
+    SettingsPanelInfo, ShelfButton, ShelfPanelInfo, BRAND, DEMO_BADGE_IMG, RA_LOGO_IMG,
 };
 pub use input::{Input, KeyMap, PadButton, UiEvent, MAX_PORTS};
 
