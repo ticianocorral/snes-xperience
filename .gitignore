@@ -20,6 +20,9 @@
 *.state[0-9]
 shot-*.bmp
 
+# Mocks regeneráveis (cargo run --example ra_osd_mock) — só os .png ficam
+docs/mocks/*.bmp
+
 # Config and secrets (the app's default config lives in ~/.config)
 config.toml
 .env
