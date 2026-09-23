@@ -28,7 +28,7 @@ fn main() -> anyhow::Result<()> {
     let mut cab = plat
         .create_cabinet("SNES Xperience", 1280, 800, false)
         .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-    cab.set_nameplate("SNES Xperience v0.16.0\nsnes9x 1.63");
+    cab.set_nameplate("SNES Xperience v1.0.0-beta\nsnes9x 1.63");
 
     // A logo oficial do RA (o favicon embutido no app) para o badge, e a
     // conta "ativa" — como no app real, o badge acompanha todas as telas.
@@ -126,7 +126,140 @@ fn main() -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!(e.to_string()))?;
     println!("wrote ra.bmp");
 
+    // --- Estante: a grade no tubo (faixa de recentes + capas sintéticas)
+    //     e o painel lateral com as conquistas do RA e a medalha de prêmio
+    //     (a prata vazada do "beaten-softcore", como na conta real). ---
+    {
+        use xperience_app::ra::{medal_image_id, medal_rgba, Medal};
+        let mut cab = plat
+            .create_cabinet("SNES Xperience", 1280, 800, false)
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+        cab.set_nameplate("SNES Xperience v1.0.0-beta\nsnes9x 1.63");
+        if let Ok(icon) = image::load_from_memory(xperience_app::RA_ICON_PNG) {
+            let icon = icon.to_rgba8();
+            cab.set_image(
+                xperience_platform::RA_LOGO_IMG,
+                icon.width(),
+                icon.height(),
+                icon.as_raw(),
+            );
+        }
+        let medal = Medal::SilverOutline;
+        let medal_id = medal_image_id(medal);
+        let (mw, mh, rgba) = medal_rgba(medal);
+        cab.set_image(medal_id, mw, mh, &rgba);
+        let logo_id: u64 = (1 << 62) | 0xA11CE;
+        let cart_id: u64 = (1 << 62) | 0xCA27;
+        cab.set_image(logo_id, LOGO_W, LOGO_H, &logo);
+        cab.set_image(cart_id, LABEL_W, LABEL_H, &label);
+
+        // Capas fake dos "outros jogos" da estante — homebrews inventados,
+        // mesmo padrão do Mundo do Tomate.
+        let covers: Vec<(u64, &str, (u8, u8, u8))> = vec![
+            (0xBEEF1, "MUNDO DO TOMATE", (200, 40, 40)),
+            (0xBEEF2, "CENOURA CRAVE", (230, 140, 30)),
+            (0xBEEF3, "SUPER ALFACE", (60, 160, 70)),
+            (0xBEEF4, "MILHO MALUCO", (235, 200, 50)),
+        ];
+        for (id, titulo, cor) in &covers {
+            let img = cover_image(titulo, *cor);
+            cab.set_image(*id, 260, 195, &img);
+        }
+        let covers_ids: Vec<u64> = covers.iter().map(|(id, _, _)| *id).collect();
+
+        cab.set_shelf_panel(xperience_platform::ShelfPanelInfo {
+            title: GAME_TITLE.to_string(),
+            logo_img: Some(logo_id),
+            cartridge_img: Some(cart_id),
+            backcover_img: None,
+            release: Some("1993".to_string()),
+            info: vec![
+                ("editora".to_string(), "Horta Games".to_string()),
+                ("conquistas".to_string(), "20 de 21 (95%)".to_string()),
+            ],
+            scroll: 0,
+            favorite: Some(true),
+            achievements: true,
+            award_img: Some(medal_id),
+        });
+
+        let m = 28i32; // margem do shelf
+        cab.capture_shelf(
+            (24, 24, 30),
+            |d| {
+                let (w, _h) = d.size();
+                let w = w as i32;
+                let dim = (150, 150, 158);
+                let txt = (230, 230, 235);
+                let sel = (245, 245, 250, 255);
+                d.text(m, m - 12, 2, dim, "12 games");
+                // Busca no canto.
+                let (bx, bw, bh) = (w - m - 300, 300, 34);
+                d.outline(bx, m - 14, bw, bh, 1, (110, 110, 118, 255));
+                d.fill(bx + 1, m - 13, bw - 2, bh - 2, (34, 34, 40, 255));
+                d.text(bx + 10, m - 6, 1, dim, "buscar...");
+                // Faixa de jogados recentemente.
+                d.text(m, 72, 1, dim, "jogados recentemente");
+                for i in 0..3 {
+                    let x = m + i as i32 * (160 + 14);
+                    d.image_fit(covers_ids[i], x, 100, 160, 120);
+                }
+                // Grade principal, primeiro tile selecionado.
+                d.text(m, 262, 1, dim, "todos os jogos");
+                for i in 0..6 {
+                    let col = (i % 3) as i32;
+                    let row = (i / 3) as i32;
+                    let x = m + col * (260 + 18);
+                    let y = 290 + row * (195 + 18);
+                    d.image_fit(covers_ids[i % covers_ids.len()], x, y, 260, 195);
+                    if i == 0 {
+                        d.outline(x - 2, y - 2, 264, 199, 2, sel);
+                    }
+                }
+            },
+            &out.join("estante.bmp"),
+        )
+        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+        println!("wrote estante.bmp");
+    }
+
     Ok(())
+}
+
+/// Capa de tile da estante (260×195): fundo escuro colorido, moldura e o
+/// nome do homebrew fake em duas linhas.
+fn cover_image(titulo: &str, cor: (u8, u8, u8)) -> Vec<u8> {
+    const W: u32 = 260;
+    const H: u32 = 195;
+    let mut px = vec![0u8; (W * H * 4) as usize];
+    let (r, g, b) = cor;
+    let fundo = (r / 5, g / 5, b / 5, 255);
+    for y in 0..H {
+        for x in 0..W {
+            put_rgba(&mut px, W, H, x as i32, y as i32, fundo);
+        }
+    }
+    // Moldura na cor do jogo.
+    let viva = (r, g, b, 255);
+    for t in 0..6 {
+        for x in 0..W as i32 {
+            put_rgba(&mut px, W, H, x, t, viva);
+            put_rgba(&mut px, W, H, x, H as i32 - 1 - t, viva);
+        }
+        for y in 0..H as i32 {
+            put_rgba(&mut px, W, H, t, y, viva);
+            put_rgba(&mut px, W, H, W as i32 - 1 - t, y, viva);
+        }
+    }
+    // O nome, em duas linhas centradas (a primeira palavra maior).
+    let (a, bb) = titulo.split_once(' ').unwrap_or((titulo, ""));
+    let s = 6;
+    let x = (W as i32 - a.len() as i32 * 6 * s) / 2;
+    draw_text_rgba(&mut px, W, H, x, 62, s, a, viva);
+    let s = 4;
+    let x = (W as i32 - bb.len() as i32 * 6 * s) / 2;
+    draw_text_rgba(&mut px, W, H, x, 116, s, bb, (235, 235, 235, 255));
+    px
 }
 
 fn commands() -> Vec<(PanelButton, String)> {
@@ -343,9 +476,13 @@ fn glyph(ch: char) -> Option<[&'static str; 5]> {
     Some(match ch {
         'A' => [".###.", "#...#", "#####", "#...#", "#...#"],
         'B' => ["####.", "#...#", "####.", "#...#", "####."],
+        'C' => [".###.", "#....", "#....", "#....", ".###."],
         'D' => ["####.", "#...#", "#...#", "#...#", "####."],
         'E' => ["#####", "#....", "###..", "#....", "#####"],
+        'F' => ["#####", "#....", "####.", "#....", "#...."],
         'H' => ["#...#", "#...#", "#####", "#...#", "#...#"],
+        'I' => ["#####", "..#..", "..#..", "..#..", "#####"],
+        'L' => ["#....", "#....", "#....", "#....", "#####"],
         'M' => ["#...#", "##.##", "#.#.#", "#...#", "#...#"],
         'N' => ["#...#", "##..#", "#.#.#", "#..##", "#...#"],
         'O' => [".###.", "#...#", "#...#", "#...#", ".###."],
@@ -354,12 +491,14 @@ fn glyph(ch: char) -> Option<[&'static str; 5]> {
         'S' => [".####", "#....", ".###.", "....#", "####."],
         'T' => ["#####", "..#..", "..#..", "..#..", "..#.."],
         'U' => ["#...#", "#...#", "#...#", "#...#", ".###."],
+        'V' => ["#...#", "#...#", "#...#", "#.#.#", ".#.#."],
         'W' => ["#...#", "#...#", "#.#.#", "##.##", "#...#"],
         '0' => [".###.", "#..##", "#.#.#", "##..#", ".###."],
         '1' => ["..#..", ".##..", "..#..", "..#..", "#####"],
         '2' => [".###.", "#...#", "..##.", ".#...", "#####"],
         '3' => ["####.", "....#", ".###.", "....#", "####."],
         '8' => [".###.", "#...#", ".###.", "#...#", ".###."],
+        '-' => [".....", ".....", "#####", ".....", "....."],
         ' ' => [".....", ".....", ".....", ".....", "....."],
         _ => return None,
     })
