@@ -51,6 +51,10 @@ const SCROLLBAR_RESERVE: u32 = 16;
 const LIST_ROW_H: u32 = 22;
 const LIST_GAP: u32 = 6;
 
+/// O que o RA completa por jogo além do DAT: `(lançamento, extras)` —
+/// extras como `("editora", "Konami")`.
+type RaExtras = (Option<String>, Vec<(String, String)>);
+
 /// A "jogados recentemente" strip above the main grid/list (plan revision) —
 /// the last played games, always in a single row. Both strips scroll
 /// horizontally now (see `STRIP_CAP`), so no fixed five-item cap anymore.
@@ -754,8 +758,7 @@ pub fn run(
     > = std::collections::HashMap::new();
     // Lançamento/editora que o RA tem e o DAT/TOSEC não, mesmo cache de
     // um-cálculo-por-foco (leitura do JSON da identificação).
-    let mut ra_meta: std::collections::HashMap<String, (Option<String>, Vec<(String, String)>)> =
-        std::collections::HashMap::new();
+    let mut ra_meta: std::collections::HashMap<String, RaExtras> = std::collections::HashMap::new();
     // sha1 → hash RA, guardado pela própria identificação para o painel não
     // refazer o hash da ROM a cada frame.
     let mut ra_hashes: std::collections::HashMap<String, String> = std::collections::HashMap::new();
@@ -1639,23 +1642,16 @@ pub fn run(
                     // "30 de 58 (52%)" — o tally custa um hash de ROM inteiro,
                     // então fica cacheado por visita (e refresco quando o
                     // completion progress do servidor chega).
-                    let tally = ra_tally
-                        .entry(e.rom.sha1.clone())
-                        .or_insert_with(|| {
-                            ra_hashes.get(&e.rom.sha1).and_then(|h| {
-                                crate::ra::tally_from_cache(h, ra_completion.as_ref())
-                            })
-                        })
-                        .clone();
+                    let tally = *ra_tally.entry(e.rom.sha1.clone()).or_insert_with(|| {
+                        ra_hashes
+                            .get(&e.rom.sha1)
+                            .and_then(|h| crate::ra::tally_from_cache(h, ra_completion.as_ref()))
+                    });
                     // A medalha de prêmio do RA desenhada ao lado do número
                     // da linha de conquistas (pixel-art gerada por
                     // `medal_rgba`, uma textura por variante).
                     if let Some((earned, total, award)) = tally {
-                        let pct = if total > 0 {
-                            (earned * 100 + total / 2) / total
-                        } else {
-                            0
-                        };
+                        let pct = (earned * 100 + total / 2).checked_div(total).unwrap_or(0);
                         info.push((
                             "conquistas".to_string(),
                             format!("{earned} de {total} ({pct}%)"),
